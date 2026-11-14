@@ -31,7 +31,7 @@ export async function sendPhoneAlert(title: string, body: string, opts: { force?
       method: 'POST',
       body: body.slice(0, 500),
       headers: {
-        Title: ascii(title) || 'VibeApp',
+        Title: ascii(title) || 'Starwright',
         Tags: 'robot',
         // Tapping the alert opens VibeApp (works when the phone can reach this computer).
         ...(remote.running && remote.urls[0] ? { Click: remote.urls[0] } : {})

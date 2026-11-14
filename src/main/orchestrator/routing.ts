@@ -52,13 +52,13 @@ const CHEAP_MODELS = /haiku|sonnet/i
 export const CODEX_CHECKS_NOTE =
   "Put how to check the work in the task too (which tests to run, and for anything visible a check in the browser with the Playwright tools if you have them, since Codex gets the same extensions, naming the address and what to try), so Codex tests what it built and reports the results. Judge the result from Codex's report, the files changed, the diff and the automatic checks it comes back with: don't re-read the diff with git or repeat the testing yourself. If something failed or a specific doubt is left, hand the fix or the check back to Codex in another run_codex_subtask rather than doing it yourself. To deploy, use mcp__vibe_tools__run_deploy."
 
-const CODEX_LED_NOTE = `The user has set VibeApp to Codex-led: you plan and review, Codex builds and tests. Work out what's needed, then call run_codex_subtask with a clear spec and acceptance criteria and let Codex write the code; don't write it yourself except small fixes after you've reviewed Codex's result. ${CODEX_CHECKS_NOTE}`
+const CODEX_LED_NOTE = `The user has set Starwright to Codex-led: you plan and review, Codex builds and tests. Work out what's needed, then call run_codex_subtask with a clear spec and acceptance criteria and let Codex write the code; don't write it yourself except small fixes after you've reviewed Codex's result. ${CODEX_CHECKS_NOTE}`
 
 const CLINE_OPTION_NOTE =
   "Cline (run_cline_subtask) is also available, on the user's separate ClinePass plan: hand it the simple, well-specified parts (a clear change in named files, boilerplate, tests for existing code) and keep tricky or wide-reaching work with Codex."
 
 const LOCAL_OPTION_NOTE =
-  "The local model (run_local_subtask) is also available: VibeApp's own agent on the model in LM Studio on the user's computer, free and private but slower and less capable. Hand it simple, well-specified parts (a clear change in named files, a bug with a failing test, boilerplate, tests for existing code), with the tests to run."
+  "The local model (run_local_subtask) is also available: Starwright's own agent on the model in LM Studio on the user's computer, free and private but slower and less capable. Hand it simple, well-specified parts (a clear change in named files, a bug with a failing test, boilerplate, tests for existing code), with the tests to run."
 
 /** Whether Claude may hand work to Cline right now: switched on, installed, and not out of plan. */
 export async function clineReadyForHandoffs(settings: AppSettings): Promise<boolean> {

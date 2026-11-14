@@ -158,7 +158,7 @@ async function certificate(): Promise<{ key: string; cert: string }> {
   const notAfter = new Date()
   notAfter.setFullYear(notAfter.getFullYear() + 2)
   const pems = await (selfsigned as { generate: (a: unknown, o: unknown) => Promise<{ private: string; cert: string }> }).generate(
-    [{ name: 'commonName', value: `VibeApp on ${hostname()}` }],
+    [{ name: 'commonName', value: `Starwright on ${hostname()}` }],
     {
       // Elliptic-curve: as strong as RSA here, and made in a moment instead of most of a minute.
       keyType: 'ec',
@@ -193,9 +193,9 @@ const THEME = '#0f1117'
 
 const MANIFEST = JSON.stringify({
   id: '/',
-  name: 'VibeApp',
-  short_name: 'VibeApp',
-  description: 'Your VibeApp, from this device.',
+  name: 'Starwright',
+  short_name: 'Starwright',
+  description: 'Your Starwright, from this device.',
   start_url: '/',
   scope: '/',
   display: 'standalone',
@@ -209,9 +209,9 @@ const MANIFEST = JSON.stringify({
 })
 
 // Only page loads go through it, and only to show a friendly page when the computer can't be reached.
-const SERVICE_WORKER = `const OFFLINE = ${JSON.stringify(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="${THEME}"><title>VibeApp</title>
+const SERVICE_WORKER = `const OFFLINE = ${JSON.stringify(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="${THEME}"><title>Starwright</title>
 <style>:root{color-scheme:dark}body{margin:0;min-height:100vh;display:grid;place-items:center;background:${THEME};color:#e6e8ee;font:15px/1.5 system-ui,sans-serif;text-align:center}main{padding:24px;max-width:340px}h1{font-size:20px;margin:0 0 8px}p{color:#9aa3b2;margin:0 0 20px}button{padding:11px 22px;border:0;border-radius:8px;background:#4f7cff;color:#fff;font:inherit;font-weight:600}</style>
-</head><body><main><h1>Can't reach VibeApp</h1><p>Check that the computer running VibeApp is on, and that this device is connected to Tailscale (or the same network).</p><button onclick="location.reload()">Try again</button></main></body></html>`)}
+</head><body><main><h1>Can't reach Starwright</h1><p>Check that the computer running Starwright is on, and that this device is connected to Tailscale (or the same network).</p><button onclick="location.reload()">Try again</button></main></body></html>`)}
 self.addEventListener('install', () => self.skipWaiting())
 self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()))
 self.addEventListener('fetch', (event) => {
@@ -264,7 +264,7 @@ function servePwa(path: string, res: ServerResponse): boolean {
 // ---- pages ---------------------------------------------------------------------------
 
 const LOGIN_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>VibeApp: connect</title>
+<title>Starwright: connect</title>
 ${HEAD_TAGS}
 <style>
 :root{color-scheme:dark}body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0f1117;color:#e6e8ee;font:15px/1.5 system-ui,sans-serif}
@@ -275,11 +275,11 @@ input{width:100%;box-sizing:border-box;padding:10px 12px;border-radius:8px;borde
 #err{color:#ff8a8a;min-height:1.5em;margin:10px 0 0;font-size:14px}
 .check{display:flex;gap:10px;align-items:flex-start;margin-top:16px;font-size:14px;color:#e6e8ee}.check input{width:auto;margin-top:3px}.check small{display:block;color:#9aa3b2;font-size:12.5px}
 </style></head><body><main>
-<h1>Connect to VibeApp</h1>
-<p>Enter the pairing code shown in VibeApp on your computer (Settings, Remote access).</p>
+<h1>Connect to Starwright</h1>
+<p>Enter the pairing code shown in Starwright on your computer (Settings, Remote access).</p>
 <form id="f"><label for="code">Pairing code</label><input id="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required autofocus>
 <label for="name">Name this device</label><input id="name" maxlength="60" placeholder="e.g. Laptop browser">
-<label class="check"><input type="checkbox" id="remember" checked><span>Remember this device<small>Stays connected until you disconnect it in VibeApp's Settings. Untick on a computer that isn't yours: it then lasts until this browser closes.</small></span></label>
+<label class="check"><input type="checkbox" id="remember" checked><span>Remember this device<small>Stays connected until you disconnect it in Starwright's Settings. Untick on a computer that isn't yours: it then lasts until this browser closes.</small></span></label>
 <button type="submit">Connect</button><p id="err" role="alert"></p></form></main>
 <script>
 // Opening the installed app, or a link from another app, arrives "from outside", and the browser holds the
@@ -355,7 +355,7 @@ async function handle(req: IncomingMessage, res: ServerResponse, secure: boolean
   const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`)
   const path = url.pathname
 
-  if (!hostOk(req, secure)) return send(res, 421, { error: 'Open VibeApp at localhost.' })
+  if (!hostOk(req, secure)) return send(res, 421, { error: 'Open Starwright at localhost.' })
   if (servePwa(path, res)) return
 
   if (path === '/login') return send(res, 200, LOGIN_PAGE, { 'Content-Security-Policy': "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; frame-ancestors 'none'" })
@@ -375,13 +375,13 @@ async function handle(req: IncomingMessage, res: ServerResponse, secure: boolean
 
   const device = deviceForToken(tokenFrom(req))
   if (!device) {
-    if (path.startsWith('/api/') || path.startsWith('/remote/')) return send(res, 401, { error: 'Not paired. Pair with the code shown in VibeApp.' })
+    if (path.startsWith('/api/') || path.startsWith('/remote/')) return send(res, 401, { error: 'Not paired. Pair with the code shown in Starwright.' })
     res.writeHead(302, { Location: '/login' })
     return void res.end()
   }
 
   if (path === '/api/status') {
-    return send(res, 200, { app: 'VibeApp', version: app.getVersion(), device: device.name, readOnly: device.readOnly || getSettings().remoteReadOnly })
+    return send(res, 200, { app: 'Starwright', version: app.getVersion(), device: device.name, readOnly: device.readOnly || getSettings().remoteReadOnly })
   }
 
   if (path === '/api/invoke' && req.method === 'POST') {
@@ -414,7 +414,7 @@ async function handle(req: IncomingMessage, res: ServerResponse, secure: boolean
   // The app's own screens.
   if (path === '/' || path === '/index.html') {
     const page = appPage(req, secure)
-    if (!page) return send(res, 503, 'VibeApp has to be built (npm run build) before its screens can be served.')
+    if (!page) return send(res, 503, 'Starwright has to be built (npm run build) before its screens can be served.')
     const renew: Record<string, string> = device.remember && usesCookie(req) ? { 'Set-Cookie': sessionCookie(tokenFrom(req)!, true, secure) } : {}
     return send(res, 200, page, { 'Content-Security-Policy': "frame-ancestors 'none'", ...renew })
   }
@@ -583,7 +583,7 @@ export async function stopRemote(): Promise<void> {
   running = undefined
   current?.stopEvents()
   stopTrustedCert()
-  for (const { ws } of sockets) ws.close(1001, 'VibeApp remote access stopped')
+  for (const { ws } of sockets) ws.close(1001, 'Starwright remote access stopped')
   sockets.clear()
   for (const { res } of sseClients) res.end()
   sseClients.clear()
@@ -607,7 +607,7 @@ function installMcpServer(): void {
   try {
     copyFileSync(source, mcpScriptPath())
   } catch (err) {
-    console.warn('Installing the VibeApp MCP server failed:', (err as Error).message)
+    console.warn('Installing the Starwright MCP server failed:', (err as Error).message)
   }
 }
 

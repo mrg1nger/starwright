@@ -32,7 +32,7 @@ function PhoneAlertSettings({ settings, onSettingsChange, onError }: PhoneAlertS
         <span>
           Alerts on my phone (ntfy)
           <small>
-            When no VibeApp window is open on this computer: a plan ready, Claude asking permission or a question, Codex offered
+            When no Starwright window is open on this computer: a plan ready, Claude asking permission or a question, Codex offered
             while Claude is out, a long request finished, a deploy done or failed. Messages only say the project's name and what's
             waiting, never code or chat text. They go through ntfy.sh (or your own ntfy server).
           </small>

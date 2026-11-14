@@ -5,7 +5,7 @@ import { getSettings } from '../settings/store'
 import { memoryDb } from './paths'
 import { listFacts } from './store'
 
-const BEGIN = '<!-- vibeapp:begin (managed by VibeApp; edits inside this block are overwritten) -->'
+const BEGIN = '<!-- vibeapp:begin (managed by Starwright; edits inside this block are overwritten) -->'
 const END = '<!-- vibeapp:end -->'
 const FILE = 'AGENTS.md'
 

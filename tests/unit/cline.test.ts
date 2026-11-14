@@ -52,7 +52,7 @@ test('building: destructive commands are swapped for a message that says why', (
     const d = run(build, 'npm test', command)
     assert.equal(d.allow, false, command)
     const echo = blockedEcho(d)
-    assert.match(echo, /BLOCKED by VibeApp/, command)
+    assert.match(echo, /BLOCKED by Starwright/, command)
     assert.match(echo, /npm test/, `${command}: the safe command in the same call still runs`)
   }
   assert.ok(run(build, 'npm run format').allow, '"format" as a script name is fine')
@@ -123,8 +123,13 @@ test("Cline's events become readable steps (and a refused command says so)", () 
     type: 'agent_event',
     event: { type: 'content_end', contentType: 'tool', toolName: 'run_commands', toolCallId: 't2', output: [{ query: "echo 'BLOCKED by VibeApp: x'", result: 'BLOCKED by VibeApp: x', success: true }] }
   })
-  assert.equal(blocked?.ok, false)
-  assert.match(blocked?.text ?? '', /Blocked by VibeApp/)
+  assert.equal(blocked?.ok, false, 'the old name (a hook from before the rename) still counts')
+  assert.match(blocked?.text ?? '', /Blocked by Starwright/)
+  const blockedNow = describeClineActivity({
+    type: 'agent_event',
+    event: { type: 'content_end', contentType: 'tool', toolName: 'run_commands', toolCallId: 't2b', output: [{ query: "echo 'BLOCKED by Starwright: x'", result: 'BLOCKED by Starwright: x', success: true }] }
+  })
+  assert.equal(blockedNow?.ok, false)
   const edit = describeClineActivity({
     type: 'agent_event',
     event: { type: 'content_start', contentType: 'tool', toolName: 'editor', toolCallId: 't3', input: { path: 'C:\\p\\src\\shop.js', old_text: 'a', new_text: 'b' } }

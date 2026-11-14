@@ -1,6 +1,6 @@
-# VibeApp roadmap
+# Starwright roadmap
 
-Everything recommended so far, in one place. Tick items off as they ship.
+Everything recommended so far, in one place. Tick items off as they ship. (Starwright was called VibeApp up to 0.10.0; older items use that name.)
 
 ## Next up
 
@@ -142,6 +142,12 @@ Everything recommended so far, in one place. Tick items off as they ship.
     - Open questions for that plan: the file's format (Markdown you can read against something that merges cleanly), how global preferences get between computers (not through a project), what happens when both computers changed the same fact.
 
 ## Loose ends to check
+
+- [ ] **After the rename to Starwright (0.11.0).** Only the visible name changed. Kept on purpose, because existing installs and data depend on them: the Windows app ID `com.vibeapp.desktop`, package name `vibeapp` (the data folder `%APPDATA%\vibeapp`, pinned in `src/main/index.ts`), `refs/vibeapp/snapshots` (Undo history in projects), `[VibeApp note: …]` in requests, the AGENTS.md block marker, the `vibeapp` MCP server and its `vibeapp-mcp.cjs`, storage keys, the session cookie, temp-folder prefixes and `VIBEAPP_*` test switches. Code comments still say VibeApp. To check:
+  - Once DevBox and the other computers have updated (they find 0.11.0 in the old repository), archive `mrg1nger/VibeApp` with a pointer to the new one; `npm run release` publishes only to `mrg1nger/starwright` unless given `--also-old-repo`.
+  - A new app icon, if the star-and-circles one should change with the name.
+  - The local project folder is still called VibeApp (renaming it changes Claude Code's memory folder for this project, so it's left alone).
+- [ ] **Codex config clutter.** `~/.codex/config.toml` has well over a hundred "trusted project" entries for the tests' temporary folders (`vibeapp-test-project-…`, `vibeapp-e2e-project-…`). Harmless, but the tests should remove them along with the folders (see the next item).
 
 - [ ] **Tests leave their throwaway folders behind.** On 2026-11-11 the dev PC's disk filled up while packaging 0.8.0: 506 `vibeapp-*` folders in the temp folder, 1.2 GB (mostly `vibeapp-test-project` and `vibeapp-unit`). They were cleared by hand. The unit tests, evals and screen checks should remove what they make.
 - [ ] **Keep measuring.** The usage log exists now; compare a week of real use with the scribe, hand-off resume and (if tried) fresh sessions on, and decide the defaults from the numbers. So far only small tests: on a task with durable facts the scribe cut Claude's steps from 4 to 2-3 and its cached reads by 30-55%, at about 1.8k Haiku tokens.

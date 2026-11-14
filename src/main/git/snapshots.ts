@@ -13,9 +13,9 @@ const EXCLUDE_PATHSPECS = EXCLUDES.flatMap((d) => [`:(exclude)${d}`, `:(exclude)
 
 // Snapshots are commits outside any branch, so they need no configured identity.
 const IDENTITY_ENV = {
-  GIT_AUTHOR_NAME: 'VibeApp',
+  GIT_AUTHOR_NAME: 'Starwright',
   GIT_AUTHOR_EMAIL: 'vibeapp@local',
-  GIT_COMMITTER_NAME: 'VibeApp',
+  GIT_COMMITTER_NAME: 'Starwright',
   GIT_COMMITTER_EMAIL: 'vibeapp@local'
 }
 

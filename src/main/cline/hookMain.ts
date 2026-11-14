@@ -30,7 +30,7 @@ process.stdin.on('end', () => {
       }
     }
   } catch (err) {
-    out = { cancel: true, errorMessage: `VibeApp's safety check failed (${(err as Error).message}), so the ${name || 'tool'} call was stopped.` }
+    out = { cancel: true, errorMessage: `Starwright's safety check failed (${(err as Error).message}), so the ${name || 'tool'} call was stopped.` }
   }
   process.stdout.write(JSON.stringify(out))
 })

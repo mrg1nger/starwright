@@ -98,8 +98,8 @@ function LmStudioSettings({ settings, onSettingsChange }: LmStudioSettingsProps)
         <span>
           Claude can hand coding work to LM Studio
           <small>
-            Straightforward, well-specified work can go to VibeApp's own coding agent on this model, for free, instead
-            of Codex or Cline. The model can only list, read, search, edit and write files and run commands, and VibeApp
+            Straightforward, well-specified work can go to Starwright's own coding agent on this model, for free, instead
+            of Codex or Cline. The model can only list, read, search, edit and write files and run commands, and Starwright
             carries out each one itself, only inside the project: deleting folders, pushing and anything outside it are
             refused. Codex reviews what it changed. It's slower than Codex; give the model 32k or more of context.
           </small>

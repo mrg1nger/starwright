@@ -85,7 +85,7 @@ export function buildReport(input: {
   const { days, usage, requests, projectNames } = input
   const name = (id: string): string => (id ? projectNames.get(id) ?? id : '(no project: Chat tab)')
   const lines: string[] = [
-    `VibeApp usage, last ${days} day${days === 1 ? '' : 's'}${input.only ? ` (${input.only} only)` : ''}`,
+    `Starwright usage, last ${days} day${days === 1 ? '' : 's'}${input.only ? ` (${input.only} only)` : ''}`,
     'Weights are estimates in fresh-Sonnet-input units (cached reads x0.1, output x5, Haiku /3, Opus x5/3).'
   ]
   if (input.plans?.length) lines.push(`Plans now: ${input.plans.join(' · ')}`)

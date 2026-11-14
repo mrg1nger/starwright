@@ -63,7 +63,7 @@ export async function installExtensionForAgent(
     reason: `Claude wants to install a tool called "${name}" for every project. It will run this on your computer: ${[
       command,
       ...req.args
-    ].join(' ')}${source ? ` (its files get copied from ${basename(source)} into VibeApp's data folder)` : ''}${
+    ].join(' ')}${source ? ` (its files get copied from ${basename(source)} into Starwright's data folder)` : ''}${
       keys.length ? `. It needs these keys from you afterwards: ${keys.join(', ')}` : ''
     }.`,
     input: { name, program: command, arguments: req.args, copiedFrom: source ?? null, keysNeeded: keys }
@@ -108,7 +108,7 @@ export async function installExtensionForAgent(
   if (keys.length) {
     return {
       ok: true,
-      message: `Installed "${name}" but it is switched off until the user adds ${keys.join(', ')} in VibeApp's Extensions screen.${
+      message: `Installed "${name}" but it is switched off until the user adds ${keys.join(', ')} in Starwright's Extensions screen.${
         test.ok ? ` Start-up check passed; tools: ${test.tools.join(', ') || '(none)'}.` : ' It could not be fully checked without real keys.'
       } Tell them where to add the keys.`
     }

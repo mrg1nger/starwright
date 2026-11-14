@@ -154,7 +154,7 @@ function ensureVercelIgnore(projectPath: string): void {
   if (!existsSync(ignorePath)) {
     writeFileSync(
       ignorePath,
-      `# Files VibeApp keeps out of Vercel deployments (copied from .gitignore, plus secrets).\n${readFileSync(gitignorePath, 'utf-8').trim()}\n${REQUIRED_VERCEL_IGNORES.join('\n')}\n`,
+      `# Files Starwright keeps out of Vercel deployments (copied from .gitignore, plus secrets).\n${readFileSync(gitignorePath, 'utf-8').trim()}\n${REQUIRED_VERCEL_IGNORES.join('\n')}\n`,
       'utf-8'
     )
     return

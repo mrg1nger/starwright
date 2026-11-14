@@ -140,7 +140,7 @@ function ProjectPickerView({ onOpen, onError, onRemoved }: ProjectPickerViewProp
               <small>Keeps its chat history and memory. They come back if you add the folder again.</small>
             </button>
             <button className="remove-erase" disabled={busy} onClick={() => handleRemove(removing, true)}>
-              Remove and erase VibeApp&apos;s data for it
+              Remove and erase Starwright&apos;s data for it
               <small>
                 Also deletes its chat history, memory, saved secrets and attached images. This can&apos;t be undone.
               </small>

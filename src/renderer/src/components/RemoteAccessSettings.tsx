@@ -35,8 +35,8 @@ function RemoteAccessSettings({ settings, onSettingsChange, onError }: RemoteAcc
   if (window.vibe.host === 'browser') {
     return (
       <p className="settings-hint">
-        You're using VibeApp through Remote access. Its settings (who can connect, and how) can only be changed on the
-        computer running VibeApp.
+        You're using Starwright through Remote access. Its settings (who can connect, and how) can only be changed on the
+        computer running Starwright.
       </p>
     )
   }
@@ -64,7 +64,7 @@ function RemoteAccessSettings({ settings, onSettingsChange, onError }: RemoteAcc
         <span>
           Remote access
           <small>
-            Use VibeApp from a web browser (Chrome, Firefox, Edge) and let other tools, such as Claude Code, work with
+            Use Starwright from a web browser (Chrome, Firefox, Edge) and let other tools, such as Claude Code, work with
             it through its API. Anyone who connects can do what you can here, including running commands on this
             computer, so each browser or tool has to be paired with a code first. Never open it to the internet; to
             reach it from outside your home, use a private network such as Tailscale.
@@ -128,9 +128,9 @@ function RemoteAccessSettings({ settings, onSettingsChange, onError }: RemoteAcc
                   <small className="settings-hint remote-install-hint">
                     <strong>Use the first address</strong> (from Tailscale): browsers trust it with no warning, it keeps
                     working when the network changes, and it works anywhere your devices are on Tailscale. To install
-                    VibeApp as an app on a phone, open it in Chrome, pair, then choose ⋮ → <em>Install app</em> (or{' '}
+                    Starwright as an app on a phone, open it in Chrome, pair, then choose ⋮ → <em>Install app</em> (or{' '}
                     <em>Add to Home screen</em> → <em>Install</em>). On a computer, use the install icon in Chrome or
-                    Edge&apos;s address bar. The other addresses use a certificate VibeApp made itself, so browsers warn
+                    Edge&apos;s address bar. The other addresses use a certificate Starwright made itself, so browsers warn
                     about them the first time.
                   </small>
                 )}
@@ -138,11 +138,11 @@ function RemoteAccessSettings({ settings, onSettingsChange, onError }: RemoteAcc
                   <small className="settings-hint">
                     Bookmark the first address (this computer's name): it keeps working when the network address
                     changes, so remembered devices stay connected.{' '}
-                    The connection is encrypted with a certificate VibeApp made itself, so the browser warns the first
+                    The connection is encrypted with a certificate Starwright made itself, so the browser warns the first
                     time; choose to continue (Advanced, then Proceed).{' '}
                     {status.trustedProblem
-                      ? `To install VibeApp as an app on a phone, it needs a trusted address from Tailscale. ${status.trustedProblem}`
-                      : 'To install VibeApp as an app on a phone, use Tailscale with "HTTPS Certificates" turned on: VibeApp then gets a trusted address by itself.'}
+                      ? `To install Starwright as an app on a phone, it needs a trusted address from Tailscale. ${status.trustedProblem}`
+                      : 'To install Starwright as an app on a phone, use Tailscale with "HTTPS Certificates" turned on: Starwright then gets a trusted address by itself.'}
                   </small>
                 )}
               </div>
@@ -155,7 +155,7 @@ function RemoteAccessSettings({ settings, onSettingsChange, onError }: RemoteAcc
                 <small className="settings-hint">Each code works once: after a device pairs, a new one appears here.</small>
               </div>
               <div>
-                <strong>Claude Code:</strong> run this once to give Claude Code VibeApp&apos;s tools (list projects, send
+                <strong>Claude Code:</strong> run this once to give Claude Code Starwright&apos;s tools (list projects, send
                 messages, read chats and memory):
                 <div className="remote-command">
                   <code>{status.mcpCommand}</code>{' '}

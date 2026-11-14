@@ -1,6 +1,13 @@
 # Changelog
 
-The version goes up with each improvement that ships: the middle number for new features, the last for fixes only. Settings shows the version a computer is running.
+The version goes up with each improvement that ships: the middle number for new features, the last for fixes only. Settings shows the version a computer is running. (Starwright was called VibeApp up to 0.10.0.)
+
+## 0.11.0 (2026-11-14)
+
+**VibeApp is now Starwright**, a better fit for what it has become: a control center where Claude, Codex, Cline and a local model work on your projects together.
+- **The new name everywhere you see it:** the title, the footer, the window and taskbar, the installer and shortcuts, the tray, Windows and phone notifications, Settings, the phone and browser view, and what the agents are told.
+- **Nothing moves.** Updating keeps your projects, memory, chats, settings, secrets, schedules, extensions and paired devices exactly where they were. Undo history in your projects, "Start with Windows", and Claude Code's connection to the app keep working. New backups go to Documents\Starwright Backups, unless your earlier ones are in Documents\VibeApp Backups, which stays in use.
+- **New home:** https://github.com/mrg1nger/starwright. Updates come from there from now on; this version is also published in the old VibeApp repository so existing copies find it.
 
 ## 0.10.0 (2026-11-14)
 

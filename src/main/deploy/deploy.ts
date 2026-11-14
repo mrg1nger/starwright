@@ -138,7 +138,7 @@ function runStep(
     child.stdout?.on('data', add)
     child.stderr?.on('data', add)
     const timer = setTimeout(() => {
-      add(Buffer.from(`\n(VibeApp stopped this step after ${step.timeoutSec ?? 600} seconds)\n`))
+      add(Buffer.from(`\n(Starwright stopped this step after ${step.timeoutSec ?? 600} seconds)\n`))
       killTree(child)
     }, (step.timeoutSec ?? 600) * 1000)
     state.stop = () => {

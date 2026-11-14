@@ -2,7 +2,7 @@ import { useId } from 'react'
 
 export const ORG_NAME = 'RedAstra Labs'
 export const ORG_URL = 'https://redastralabs.com'
-export const REPO_URL = 'https://github.com/mrg1nger/VibeApp'
+export const REPO_URL = 'https://github.com/mrg1nger/starwright'
 export const LICENSE_URL = `${REPO_URL}/blob/master/LICENSE`
 
 /** RedAstra Labs' star-and-orbit mark, as on redastralabs.com. */
@@ -40,7 +40,7 @@ export function BrandTitle() {
         <LogoMark size={13} />
         {ORG_NAME}
       </a>
-      <h1>VibeApp</h1>
+      <h1>Starwright</h1>
     </div>
   )
 }
@@ -70,7 +70,7 @@ export function AppFooter() {
     <footer className="app-footer">
       <span className="app-footer-org">
         <LogoMark size={12} />
-        VibeApp {__APP_VERSION__} by {ORG_NAME}
+        Starwright {__APP_VERSION__} by {ORG_NAME}
       </span>
       <a href={ORG_URL} target="_blank" rel="noreferrer">
         <GlobeIcon />

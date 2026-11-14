@@ -45,7 +45,7 @@ export interface CodexThread {
 const HANDOFF_TIMEOUT_MS = 15 * 60_000
 
 /** Ahead of every Cline hand-off: what VibeApp expects of it. */
-const CLINE_INSTRUCTIONS = `You are working for Claude inside VibeApp, on the user's project in the current folder. Do the task below completely, then check it the way the task says (run the tests it names), and finish with a short report: what you changed, file by file, and how the checks went. Stay inside the project folder. Some things are refused by VibeApp (deleting folders, pushing, anything outside the project): if a command comes back "BLOCKED by VibeApp", don't try another way, just say in your report what was needed. You share a memory with Claude through the vibe_memory tools: recall searches it, where finds which file holds something, handoffs shows earlier hand-offs. Don't save facts unless the task asks you to.`
+const CLINE_INSTRUCTIONS = `You are working for Claude inside Starwright, on the user's project in the current folder. Do the task below completely, then check it the way the task says (run the tests it names), and finish with a short report: what you changed, file by file, and how the checks went. Stay inside the project folder. Some things are refused by Starwright (deleting folders, pushing, anything outside the project): if a command comes back "BLOCKED by Starwright", don't try another way, just say in your report what was needed. You share a memory with Claude through the vibe_memory tools: recall searches it, where finds which file holds something, handoffs shows earlier hand-offs. Don't save facts unless the task asks you to.`
 
 /** Most memory context sent with a local-model hand-off (its room is limited). */
 const LOCAL_CONTEXT_CHARS = 6000
@@ -138,7 +138,7 @@ export function createCodexDelegationServer(
     tools: [
       tool(
         'leave_plan_mode',
-        "Plan mode only: ask the user to let you stop planning and do something now (VibeApp turned away a tool call because Plan mode is on). Use it only when the user's message needs it done now, not to look around or to run checks you could put in the plan. VibeApp shows the user one prompt with what and why; if they allow it, the rest of this request is a normal Build. Ask at most once per request.",
+        "Plan mode only: ask the user to let you stop planning and do something now (Starwright turned away a tool call because Plan mode is on). Use it only when the user's message needs it done now, not to look around or to run checks you could put in the plan. Starwright shows the user one prompt with what and why; if they allow it, the rest of this request is a normal Build. Ask at most once per request.",
         {
           what: z.string().min(3).describe('What you want to do now, in plain words, e.g. "deploy the server, then check the live admin page".'),
           why: z.string().min(3).describe('Why it needs doing now rather than in a plan, in plain words.')
@@ -171,7 +171,7 @@ export function createCodexDelegationServer(
       ),
       tool(
         'run_deploy',
-        "Run this project's saved Deploy: VibeApp runs the steps the user checked, with no AI, then the site check (and the rollback steps if something fails), and returns the result. Use it whenever the user asks to deploy or put it live, and for a deploy step in an approved plan, instead of deploying by hand. If the project has no saved Deploy yet, or it hasn't been checked, this says so: then offer to write one with save_deploy_recipe, and deploy by hand only if the user wants it live right now.",
+        "Run this project's saved Deploy: Starwright runs the steps the user checked, with no AI, then the site check (and the rollback steps if something fails), and returns the result. Use it whenever the user asks to deploy or put it live, and for a deploy step in an approved plan, instead of deploying by hand. If the project has no saved Deploy yet, or it hasn't been checked, this says so: then offer to write one with save_deploy_recipe, and deploy by hand only if the user wants it live right now.",
         {},
         async () => {
           if (!runDeploy) return { content: [{ type: 'text' as const, text: 'Deploy is not available here.' }], isError: true }
@@ -181,7 +181,7 @@ export function createCodexDelegationServer(
       ),
       tool(
         'save_deploy_recipe',
-        "Save this project's one-click Deploy recipe, which VibeApp runs by itself (no AI) when the user presses Deploy. Only when the user asks to set up or change Deploy. Use the steps that have actually worked before (the \"Procedure -\" facts from recall, the conversation history, the project's scripts): exact commands in order, each run from the project folder in Git Bash (or PowerShell if you set shell), non-interactive, and stopping with an error if something fails (a non-zero exit stops the deploy). Back up live data first if earlier deploys did. Add a check URL that should answer once it's live, and rollback steps that put the previous version back if a step or the check fails, if that's possible. Refer to passwords and keys only as $NAME environment variables from the project's Secrets; never put a value in a step. Don't run the deploy yourself: the user checks the recipe and presses Deploy.",
+        "Save this project's one-click Deploy recipe, which Starwright runs by itself (no AI) when the user presses Deploy. Only when the user asks to set up or change Deploy. Use the steps that have actually worked before (the \"Procedure -\" facts from recall, the conversation history, the project's scripts): exact commands in order, each run from the project folder in Git Bash (or PowerShell if you set shell), non-interactive, and stopping with an error if something fails (a non-zero exit stops the deploy). Back up live data first if earlier deploys did. Add a check URL that should answer once it's live, and rollback steps that put the previous version back if a step or the check fails, if that's possible. Refer to passwords and keys only as $NAME environment variables from the project's Secrets; never put a value in a step. Don't run the deploy yourself: the user checks the recipe and presses Deploy.",
         {
           name: z.string().describe('Short name, e.g. "Deploy Glyphlands to the VPS".'),
           shell: z.enum(['bash', 'powershell']).optional().describe('bash (Git Bash, the default) or powershell.'),
@@ -212,7 +212,7 @@ export function createCodexDelegationServer(
               content: [
                 {
                   type: 'text' as const,
-                  text: `Saved "${saved.name}" (${saved.steps.length} steps${saved.check ? ', with a site check' : ''}${saved.rollback ? ', with rollback' : ''}). The user now checks it in VibeApp's Deploy window before it can run; tell them that, briefly, and don't deploy yourself.`
+                  text: `Saved "${saved.name}" (${saved.steps.length} steps${saved.check ? ', with a site check' : ''}${saved.rollback ? ', with rollback' : ''}). The user now checks it in Starwright's Deploy window before it can run; tell them that, briefly, and don't deploy yourself.`
                 }
               ]
             }
@@ -223,7 +223,7 @@ export function createCodexDelegationServer(
       ),
       tool(
         'save_schedule',
-        "Save a schedule for this project, which VibeApp runs by itself while it's running (in the tray is enough). Only when the user asks for something to happen on a schedule or after each Deploy (\"every weekday at 7am run the tests\", \"check the site every 15 minutes\"). It's saved as a draft: the user checks it and turns it on in VibeApp's Schedules window, so tell them that, briefly. Don't run the work now as well. A request runs as a normal chat message with nobody watching, so write it as a complete instruction (what to do, and what to report). Pass id to change an existing schedule (from list_schedules).",
+        "Save a schedule for this project, which Starwright runs by itself while it's running (in the tray is enough). Only when the user asks for something to happen on a schedule or after each Deploy (\"every weekday at 7am run the tests\", \"check the site every 15 minutes\"). It's saved as a draft: the user checks it and turns it on in Starwright's Schedules window, so tell them that, briefly. Don't run the work now as well. A request runs as a normal chat message with nobody watching, so write it as a complete instruction (what to do, and what to report). Pass id to change an existing schedule (from list_schedules).",
         {
           id: z.string().optional().describe('An existing schedule to change (from list_schedules).'),
           name: z.string().describe('Short name, e.g. "Morning test run".'),
@@ -281,7 +281,7 @@ export function createCodexDelegationServer(
       ),
       tool(
         'install_extension',
-        "Install an MCP server (a set of tools) for the user, available to you and to Codex in every project, switchable in VibeApp's Extensions screen. Use it after you have built an MCP server in the project, or when the user asks to add one. The user is asked to confirm and the server is started once to check it works. Put the server's code in a project folder and pass it as sourceDir: the folder is copied into VibeApp's data so it outlives the project, and \"{{dir}}\" in args becomes that copy's path (for example command \"node\", args [\"{{dir}}/index.js\"]). If it needs API keys, list their names in keys and read them from environment variables; never ask the user to paste a key into the chat.",
+        "Install an MCP server (a set of tools) for the user, available to you and to Codex in every project, switchable in Starwright's Extensions screen. Use it after you have built an MCP server in the project, or when the user asks to add one. The user is asked to confirm and the server is started once to check it works. Put the server's code in a project folder and pass it as sourceDir: the folder is copied into Starwright's data so it outlives the project, and \"{{dir}}\" in args becomes that copy's path (for example command \"node\", args [\"{{dir}}/index.js\"]). If it needs API keys, list their names in keys and read them from environment variables; never ask the user to paste a key into the chat.",
         {
           name: z.string().describe('Short human name, e.g. "Weather lookup".'),
           description: z.string().optional().describe('One sentence on what the tools do.'),
@@ -374,7 +374,7 @@ export function createCodexDelegationServer(
       ),
       tool(
         'run_cline_subtask',
-        "Delegate a scoped coding subtask to Cline (a third AI coding agent, running open-weight models on the user's separate ClinePass plan, so it spends neither Claude's nor Codex's plan) and return its result. Best for straightforward, well-specified work: a clear change in named files, boilerplate, tests for existing code, simple fixes. Prefer Codex for tricky or wide-reaching work. Like a Codex hand-off, it gets the user's request, the key facts and relevant memories, so say what to do, which files, what \"done\" looks like and how to check it. Cline works only inside the project: VibeApp refuses commands that delete, push or reach outside it, and Cline reports anything it couldn't do. The result is its report, the files changed (with a small diff) and the automatic checks. Hand-offs run one at a time.",
+        "Delegate a scoped coding subtask to Cline (a third AI coding agent, running open-weight models on the user's separate ClinePass plan, so it spends neither Claude's nor Codex's plan) and return its result. Best for straightforward, well-specified work: a clear change in named files, boilerplate, tests for existing code, simple fixes. Prefer Codex for tricky or wide-reaching work. Like a Codex hand-off, it gets the user's request, the key facts and relevant memories, so say what to do, which files, what \"done\" looks like and how to check it. Cline works only inside the project: Starwright refuses commands that delete, push or reach outside it, and Cline reports anything it couldn't do. The result is its report, the files changed (with a small diff) and the automatic checks. Hand-offs run one at a time.",
         {
           prompt: z.string().describe('The subtask instructions for Cline to carry out.'),
           timeoutMs: z.number().optional().describe('Optional timeout in milliseconds. Defaults to 15 minutes.')
@@ -386,7 +386,7 @@ export function createCodexDelegationServer(
             return handOff('Cline', args.prompt, async () => {
               const settings = getSettings()
               if (!settings.clineHandoffs) {
-                return { report: 'Hand-offs to Cline are switched off in VibeApp\'s Settings. Do the work yourself or hand it to Codex.', ok: false }
+                return { report: 'Hand-offs to Cline are switched off in Starwright\'s Settings. Do the work yourself or hand it to Codex.', ok: false }
               }
               const context = memory ? await attemptLater(() => handoffContext(memory.projectId, args.prompt, request)) : undefined
               const prompt = [
@@ -420,7 +420,7 @@ export function createCodexDelegationServer(
               recordUsage(memory?.projectId, 'handoff', 'cline', result.usage)
               if (signal?.aborted) throw new Error('Cline run was cancelled')
               const blocked = result.blocked.length
-                ? `\n[VibeApp refused ${result.blocked.length === 1 ? 'one thing' : `${result.blocked.length} things`} Cline tried: ${[...new Set(result.blocked)].join('; ')}. If it's needed, ask the user or do it yourself.]`
+                ? `\n[Starwright refused ${result.blocked.length === 1 ? 'one thing' : `${result.blocked.length} things`} Cline tried: ${[...new Set(result.blocked)].join('; ')}. If it's needed, ask the user or do it yourself.]`
                 : ''
               return {
                 report: `${result.text || result.error || '(Cline finished with no final message.)'}${result.ok || !result.text || !result.error ? '' : `\n[${result.error}]`}${blocked}`,
@@ -431,7 +431,7 @@ export function createCodexDelegationServer(
       ),
       tool(
         'run_local_subtask',
-        "Delegate a scoped coding subtask to the local model: VibeApp's own coding agent on the open-weight model the user runs in LM Studio on this computer. It's free (no plan is used) and nothing leaves the computer, but it's slower than Codex and less capable on hard work. Best for straightforward, well-specified work: a clear change in named files, a bug with a failing test, boilerplate, tests for existing code. Keep tricky or wide-reaching work with Codex or yourself. Say what to do, which files, what \"done\" looks like and how to check it (the tests to run). It can list, read, search, edit and write files and run commands, only inside the project (VibeApp refuses deleting folders, pushing and anything outside). The result is its report, the files changed (with a small diff) and the automatic checks. Hand-offs run one at a time.",
+        "Delegate a scoped coding subtask to the local model: Starwright's own coding agent on the open-weight model the user runs in LM Studio on this computer. It's free (no plan is used) and nothing leaves the computer, but it's slower than Codex and less capable on hard work. Best for straightforward, well-specified work: a clear change in named files, a bug with a failing test, boilerplate, tests for existing code. Keep tricky or wide-reaching work with Codex or yourself. Say what to do, which files, what \"done\" looks like and how to check it (the tests to run). It can list, read, search, edit and write files and run commands, only inside the project (Starwright refuses deleting folders, pushing and anything outside). The result is its report, the files changed (with a small diff) and the automatic checks. Hand-offs run one at a time.",
         {
           prompt: z.string().describe('The subtask instructions for the local model to carry out.'),
           timeoutMs: z.number().optional().describe('Optional timeout in milliseconds. Defaults to 15 minutes.')
@@ -442,7 +442,7 @@ export function createCodexDelegationServer(
             const request = getRequestContext?.()
             return handOff('Local model', args.prompt, async () => {
               if (!getSettings().localHandoffs) {
-                return { report: "Hand-offs to the local model are switched off in VibeApp's Settings. Do the work yourself or hand it to Codex.", ok: false }
+                return { report: "Hand-offs to the local model are switched off in Starwright's Settings. Do the work yourself or hand it to Codex.", ok: false }
               }
               const context = memory ? await attemptLater(() => handoffContext(memory.projectId, args.prompt, request)) : undefined
               // Kept short: the local model's room is limited, and the task matters most.
@@ -454,7 +454,7 @@ export function createCodexDelegationServer(
                 .filter(Boolean)
                 .join('\n\n')
                 .slice(0, LOCAL_CONTEXT_CHARS)
-              const task = [background ? `Background on the project (from VibeApp's memory):\n${background}` : undefined, `Task from Claude:\n${args.prompt}`]
+              const task = [background ? `Background on the project (from Starwright's memory):\n${background}` : undefined, `Task from Claude:\n${args.prompt}`]
                 .filter(Boolean)
                 .join('\n\n')
               const result = await runLocalAgent({
@@ -472,7 +472,7 @@ export function createCodexDelegationServer(
               recordUsage(memory?.projectId, 'handoff', 'lmstudio', result.usage)
               if (signal?.aborted) throw new Error('The local model run was cancelled')
               const blocked = result.blocked.length
-                ? `\n[VibeApp refused ${result.blocked.length === 1 ? 'one thing' : `${result.blocked.length} things`} the local model tried: ${[...new Set(result.blocked)].join('; ')}. If it's needed, ask the user or do it yourself.]`
+                ? `\n[Starwright refused ${result.blocked.length === 1 ? 'one thing' : `${result.blocked.length} things`} the local model tried: ${[...new Set(result.blocked)].join('; ')}. If it's needed, ask the user or do it yourself.]`
                 : ''
               const failed = result.ok || !result.text || !result.error ? '' : `\n[${result.error}]`
               return {

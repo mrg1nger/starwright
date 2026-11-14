@@ -201,7 +201,7 @@ async function fetchCodexUsage(): Promise<UsageSnapshot> {
         send({
           id: 1,
           method: 'initialize',
-          params: { clientInfo: { name: 'vibeapp', title: 'VibeApp', version: '0.1.0' }, capabilities: null }
+          params: { clientInfo: { name: 'vibeapp', title: 'Starwright', version: '0.1.0' }, capabilities: null }
         })
       }),
       'Codex usage check'

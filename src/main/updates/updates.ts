@@ -11,7 +11,7 @@ import { getSettings, updateSettings } from '../settings/store'
 // quietly over this copy before starting VibeApp again. Nothing is downloaded
 // until the user presses Update.
 
-export const RELEASES_URL = 'https://github.com/mrg1nger/VibeApp/releases'
+export const RELEASES_URL = 'https://github.com/mrg1nger/starwright/releases'
 const FIRST_CHECK_MS = 15_000
 const CHECK_EVERY_MS = 6 * 60 * 60_000
 
@@ -106,7 +106,7 @@ export async function checkForUpdate(): Promise<UpdateState> {
  */
 export async function installUpdate(busy: string[], anyway = false): Promise<UpdateState> {
   if (!anyway && busy.length) {
-    throw new Error(`${busy.join(', ')} ${busy.length === 1 ? 'is' : 'are'} still working. Updating restarts VibeApp and stops that.`)
+    throw new Error(`${busy.join(', ')} ${busy.length === 1 ? 'is' : 'are'} still working. Updating restarts Starwright and stops that.`)
   }
   if (testVersion()) {
     // The test app can't really install: it shows the steps, then says it's done and doesn't restart.

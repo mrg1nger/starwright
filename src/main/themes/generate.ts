@@ -30,7 +30,7 @@ const THEME_SCHEMA = {
 
 function buildPrompt(description: string): string {
   const examples = BUILT_IN_THEMES.map((t) => JSON.stringify({ name: t.name, thinkingLabel: t.thinkingLabel, vars: t.vars }, null, 1)).join('\n\n')
-  return `Design a color theme for VibeApp, a desktop app for chatting with AI coding agents.
+  return `Design a color theme for Starwright, a desktop app for chatting with AI coding agents.
 
 The user wants: ${description}
 

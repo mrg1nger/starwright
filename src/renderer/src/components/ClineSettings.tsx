@@ -153,7 +153,7 @@ function ClineSettings({ settings, onSettingsChange }: ClineSettingsProps) {
           Claude can hand work to Cline
           <small>
             Straightforward, well-specified work can go to Cline instead of Codex, and Cline takes a request when Claude
-            and Codex are both out. VibeApp only lets Cline work inside the project: commands that delete folders, push,
+            and Codex are both out. Starwright only lets Cline work inside the project: commands that delete folders, push,
             or reach outside it are refused, and so are its account connectors (Gmail, Drive and the like). Codex
             reviews what Cline changed.
           </small>
@@ -181,7 +181,7 @@ function ClineSettings({ settings, onSettingsChange }: ClineSettingsProps) {
             onChange={(v) => save('clineHelperModel', v)}
           />
           <p className="settings-hint">
-            The scores are from VibeApp's own tests ({CLINE_TESTED_ON}): "coding" is three small tasks checked by the
+            The scores are from Starwright's own tests ({CLINE_TESTED_ON}): "coding" is three small tasks checked by the
             project's tests, "memory" five memory-saving cases.
           </p>
         </>

@@ -50,7 +50,7 @@ const DESTRUCTIVE: { pattern: RegExp; what: string }[] = [
   { pattern: /\bdrop\s+(table|database)\b/i, what: 'deleting a database table' },
   { pattern: /\bgit(?:\.exe)?\s+(reset\s+--hard|clean\s+-\w*f|checkout\s+--\s+\.|restore\s+(--staged\s+)?\.)/i, what: 'throwing away changes with git' },
   { pattern: /\bgit(?:\.exe)?\s+push\b[^\n]*(\s-f\b|--force)/i, what: 'force-pushing with git' },
-  { pattern: /\bgit(?:\.exe)?\s+push\b/i, what: 'pushing to GitHub (VibeApp does that through its own buttons)' },
+  { pattern: /\bgit(?:\.exe)?\s+push\b/i, what: 'pushing to GitHub (Starwright does that through its own buttons)' },
   { pattern: /\bformat(-volume)?\b.*\b[a-z]:|\b(diskpart|mkfs(\.\w+)?)\b/i, what: 'formatting a disk' },
   { pattern: /\b(shutdown|Restart-Computer|Stop-Computer)\b/i, what: 'shutting the computer down' },
   { pattern: /\b(curl|wget|Invoke-WebRequest|iwr|Invoke-RestMethod|irm)\b[^\n]*\|\s*(sh|bash|iex|Invoke-Expression|powershell|pwsh)\b/i, what: 'running a script straight from the internet' },
@@ -78,7 +78,7 @@ function commandText(command: unknown): string {
 
 function blockedEcho(what: string): string {
   // Single quotes: the same in PowerShell and bash, and the message has none.
-  return `echo 'BLOCKED by VibeApp: ${what.replace(/'/g, '')} is not allowed in this run. Do not try another way round it; say in your report that it needs the user.'`
+  return `echo 'BLOCKED by Starwright: ${what.replace(/'/g, '')} is not allowed in this run. Do not try another way round it; say in your report that it needs the user.'`
 }
 
 export function decideToolCall(policy: ClinePolicy, call: ToolCall): HookDecision {
@@ -91,7 +91,7 @@ export function decideToolCall(policy: ClinePolicy, call: ToolCall): HookDecisio
   if (memory) {
     if (MEMORY_READS.has(memory[1]) && policy.mode !== 'helper') return { allow: true }
     if (MEMORY_WRITES.has(memory[1]) && policy.mode === 'build') return { allow: true }
-    return refuse(`VibeApp doesn't allow the memory tool ${memory[1]} here.`)
+    return refuse(`Starwright doesn't allow the memory tool ${memory[1]} here.`)
   }
 
   switch (name) {
@@ -131,7 +131,7 @@ export function decideToolCall(policy: ClinePolicy, call: ToolCall): HookDecisio
     }
     default:
       // Connectors (Gmail, Drive…), web fetches, helper agents, questions to a user who isn't there.
-      return refuse(`VibeApp doesn't allow the ${name || 'unnamed'} tool in Cline runs.`)
+      return refuse(`Starwright doesn't allow the ${name || 'unnamed'} tool in Cline runs.`)
   }
 }
 

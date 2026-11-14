@@ -194,7 +194,7 @@ WHEN old.summary IS NOT new.summary OR old.path IS NOT new.path BEGIN
 END;
 
 -- Which files a fact is about, and how much each has changed since (lines added plus removed by
--- VibeApp's requests). A fact whose file changed a lot, or is gone, may be out of date.
+-- Starwright's requests). A fact whose file changed a lot, or is gone, may be out of date.
 CREATE TABLE IF NOT EXISTS fact_files (
   fact_id TEXT NOT NULL,
   path TEXT NOT NULL,

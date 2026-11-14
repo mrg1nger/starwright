@@ -33,7 +33,7 @@ function UpdateBanner({ settings, onSettingsChange }: UpdateBannerProps) {
     return (
       <div className="github-banner update-banner" role="status">
         <div>
-          <strong>VibeApp was updated to {update.current}</strong> (from {update.updatedFrom}).{' '}
+          <strong>Starwright was updated to {update.current}</strong> (from {update.updatedFrom}).{' '}
           <a href={`${update.releasesUrl}/tag/v${update.current}`} target="_blank" rel="noreferrer">
             What&apos;s new
           </a>
@@ -72,8 +72,8 @@ function UpdateBanner({ settings, onSettingsChange }: UpdateBannerProps) {
         <div>
           <strong>
             {update.status === 'ready'
-              ? `Installing VibeApp ${version}. It will open again in a moment…`
-              : `Downloading VibeApp ${version}… ${update.percent ?? 0}%`}
+              ? `Installing Starwright ${version}. It will open again in a moment…`
+              : `Downloading Starwright ${version}… ${update.percent ?? 0}%`}
           </strong>
         </div>
       </div>
@@ -89,9 +89,9 @@ function UpdateBanner({ settings, onSettingsChange }: UpdateBannerProps) {
           </>
         ) : (
           <>
-            <strong>VibeApp {version} is available</strong> (you have {update.current}). {whatsNew}
+            <strong>Starwright {version} is available</strong> (you have {update.current}). {whatsNew}
             {failure && <> · Couldn&apos;t update: {failure}</>}
-            {remote && <> · Install it on the computer running VibeApp.</>}
+            {remote && <> · Install it on the computer running Starwright.</>}
           </>
         )}
       </div>
@@ -116,7 +116,7 @@ function UpdateBanner({ settings, onSettingsChange }: UpdateBannerProps) {
             >
               Skip this version
             </button>
-            <button aria-label="Not now" title="Hide until VibeApp next starts" onClick={() => setDismissed(version)}>
+            <button aria-label="Not now" title="Hide until Starwright next starts" onClick={() => setDismissed(version)}>
               Not now
             </button>
           </>

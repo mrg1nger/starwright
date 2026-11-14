@@ -27,7 +27,7 @@ const APP_DEBUG = PORT + 700
 const BROWSER_DEBUG = PORT + 701
 
 const packaged = process.argv.includes('--packaged')
-const exe = join(root, 'release', 'win-unpacked', 'VibeApp.exe')
+const exe = join(root, 'release', 'win-unpacked', 'Starwright.exe')
 if (!packaged && !process.argv.includes('--no-build')) {
   console.log('Building the app...')
   const built = spawnSync('npx', ['electron-vite', 'build'], { cwd: root, stdio: 'inherit', shell: true })
@@ -491,7 +491,7 @@ try {
       await desktop.evaluate(`window.vibe.settings.update({ remoteAccess: 'local' })`)
       await sleep(1000)
       await page.send('Page.reload')
-      await waitFor(page, `document.body?.innerText.includes("Can't reach VibeApp")`, 'the offline page', 20_000)
+      await waitFor(page, `document.body?.innerText.includes("Can't reach Starwright")`, 'the offline page', 20_000)
       const off = await page.send('Page.captureScreenshot', { format: 'png' })
       if (off.result?.data) writeFileSync(join(shots, 'trusted-address-offline.png'), Buffer.from(off.result.data, 'base64'))
       await desktop.evaluate(`window.vibe.settings.update({ remoteAccess: 'lan' })`)

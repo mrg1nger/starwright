@@ -1,10 +1,12 @@
 <a href="https://www.buymeacoffee.com/mrginger" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-violet.png" alt="Buy Me a Coffee" width="217" height="60"></a>
 
-# VibeApp
+# Starwright
 
-A friendly Windows desktop app for building software by chatting with AI coding agents. **Claude Code** leads, **Codex** builds and double-checks, and optionally **Cline** takes the routine work. They share one memory of your project, and every change can be undone.
+*Formerly VibeApp (renamed in 0.11.0). An installed VibeApp updates to Starwright by itself and keeps all its data.*
 
-VibeApp is for "vibe coding": you describe what you want, watch it appear in a live preview, and keep going. There's no editor to learn and no terminal to manage. It runs on your own subscriptions (Claude, ChatGPT, and optionally ClinePass), so there's nothing extra to pay for and no API keys to paste.
+A friendly Windows desktop app for building software by chatting with AI coding agents. **Claude Code** leads, **Codex** builds and double-checks, optionally **Cline** takes the routine work, and a **local model** in LM Studio can take simple jobs for free. They share one memory of your project, and every change can be undone.
+
+Starwright is for "vibe coding": you describe what you want, watch it appear in a live preview, and keep going. There's no editor to learn and no terminal to manage. It runs on your own subscriptions (Claude, ChatGPT, and optionally ClinePass), so there's nothing extra to pay for and no API keys to paste.
 
 > **Status:** a personal project, shared as is. It's used daily on Windows 11. macOS and Linux build targets are configured but have never been tried.
 
@@ -37,7 +39,7 @@ VibeApp is for "vibe coding": you describe what you want, watch it appear in a l
 - **Live preview** of your app beside the chat. Use **Point** to click on the part you mean, and **Something broke** to fix an error in one click.
 - **Undo and redo for every message**, plus named checkpoints and a full history to restore from. Git runs underneath; you never have to touch it.
 - **Notes and to-dos** for each project. Press **▶ Build this** on a to-do to send it to the chat. The agents can add their own leftovers to the list.
-- **One-click Deploy.** Claude writes the deploy recipe once from how you've deployed before, and you check it. After that, VibeApp runs it without AI, with a site check and optional rollback.
+- **One-click Deploy.** Claude writes the deploy recipe once from how you've deployed before, and you check it. After that, Starwright runs it without AI, with a site check and optional rollback.
 - **Schedules.** A request, a deploy or a site check can run on a timetable: at a time of day, every few hours, or after each deploy. Each one has a daily cap and a usage guard.
 - **Publish to Vercel and back up to GitHub.** It can back up automatically after each request, and pick up newer work made on another computer.
 
@@ -56,12 +58,12 @@ VibeApp is for "vibe coding": you describe what you want, watch it appear in a l
 
 **Extras**
 - **Extensions:** MCP tool servers (Context7 docs, Playwright browser testing, or your own), installed once for all projects and both agents.
-- **Secrets:** keys stored encrypted with your Windows account. Your app gets them as environment variables, and VibeApp warns if one turns up in the chat, a file or a publish.
-- **Remote access:** use VibeApp from a browser or phone on your network, and drive it from Claude Code through its MCP server.
+- **Secrets:** keys stored encrypted with your Windows account. Your app gets them as environment variables, and Starwright warns if one turns up in the chat, a file or a publish.
+- **Remote access:** use Starwright from a browser or phone on your network, and drive it from Claude Code through its MCP server.
 - **System tray mode,** Windows notifications and phone alerts (through the free ntfy app).
 - **Updates itself** from GitHub Releases, with a banner to update, skip that version, or not now.
 - **Themes**, including RedAstra (RedAstra Labs' own colours) and a theme generator.
-- **Backups** of VibeApp's own data, with restore and export to move to another PC.
+- **Backups** of Starwright's own data, with restore and export to move to another PC.
 
 ---
 
@@ -73,28 +75,28 @@ VibeApp is for "vibe coding": you describe what you want, watch it appear in a l
 | **Codex** | Builds work Claude hands it, reviews Claude's changes, takes over when Claude is out | A ChatGPT plan with Codex |
 | **Cline** *(optional)* | Runs the background memory jobs, takes straightforward hand-offs, and is the last fallback when both are out | A ClinePass plan |
 
-- **Hand-offs carry the full context.** When Claude hands a task to Codex or Cline, the request goes with your own words, pasted images, the project brief and the key facts. The result comes back with the files changed and a short diff, and VibeApp runs automatic checks (script syntax, JSON, the project's `npm test`).
+- **Hand-offs carry the full context.** When Claude hands a task to Codex or Cline, the request goes with your own words, pasted images, the project brief and the key facts. The result comes back with the files changed and a short diff, and Starwright runs automatic checks (script syntax, JSON, the project's `npm test`).
 - **Every change gets a second look.** Codex reviews Claude's changes, and Claude judges Codex's.
-- **Codex can be left out.** VibeApp works with Claude Code alone, and Codex and Cline add capacity. If Cline isn't installed, everything it would do falls back to Claude.
+- **Codex can be left out.** Starwright works with Claude Code alone, and Codex and Cline add capacity. If Cline isn't installed, everything it would do falls back to Claude.
 - **Cline stays running for hand-offs**, the way an editor hosts it (`cline --acp`): no start-up wait, and a second hand-off in the same request carries on where the first left off. It always runs on ClinePass, never Cline's pay-as-you-go billing.
 
 ---
 
 ## Install
 
-1. Download `VibeApp-<version>-setup.exe` from the [Releases](../../releases) page.
+1. Download `Starwright-<version>-setup.exe` from the [Releases](../../releases) page.
 2. Run it. **The installer isn't code-signed**, so Windows SmartScreen will say it "protected your PC". Choose **More info → Run anyway**. If you'd rather not, [build it yourself](#building-from-source).
-3. Open VibeApp from the Start menu or the desktop shortcut.
+3. Open Starwright from the Start menu or the desktop shortcut.
 
 Requires Windows 10 or 11 (64-bit).
 
-**Updates:** VibeApp looks for new versions on this repository's Releases. When there's one, a banner shows across the top with **What's new**, **Update and restart**, **Skip this version** and **Not now**. Updating downloads the installer, checks it against the release's SHA-512, and restarts VibeApp into the new version. To turn the automatic checks off or check by hand, go to **Settings → Updates**.
+**Updates:** Starwright looks for new versions on this repository's Releases. When there's one, a banner shows across the top with **What's new**, **Update and restart**, **Skip this version** and **Not now**. Updating downloads the installer, checks it against the release's SHA-512, and restarts Starwright into the new version. To turn the automatic checks off or check by hand, go to **Settings → Updates**.
 
 ---
 
 ## First run
 
-The **Accounts** screen sets up everything VibeApp drives, from inside the app:
+The **Accounts** screen sets up everything Starwright drives, from inside the app:
 
 - **Claude Code:** installs it, then you sign in with your Claude account in the built-in terminal.
 - **Codex:** installs it, then you sign in with your ChatGPT account.
@@ -110,7 +112,7 @@ Then go to **Projects**. Start a new project in an empty folder, open an existin
 
 **The three modes**
 - **Build:** the agents change your project. You'll be asked first before anything destructive (deleting folders, force-pushing, wiping git history).
-- **Plan:** a read-only look around, then a numbered plan card. Each step is marked *(Claude)* or *(Codex)*. Approve it and the steps tick off as they're built. Nothing changes while planning, Go Nutz or not: VibeApp turns away edits, commands that aren't read-only, Deploy and hand-offs. If your message needs something done now, Claude asks once, saying what and why, and switches to Build only if you allow it.
+- **Plan:** a read-only look around, then a numbered plan card. Each step is marked *(Claude)* or *(Codex)*. Approve it and the steps tick off as they're built. Nothing changes while planning, Go Nutz or not: Starwright turns away edits, commands that aren't read-only, Deploy and hand-offs. If your message needs something done now, Claude asks once, saying what and why, and switches to Build only if you allow it.
 - **Ask:** read-only answers, on a cheaper model. Plain questions typed in Build are answered this way automatically.
 
 **Go Nutz.** This switch lets the agents run without asking for confirmation. Some things stay blocked even then: deleting GitHub repositories, changing who can see them, and reading your GitHub sign-in.
@@ -121,7 +123,7 @@ Then go to **Projects**. Start a new project in an empty folder, open an existin
 
 ## Safety and privacy
 
-**Where your code and chats go.** Your code, chats and memory stay on your computer, in VibeApp's data folder and your project folders, except for what you send to the AI services you've signed in to:
+**Where your code and chats go.** Your code, chats and memory stay on your computer, in Starwright's data folder and your project folders, except for what you send to the AI services you've signed in to:
 
 | Service | What it receives |
 |---|---|
@@ -130,17 +132,17 @@ Then go to **Projects**. Start a new project in an empty folder, open an existin
 | ClinePass *(only if Cline is switched on)* | Chat and code excerpts for the background jobs and hand-offs, sent to Cline's model providers. Each use can be switched off in Settings. |
 | ntfy *(only if phone alerts are on)* | A project name and what's waiting. Never code or chat text. |
 
-Searching memory by meaning sends nothing anywhere: the language model for it comes with VibeApp and runs on your computer.
+Searching memory by meaning sends nothing anywhere: the language model for it comes with Starwright and runs on your computer.
 
 **How it's protected**
-- **Secrets** are encrypted with your Windows account (DPAPI) and stored outside your projects. Some are never given to the agents at all. VibeApp warns before a key ends up in the chat, a file, a commit or a published site.
+- **Secrets** are encrypted with your Windows account (DPAPI) and stored outside your projects. Some are never given to the agents at all. Starwright warns before a key ends up in the chat, a file, a commit or a published site.
 - **Destructive commands need your OK** outside Go Nutz.
-- **Cline approves its own actions**, so VibeApp checks every one before it runs (twice for hand-offs: its safety hook, then Cline asks VibeApp's permission for each step):
+- **Cline approves its own actions**, so Starwright checks every one before it runs (twice for hand-offs: its safety hook, then Cline asks Starwright's permission for each step):
   - Cline only works inside the project.
   - Commands that delete folders, push or wipe history are replaced with a "blocked" message.
   - Cline's account connectors (Gmail, Drive and the like) are switched off.
-- **The preview** only shows `localhost`, with no access to VibeApp's own controls. Links elsewhere open in your browser.
-- **Your sign-ins** stay with Claude Code, Codex, Cline and the GitHub CLI. VibeApp never stores or reads them.
+- **The preview** only shows `localhost`, with no access to Starwright's own controls. Links elsewhere open in your browser.
+- **Your sign-ins** stay with Claude Code, Codex, Cline and the GitHub CLI. Starwright never stores or reads them.
 
 **Reporting a vulnerability:** please use GitHub's [private vulnerability reporting](../../security/advisories/new) rather than a public issue.
 
@@ -150,20 +152,20 @@ Searching memory by meaning sends nothing anywhere: the language model for it co
 
 Remote access is off by default. Turn it on in **Settings → Remote access**. There are two modes:
 - **This computer only:** listens on `127.0.0.1`, for tools like Claude Code on the same PC.
-- **Local network:** HTTPS with a certificate VibeApp makes itself.
+- **Local network:** HTTPS with a certificate Starwright makes itself.
 
 **How a device connects**
 - Each browser or tool **pairs once** with a 6-digit code. The code works once, and wrong guesses are rate-limited.
-- The device gets its own token, which VibeApp stores only as a hash.
+- The device gets its own token, which Starwright stores only as a hash.
 - In Settings you can list the paired devices, disconnect any of them, or make them read-only.
 - A remote device can never change the remote-access settings.
 
-> **Never expose VibeApp to the internet** (no port forwarding). It can run commands on your computer. To reach it from outside your home, use [Tailscale](https://tailscale.com). With MagicDNS and HTTPS certificates turned on in Tailscale, VibeApp gets a trusted certificate, and phones can install it as an app.
+> **Never expose Starwright to the internet** (no port forwarding). It can run commands on your computer. To reach it from outside your home, use [Tailscale](https://tailscale.com). With MagicDNS and HTTPS certificates turned on in Tailscale, Starwright gets a trusted certificate, and phones can install it as an app.
 
-**Driving VibeApp from Claude Code:**
+**Driving Starwright from Claude Code:**
 
 ```
-claude mcp add vibeapp -- node "<VibeApp data folder>/vibeapp-mcp.cjs"
+claude mcp add vibeapp -- node "<Starwright data folder (%APPDATA%\vibeapp)>/vibeapp-mcp.cjs"
 ```
 
 Settings shows the exact command. The tools list projects, send a message and wait for the answer, approve plans, read the chat, deploy, and report usage.
@@ -181,12 +183,12 @@ Settings shows the exact command. The tools list projects, send a message and wa
 **Commands**
 
 ```powershell
-git clone https://github.com/mrg1nger/VibeApp.git
-cd VibeApp
+git clone https://github.com/mrg1nger/starwright.git
+cd Starwright
 npm install          # also applies patches/ and rebuilds node-pty for Electron
 npm run dev          # run with hot reload
 npm run build        # build into out/
-npm run package      # make release/VibeApp-<version>-setup.exe
+npm run package      # make release/Starwright-<version>-setup.exe
 npm run typecheck
 ```
 
@@ -217,7 +219,7 @@ npm run e2e:mobile     # every screen at phone size
 npm run eval           # evaluations: real tasks, measuring who did what and what it cost
 ```
 
-The tests never touch your real projects, memory or settings: they run against a temporary data folder. See [tests/README.md](tests/README.md) for details. Run the smoke tests after updating Claude Code, Codex or the Agent SDK, because VibeApp relies on some of their less-documented behaviour.
+The tests never touch your real projects, memory or settings: they run against a temporary data folder. See [tests/README.md](tests/README.md) for details. Run the smoke tests after updating Claude Code, Codex or the Agent SDK, because Starwright relies on some of their less-documented behaviour.
 
 ---
 
@@ -247,9 +249,9 @@ patches/            patch-package fixes for dependencies
 ## Known limits
 
 - **Windows only in practice.** The command handling assumes Windows (PowerShell, Git Bash, `.cmd` shims).
-- **It depends on the CLIs' behaviour.** A Claude Code, Codex or Cline update can change things VibeApp relies on; the smoke tests are how that shows up.
-- **Bring your own subscriptions.** VibeApp drives the official CLIs with your own sign-ins. Check each provider's current terms for how you use them.
-- **No ClinePass usage meter**, because the Cline CLI doesn't report plan limits. VibeApp notices "limit reached" and falls back to Claude for a while.
+- **It depends on the CLIs' behaviour.** A Claude Code, Codex or Cline update can change things Starwright relies on; the smoke tests are how that shows up.
+- **Bring your own subscriptions.** Starwright drives the official CLIs with your own sign-ins. Check each provider's current terms for how you use them.
+- **No ClinePass usage meter**, because the Cline CLI doesn't report plan limits. Starwright notices "limit reached" and falls back to Claude for a while.
 - **Not code-signed.** Windows SmartScreen warns on first install. Updates are checked against the release's SHA-512, which protects against a damaged download but not against someone who controls the GitHub account.
 
 ---

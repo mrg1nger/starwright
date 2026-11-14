@@ -208,7 +208,7 @@ function DeployDialog({ project, busy, onClose, onError, onAskClaude }: DeployDi
     body = (
       <>
         <p className="modal-text">
-          Deploy puts this project live with one click: VibeApp runs the steps itself, with no AI and no usage, and checks the
+          Deploy puts this project live with one click: Starwright runs the steps itself, with no AI and no usage, and checks the
           site came back. Claude writes the steps once, from how you've deployed before, and you check them here.
         </p>
         <div className="modal-actions">

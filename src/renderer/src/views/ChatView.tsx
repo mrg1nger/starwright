@@ -805,7 +805,7 @@ function ChatView({ project, onBack, onOpenHistory, onOpenMemory, onError, think
     try {
       for (const secret of pendingSecret.found) {
         const saved = await window.vibe.secrets.set(project.id, secret.saveAs, secret.value)
-        text = text.split(secret.value).join(`[${saved.name}, saved in VibeApp Secrets]`)
+        text = text.split(secret.value).join(`[${saved.name}, saved in Starwright Secrets]`)
       }
     } catch (err) {
       onError((err as Error).message)
@@ -1307,7 +1307,7 @@ function ChatView({ project, onBack, onOpenHistory, onOpenMemory, onError, think
                         `A secret key ended up in project files:\n${leaks
                           .slice(0, 20)
                           .map((l) => `- ${l.file}:${l.line} (${l.what})`)
-                          .join('\n')}\nMove it out: read it from an environment variable instead and delete the value from the file. If it isn't in VibeApp's Secrets panel yet, tell me the name to add.`
+                          .join('\n')}\nMove it out: read it from an environment variable instead and delete the value from the file. If it isn't in Starwright's Secrets panel yet, tell me the name to add.`
                       )
                     }
                   >
@@ -1513,7 +1513,7 @@ function ChatView({ project, onBack, onOpenHistory, onOpenMemory, onError, think
                   ? 'What should change about this?'
                   : pendingImages.length
                     ? 'What should Claude do with this?'
-                    : 'Tell VibeApp what to build…'
+                    : 'Tell Starwright what to build…'
               }
               title="Enter to send · Shift+Enter for a new line · paste or drop images · drag the edge to resize"
               disabled={busy}

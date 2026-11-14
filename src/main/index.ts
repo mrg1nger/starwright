@@ -104,6 +104,9 @@ function createWindow(): void {
 // The end-to-end test runs the app against its own data folder, so it never
 // touches the user's projects, memory or settings.
 if (process.env.VIBEAPP_USER_DATA) app.setPath('userData', process.env.VIBEAPP_USER_DATA)
+// Everyone else's data stays where VibeApp kept it (%APPDATA%\vibeapp) after the rename to
+// Starwright: pinned here so a display name in package.json can never move it.
+else app.setPath('userData', join(app.getPath('appData'), 'vibeapp'))
 
 // One VibeApp at a time (per data folder): a second copy would start its own
 // Remote access server on the same port. Starting it again opens the window.

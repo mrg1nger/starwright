@@ -12,7 +12,7 @@ import { getSettings, updateSettings } from '../settings/store'
 // backup is a plain folder (easy to copy to a USB stick or another PC), made
 // nightly, the newest few kept.
 
-const PREFIX = 'VibeApp backup '
+const PREFIX = 'Starwright backup '
 /** What's copied (when present). Remote access pairings and its certificate stay with this computer. */
 const FILES = ['settings.json', 'projects.json', 'extensions.json', 'memory-global.json', 'schedules.json']
 const FOLDERS = ['transcripts', 'secrets', 'talk', 'themes', 'deploy', 'extensions', 'attachments', 'memory-projects']
@@ -22,7 +22,10 @@ const userData = (): string => app.getPath('userData')
 export function defaultBackupDir(): string {
   // A test copy of VibeApp (its own data folder) keeps its backups there too, never in the user's Documents.
   if (process.env.VIBEAPP_USER_DATA) return join(userData(), 'backups')
-  return join(app.getPath('documents'), 'VibeApp Backups')
+  // Backups made before the rename (0.11.0) are in "VibeApp Backups": keep using it while it's the one there.
+  const now = join(app.getPath('documents'), 'Starwright Backups')
+  const before = join(app.getPath('documents'), 'VibeApp Backups')
+  return !existsSync(now) && existsSync(before) ? before : now
 }
 
 export function backupDir(): string {
@@ -119,7 +122,7 @@ const pendingDir = (): string => join(userData(), 'restore-pending')
  */
 export function stageRestore(path: string): BackupInfo {
   const manifest = join(path, 'backup.json')
-  if (!existsSync(manifest) || !existsSync(join(path, 'memory.db'))) throw new Error("That folder isn't a VibeApp backup.")
+  if (!existsSync(manifest) || !existsSync(join(path, 'memory.db'))) throw new Error("That folder isn't a Starwright backup.")
   const info = JSON.parse(readFileSync(manifest, 'utf-8')) as BackupInfo
   backupNow('before restore')
   rmSync(pendingDir(), { recursive: true, force: true })
@@ -154,7 +157,7 @@ export function applyPendingRestore(): void {
     }
   }
   if (!failed.length) rmSync(pending, { recursive: true, force: true })
-  console.log(failed.length ? `Restored VibeApp data, except ${failed.join(', ')} (tried again next start).` : 'Restored VibeApp data from a backup.')
+  console.log(failed.length ? `Restored Starwright data, except ${failed.join(', ')} (tried again next start).` : 'Restored Starwright data from a backup.')
 }
 
 /** Nightly backups: checked hourly (and soon after starting); one is made once a day has passed. */

@@ -32,7 +32,7 @@ function UpdateSettings({ settings, onSettingsChange }: UpdateSettingsProps) {
   const result = !checked || !update
     ? null
     : newer
-      ? { ok: true, text: `VibeApp ${newer} is available${newer === settings.skippedVersion ? ' (skipped)' : ''}.` }
+      ? { ok: true, text: `Starwright ${newer} is available${newer === settings.skippedVersion ? ' (skipped)' : ''}.` }
       : update.error
         ? { ok: false, text: update.error }
         : { ok: true, text: "You're on the newest version." }
@@ -41,8 +41,8 @@ function UpdateSettings({ settings, onSettingsChange }: UpdateSettingsProps) {
     <section className="settings-section">
       <h3>Updates</h3>
       <p className="settings-hint">
-        VibeApp {__APP_VERSION__}.{' '}
-        <a href={update?.releasesUrl ?? 'https://github.com/mrg1nger/VibeApp/releases'} target="_blank" rel="noreferrer">
+        Starwright {__APP_VERSION__}.{' '}
+        <a href={update?.releasesUrl ?? 'https://github.com/mrg1nger/starwright/releases'} target="_blank" rel="noreferrer">
           All releases
         </a>
       </p>
@@ -65,7 +65,7 @@ function UpdateSettings({ settings, onSettingsChange }: UpdateSettingsProps) {
         <span>
           Look for new versions automatically
           <small>
-            When VibeApp starts and every few hours, it asks GitHub whether there&apos;s a newer version and shows a
+            When Starwright starts and every few hours, it asks GitHub whether there&apos;s a newer version and shows a
             banner. Nothing is downloaded until you press Update.
           </small>
         </span>

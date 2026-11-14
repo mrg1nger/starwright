@@ -45,12 +45,12 @@ export interface LocalAgentResult {
   blocked: string[]
 }
 
-const SYSTEM = `You are a coding agent working for Claude inside VibeApp, on the user's project in the current folder. You can only act through the tools. Work like this:
+const SYSTEM = `You are a coding agent working for Claude inside Starwright, on the user's project in the current folder. You can only act through the tools. Work like this:
 1. Look before you change: find the right files (list_files, search) and read the parts you need.
 2. Make the change with edit_file (exact text from the file, enough lines to be unique) or write_file for new files.
 3. Check it the way the task says (run the tests it names with run_command). If something fails, fix it and check again.
 4. When done, reply WITHOUT calling a tool: a short report of what you changed, file by file, and how the checks went.
-Rules: paths are relative to the project folder. Stay inside the project. Don't start servers or watchers that keep running (commands time out). Some commands are refused by VibeApp (deleting folders, pushing, anything outside the project): if a result says "BLOCKED by VibeApp", don't try another way, say in your report what was needed. Keep going until the task is done or you are truly stuck; then say what's left.`
+Rules: paths are relative to the project folder. Stay inside the project. Don't start servers or watchers that keep running (commands time out). Some commands are refused by Starwright (deleting folders, pushing, anything outside the project): if a result says "BLOCKED by Starwright", don't try another way, say in your report what was needed. Keep going until the task is done or you are truly stuck; then say what's left.`
 
 const TOOLS = [
   {
@@ -229,7 +229,7 @@ function runShell(command: string, cwd: string, timeoutSec: number, signal?: Abo
 async function runTool(name: string, args: Record<string, unknown>, run: LocalAgentRun): Promise<ToolOutcome> {
   const { cwd } = run
   const outside = (what: string): ToolOutcome => ({
-    text: `BLOCKED by VibeApp: ${what} is outside the project folder. Use a path inside the project.`,
+    text: `BLOCKED by Starwright: ${what} is outside the project folder. Use a path inside the project.`,
     activity: { step: 'tool', text: `Refused: ${what} (outside the project)`, ok: false },
     blocked: `${what} outside the project`
   })
@@ -295,7 +295,7 @@ async function runTool(name: string, args: Record<string, unknown>, run: LocalAg
         return { text: 'Give the path of a file, not a folder.', activity: { step: 'edit', text: `Edit of ${label} (a folder)`, ok: false } }
       }
       if (/(^|\/)\.git(\/|$)/.test(label)) {
-        return { text: 'BLOCKED by VibeApp: the .git folder is not to be changed.', activity: { step: 'edit', text: `Refused: changing ${label}`, ok: false }, blocked: `changing ${label}` }
+        return { text: 'BLOCKED by Starwright: the .git folder is not to be changed.', activity: { step: 'edit', text: `Refused: changing ${label}`, ok: false }, blocked: `changing ${label}` }
       }
       const existed = existsSync(file)
       if (name === 'write_file') {
@@ -316,7 +316,7 @@ async function runTool(name: string, args: Record<string, unknown>, run: LocalAg
       const danger = commandDanger(command, { mode: 'build', projectPath: cwd, goNutz: run.goNutz })
       if (danger) {
         return {
-          text: `BLOCKED by VibeApp: ${danger} is not allowed in this run. Do not try another way round it; say in your report that it needs the user.`,
+          text: `BLOCKED by Starwright: ${danger} is not allowed in this run. Do not try another way round it; say in your report that it needs the user.`,
           activity: { step: 'run', text: command.slice(0, 120), full: command, detail: `Refused: ${danger}`, ok: false },
           blocked: danger
         }

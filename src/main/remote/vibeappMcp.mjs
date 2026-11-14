@@ -19,7 +19,7 @@ function config() {
   try {
     return JSON.parse(readFileSync(API_FILE, 'utf-8'))
   } catch {
-    throw new Error("VibeApp's Remote access isn't on. Switch it on in VibeApp: Settings, Remote access.")
+    throw new Error("Starwright's Remote access isn't on. Switch it on in Starwright: Settings, Remote access.")
   }
 }
 
@@ -38,7 +38,7 @@ function call(method, path, body, onData) {
       },
       (res) => {
         if (onData) {
-          if (res.statusCode !== 200) return reject(new Error(`VibeApp answered ${res.statusCode}`))
+          if (res.statusCode !== 200) return reject(new Error(`Starwright answered ${res.statusCode}`))
           res.setEncoding('utf-8')
           res.on('data', onData)
           res.on('end', () => resolve(null))
@@ -54,13 +54,13 @@ function call(method, path, body, onData) {
           } catch {
             // not JSON
           }
-          if (res.statusCode !== 200) reject(new Error(parsed.error || `VibeApp answered ${res.statusCode}`))
+          if (res.statusCode !== 200) reject(new Error(parsed.error || `Starwright answered ${res.statusCode}`))
           else resolve(parsed.result ?? null)
         })
       }
     )
     req.on('error', (err) =>
-      reject(new Error(`Couldn't reach VibeApp (${err.message}). Is it running with Remote access on?`))
+      reject(new Error(`Couldn't reach Starwright (${err.message}). Is it running with Remote access on?`))
     )
     if (body !== undefined) req.write(JSON.stringify(body))
     req.end()
@@ -174,7 +174,7 @@ To build it call approve_plan; to change it call send_message with mode "plan" a
         lines.push('(Claude is out of plan: Codex is handling this directly.)')
         break
       case 'takeover_offer':
-        lines.push('(Claude is out of plan. VibeApp is asking whether Codex should do it; answer in the app.)')
+        lines.push('(Claude is out of plan. Starwright is asking whether Codex should do it; answer in the app.)')
         break
       case 'error':
         lines.push(`ERROR: ${event.message}`)
@@ -223,7 +223,7 @@ const server = new McpServer({ name: 'vibeapp', version: '1.0.0' })
 
 server.registerTool(
   'list_projects',
-  { description: 'List the projects in VibeApp (name, id, folder).', inputSchema: {} },
+  { description: 'List the projects in Starwright (name, id, folder).', inputSchema: {} },
   guard(async () => {
     const projects = await invoke('vibe:project:list')
     return text(projects.map((p) => `${p.name} (id ${p.id}) - ${p.path}`).join('\n') || 'No projects yet.')
@@ -234,7 +234,7 @@ server.registerTool(
   'send_message',
   {
     description:
-      "Send a message to a project's chat in VibeApp, as if typed there, and wait for the reply. VibeApp's Claude (working with Codex) does the work in that project; the desktop window shows it live. mode: 'build' (make changes), 'plan' (Claude proposes a plan and changes nothing; then call approve_plan to build it), 'ask' (answer only, change nothing) or 'auto' (VibeApp decides; plain questions are answered as Ask).",
+      "Send a message to a project's chat in Starwright, as if typed there, and wait for the reply. Starwright's Claude (working with Codex) does the work in that project; the desktop window shows it live. mode: 'build' (make changes), 'plan' (Claude proposes a plan and changes nothing; then call approve_plan to build it), 'ask' (answer only, change nothing) or 'auto' (Starwright decides; plain questions are answered as Ask).",
     inputSchema: {
       project: z.string().describe('Project name or id'),
       message: z.string(),
@@ -278,7 +278,7 @@ async function recentEntries(projectId, requests) {
 server.registerTool(
   'approve_plan',
   {
-    description: "Approve the plan VibeApp's Claude proposed for a project (after send_message with mode 'plan'), so it gets built, and wait for the result.",
+    description: "Approve the plan Starwright's Claude proposed for a project (after send_message with mode 'plan'), so it gets built, and wait for the result.",
     inputSchema: { project: z.string(), timeout_seconds: z.number().optional() }
   },
   guard(async ({ project, timeout_seconds = 600 }) => {
@@ -299,7 +299,7 @@ server.registerTool(
   'answer_prompt',
   {
     description:
-      'Answer a prompt VibeApp is showing for a project: an Allow/Deny permission (allow true or false) or Claude\'s question (answers: question text -> chosen option label).',
+      'Answer a prompt Starwright is showing for a project: an Allow/Deny permission (allow true or false) or Claude\'s question (answers: question text -> chosen option label).',
     inputSchema: {
       project: z.string(),
       prompt_id: z.string(),
@@ -327,7 +327,7 @@ server.registerTool(
 server.registerTool(
   'read_chat',
   {
-    description: "Read the latest part of a project's chat in VibeApp (what was asked, replies, and what was done).",
+    description: "Read the latest part of a project's chat in Starwright (what was asked, replies, and what was done).",
     inputSchema: { project: z.string(), last: z.number().optional().describe('How many entries (default 40).') }
   },
   guard(async ({ project, last = 40 }) => {
@@ -346,7 +346,7 @@ server.registerTool(
 
 server.registerTool(
   'compact',
-  { description: "Compact a project's long conversation in VibeApp (saves memory first).", inputSchema: { project: z.string() } },
+  { description: "Compact a project's long conversation in Starwright (saves memory first).", inputSchema: { project: z.string() } },
   guard(async ({ project }) => {
     const p = await findProject(project)
     const r = await invoke('vibe:chat:compactNow', p.id, p.path)
@@ -357,7 +357,7 @@ server.registerTool(
 server.registerTool(
   'memory',
   {
-    description: "Read a project's memory in VibeApp: its project brief and remembered facts (optionally only those matching a search).",
+    description: "Read a project's memory in Starwright: its project brief and remembered facts (optionally only those matching a search).",
     inputSchema: { project: z.string(), search: z.string().optional() }
   },
   guard(async ({ project, search }) => {
@@ -380,7 +380,7 @@ server.registerTool(
   'todos',
   {
     description:
-      "A project's to-do list in VibeApp (its Notes tab), and optionally change it: add an item, tick one off (done), or put one back (undone). Items are matched by their id or their text.",
+      "A project's to-do list in Starwright (its Notes tab), and optionally change it: add an item, tick one off (done), or put one back (undone). Items are matched by their id or their text.",
     inputSchema: {
       project: z.string(),
       add: z.string().optional().describe('A new to-do, as one short line.'),
@@ -431,7 +431,7 @@ server.registerTool(
 server.registerTool(
   'notes',
   {
-    description: "Read a project's notes in VibeApp (its Notes tab), or replace them with new text.",
+    description: "Read a project's notes in Starwright (its Notes tab), or replace them with new text.",
     inputSchema: {
       project: z.string(),
       replace_with: z.string().optional().describe('New text for the whole notes page (replaces what is there).')
@@ -450,7 +450,7 @@ server.registerTool(
 
 server.registerTool(
   'usage',
-  { description: 'How much of the Claude and Codex plans is left, as VibeApp shows it.', inputSchema: {} },
+  { description: 'How much of the Claude and Codex plans is left, as Starwright shows it.', inputSchema: {} },
   guard(async () => {
     const out = []
     for (const cli of ['claude', 'codex']) {
@@ -469,7 +469,7 @@ server.registerTool(
   'deploy',
   {
     description:
-      "Run a project's saved Deploy (the steps the user checked in VibeApp's Deploy window; VibeApp runs them with no AI, then the site check, rolling back if something fails). This puts the project live, so only when the user asked for it. Waits for the result (up to timeout_seconds).",
+      "Run a project's saved Deploy (the steps the user checked in Starwright's Deploy window; Starwright runs them with no AI, then the site check, rolling back if something fails). This puts the project live, so only when the user asked for it. Waits for the result (up to timeout_seconds).",
     inputSchema: {
       project: z.string().describe('Project name or id'),
       timeout_seconds: z.number().optional().describe('How long to wait for the result (default 900).')

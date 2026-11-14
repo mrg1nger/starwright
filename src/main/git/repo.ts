@@ -26,7 +26,7 @@ async function ensureGitIdentity(git: ReturnType<typeof simpleGit>): Promise<voi
   const name = await git.getConfig('user.name')
   const email = await git.getConfig('user.email')
   if (!name.value) {
-    await git.addConfig('user.name', 'VibeApp User', false, 'local')
+    await git.addConfig('user.name', 'Starwright User', false, 'local')
   }
   if (!email.value) {
     await git.addConfig('user.email', 'vibeapp@local', false, 'local')

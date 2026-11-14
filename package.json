@@ -1,7 +1,7 @@
 {
   "name": "vibeapp",
-  "version": "0.10.0",
-  "description": "A friendly desktop app for vibe coding with Claude Code and Codex together",
+  "version": "0.11.0",
+  "description": "Starwright: a coding control center for Claude Code, Codex, Cline and a local model working together",
   "main": "./out/main/index.js",
   "author": "Chris",
   "license": "MIT",

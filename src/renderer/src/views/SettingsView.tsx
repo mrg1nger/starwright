@@ -261,7 +261,7 @@ function SettingsView({ settings, themes, onSettingsChange, onThemesChange, onEr
           <span>
             Big requests
             <small>
-              When a request sent in Build looks big (several parts, or judged complex), VibeApp can ask whether to plan
+              When a request sent in Build looks big (several parts, or judged complex), Starwright can ask whether to plan
               it first: Claude looks around and shows a plan to approve before anything changes. Small requests are never
               interrupted.
             </small>
@@ -319,7 +319,7 @@ function SettingsView({ settings, themes, onSettingsChange, onThemesChange, onEr
           <span>
             Compact long conversations automatically
             <small>
-              A long conversation is re-read on every step. Once it passes the size below, VibeApp first saves the
+              A long conversation is re-read on every step. Once it passes the size below, Starwright first saves the
               rules, procedures and project brief to memory, then has Claude summarise the conversation in place
               and carry on in the same session. Details can still be lost, so keep important rules in Memory.
               You can also compact from the chat at any time.
@@ -355,7 +355,7 @@ function SettingsView({ settings, themes, onSettingsChange, onThemesChange, onEr
             Share key facts with other tools (AGENTS.md)
             <small>
               Off by default. Keeps a block of this project's key facts in an AGENTS.md file in the project
-              folder, so other AI tools opened there see them too. If VibeApp creates the file it's added to
+              folder, so other AI tools opened there see them too. If Starwright creates the file it's added to
               .gitignore, so it isn't published with your code. Facts that look like secrets are left out.
             </small>
           </span>
@@ -409,7 +409,7 @@ function SettingsView({ settings, themes, onSettingsChange, onThemesChange, onEr
           <span>
             Keep running in the tray when the window is closed
             <small>
-              Closing the window frees its memory, but VibeApp keeps working: requests carry on, and browsers and
+              Closing the window frees its memory, but Starwright keeps working: requests carry on, and browsers and
               phones stay connected. Open it again, copy the pairing code or quit from the tray icon (bottom right of
               the taskbar). Windows notifications say when something is waiting for you.
             </small>
@@ -424,7 +424,7 @@ function SettingsView({ settings, themes, onSettingsChange, onThemesChange, onEr
           <span>
             Start with Windows, in the tray
             <small>
-              VibeApp starts when you sign in, with no window, ready for your browsers and phone. (Only for the
+              Starwright starts when you sign in, with no window, ready for your browsers and phone. (Only for the
               installed app.)
             </small>
           </span>
@@ -432,7 +432,7 @@ function SettingsView({ settings, themes, onSettingsChange, onThemesChange, onEr
         {(settings.trayMode || settings.startWithWindows) && settings.remoteAccess === 'off' && (
           <p className="chat-error">
             Remote access is off, so with no window open the only way in is the tray icon. Turn it on below to use
-            VibeApp from a browser or your phone.
+            Starwright from a browser or your phone.
           </p>
         )}
       </section>
@@ -488,7 +488,7 @@ function SettingsView({ settings, themes, onSettingsChange, onThemesChange, onEr
           </table>
         )}
         <small className="memory-hint">
-          Token counts from VibeApp's own log. "request" is Claude working on what you asked; "route", "scribe",
+          Token counts from Starwright's own log. "request" is Claude working on what you asked; "route", "scribe",
           "tidy", "codemap" and "summary" are the small Haiku helpers; "handoff" and "review" are Codex.
         </small>
         <UsageReport />

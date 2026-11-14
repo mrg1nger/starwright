@@ -99,7 +99,7 @@ export function takeCatchUpNote(projectId: string): string | undefined {
   const first = items.find((i) => i.snapshot)?.snapshot
   return [
     `[VibeApp note: while Claude's plan limit was reached, Codex handled ${many ? 'these requests' : 'this request'} directly, so ${many ? 'they are' : 'it is'} not in this conversation.`,
-    "(Where an outcome says \"by Cline\", Cline did it because Codex was out too.) Those changes are in the working tree as uncommitted edits (VibeApp doesn't commit for the user), so git status and git diff will show them mixed in with everything else. That is expected and is not part of the new request unless the user says so; don't try to untangle or revert them.",
+    "(Where an outcome says \"by Cline\", Cline did it because Codex was out too.) Those changes are in the working tree as uncommitted edits (Starwright doesn't commit for the user), so git status and git diff will show them mixed in with everything else. That is expected and is not part of the new request unless the user says so; don't try to untangle or revert them.",
     first ? `To see exactly what Codex changed in that time: git diff ${first} (plus git status --short for new files).` : '',
     'Judge what changed during a request from the hand-off results (they list their own files and diff), not from a whole-tree git diff. The handoffs tool has the full reports.',
     'What Codex did:',
@@ -299,7 +299,7 @@ async function runClineTakeover(req: TakeoverRequest, afterCodex = false): Promi
     const result = await runCline(
       {
         prompt: [
-          "You are working inside VibeApp on the user's project in the current folder, because Claude and Codex are both at their plan limits. Do the user's request below completely, check it (run the project's tests if it has them), and finish with a short report of what you changed, file by file. Stay inside the project folder. If a command comes back \"BLOCKED by VibeApp\", don't try another way: say in your report what the user needs to do. You share a memory with Claude and Codex through the vibe_memory tools (recall, where, history, handoffs); save anything worth keeping with remember.",
+          "You are working inside Starwright on the user's project in the current folder, because Claude and Codex are both at their plan limits. Do the user's request below completely, check it (run the project's tests if it has them), and finish with a short report of what you changed, file by file. Stay inside the project folder. If a command comes back \"BLOCKED by Starwright\", don't try another way: say in your report what the user needs to do. You share a memory with Claude and Codex through the vibe_memory tools (recall, where, history, handoffs); save anything worth keeping with remember.",
           `Key facts:\n${attempt(() => keyFactsBlock(memoryDb(), projectId)) ?? '(none yet)'}`,
           attempt(() => briefBlock(projectId)),
           context,
@@ -321,7 +321,7 @@ async function runClineTakeover(req: TakeoverRequest, afterCodex = false): Promi
     if (signal.aborted) throw new Error('Stopped by the user.')
     status = result.ok ? 'done' : 'error'
     report = result.text || result.error || '(Cline finished with no final message.)'
-    if (result.blocked.length) report += `\n\nVibeApp refused: ${[...new Set(result.blocked)].join('; ')}.`
+    if (result.blocked.length) report += `\n\nStarwright refused: ${[...new Set(result.blocked)].join('; ')}.`
     if (before) {
       const after = await takeSnapshot(projectPath, 'after takeover').catch(() => undefined)
       if (after) changes = await changeStats(projectPath, before, after).catch(() => null)

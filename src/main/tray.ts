@@ -66,7 +66,7 @@ export function notifyUser(title: string, body: string): void {
     n.on('click', () => options?.showWindow())
     n.show()
   }
-  void sendPhoneAlert(title, body.replace(/ Answer from a connected browser or phone, or open VibeApp\.$/, ''))
+  void sendPhoneAlert(title, body.replace(/ Answer from a connected browser or phone, or open Starwright\.$/, ''))
 }
 
 /** Keeps track of what's running and waiting, from the events sent to the screens. */
@@ -75,7 +75,7 @@ function watch(channel: string, args: unknown[]): void {
     const [projectId, event] = args as [string, VibeEvent]
     if (STARTED.has(event.type) && !working.has(projectId)) working.set(projectId, Date.now())
     if (event.type === 'plan_proposed') notify(`${nameOf(projectId)}: plan ready`, 'Claude has a plan for you to approve, change or cancel.')
-    if (event.type === 'takeover_offer') notify(`${nameOf(projectId)}: Claude is out`, 'Codex can take this request. Open VibeApp to say whether it should.')
+    if (event.type === 'takeover_offer') notify(`${nameOf(projectId)}: Claude is out`, 'Codex can take this request. Open Starwright to say whether it should.')
     if (event.type === 'turn_complete' || event.type === 'stopped') {
       const since = working.get(projectId)
       working.delete(projectId)
@@ -93,7 +93,7 @@ function watch(channel: string, args: unknown[]): void {
     waiting.set(projectId, set)
     notify(
       `${nameOf(projectId)}: ${request.questions?.length ? 'Claude has a question' : 'Claude is asking permission'}`,
-      `${request.reason}. Answer from a connected browser or phone, or open VibeApp.`
+      `${request.reason}. Answer from a connected browser or phone, or open Starwright.`
     )
     scheduleRebuild()
   } else if (channel === 'vibe:schedules:changed') {
@@ -179,7 +179,7 @@ async function rebuild(): Promise<void> {
   }
 
   const items: MenuItemConstructorOptions[] = [
-    { label: 'Open VibeApp', click: () => opts.showWindow() },
+    { label: 'Open Starwright', click: () => opts.showWindow() },
     { type: 'separator' },
     remote.running
       ? { label: `Remote access: on · ${online} connected${remote.readOnly ? ' · read-only' : ''}`, enabled: false }
@@ -220,12 +220,12 @@ async function rebuild(): Promise<void> {
       click: (item) => void invoke('vibe:settings:update', [{ startWithWindows: item.checked }])
     },
     { type: 'separator' },
-    { label: 'Quit VibeApp', click: () => opts.quit() }
+    { label: 'Quit Starwright', click: () => opts.quit() }
   )
 
   tray.setContextMenu(Menu.buildFromTemplate(items))
   const busy = activity.length ? ` · ${activity.length} ${prompts.size ? 'need you' : 'working'}` : ''
-  tray.setToolTip(`VibeApp${busy} · Remote access ${remote.running ? `on (${online} connected)` : 'off'}`)
+  tray.setToolTip(`Starwright${busy} · Remote access ${remote.running ? `on (${online} connected)` : 'off'}`)
 
   // The tests read the menu, since a tray can't be clicked from a script.
   if (process.env.VIBEAPP_TEST_HOOKS === '1') {
@@ -244,7 +244,7 @@ export function setupTray(opts: TrayOptions): void {
   options = opts
   const image = nativeImage.createFromPath(iconPath)
   tray = new Tray(image.isEmpty() ? image : image.resize({ width: 16, height: 16 }))
-  tray.setToolTip('VibeApp')
+  tray.setToolTip('Starwright')
   tray.on('click', () => opts.showWindow())
   addEventSink(watch)
   // Connected devices come and go without events; keep the counts fresh.
@@ -259,7 +259,7 @@ export function noteStillRunning(): void {
   toldAboutTray = true
   const remote = remoteStatus()
   const n = new Notification({
-    title: 'VibeApp is still running',
+    title: 'Starwright is still running',
     body: remote.running
       ? 'It keeps working in the tray, and your browsers and phone stay connected. Right-click the tray icon to open it or quit.'
       : "It keeps working in the tray. Remote access is off, so open it from the tray icon when you need it."

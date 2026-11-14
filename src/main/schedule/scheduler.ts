@@ -210,7 +210,7 @@ async function start(s: Schedule, trigger: ScheduleRun['trigger']): Promise<bool
   if (!deps) return false
   const path = deps.projectPath(s.projectId)
   if (!path) {
-    skip(s, "the project isn't in VibeApp any more.", trigger, false)
+    skip(s, "the project isn't in Starwright any more.", trigger, false)
     return true
   }
   if (s.action.kind === 'site_check') {
@@ -397,7 +397,7 @@ async function siteCheck(s: Schedule, path: string, trigger: ScheduleRun['trigge
       deps.notify(`${name}: site down`, result.detail)
       // Once per outage: ask Claude to look, if the schedule says to.
       if (was !== false && s.action.onDown) {
-        const text = `${s.action.onDown}\n\n(VibeApp's site check found: ${result.detail}.)`
+        const text = `${s.action.onDown}\n\n(Starwright's site check found: ${result.detail}.)`
         if (!deps.busy(s.projectId) && !active.has(s.projectId)) {
           const at = new Date().toISOString()
           addRun(s.id, { at, status: 'running', detail: 'Asked Claude to look into it.', trigger })
@@ -452,7 +452,7 @@ async function tick(): Promise<void> {
       }
       const late = now.getTime() - due
       if (s.when.kind !== 'every' && late > LATE_GRACE_MS) {
-        skip(s, `VibeApp wasn't running at ${new Date(due).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })}.`, 'late', false)
+        skip(s, `Starwright wasn't running at ${new Date(due).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })}.`, 'late', false)
         advance(s, now)
         continue
       }

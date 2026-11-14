@@ -120,7 +120,7 @@ function GitHubOpenDialog({ onOpen, onClose }: GitHubOpenDialogProps) {
         <p className="modal-muted">{error || 'Checking GitHub…'}</p>
       ) : !account.ghInstalled ? (
         <>
-          <p className="modal-text">VibeApp uses GitHub&apos;s own small app to download your projects. It installs in a minute.</p>
+          <p className="modal-text">Starwright uses GitHub&apos;s own small app to download your projects. It installs in a minute.</p>
           <div className="modal-actions">
             <button className="modal-primary" onClick={() => startTerminal('install')}>
               Install GitHub app

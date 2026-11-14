@@ -24,7 +24,7 @@ test('the banner shows for a newer version that was not skipped', () => {
   assert.equal(bannerWanted({ ...s, version: '0.3.1' }, null), false, 'the same version')
   assert.equal(bannerWanted({ ...s, status: 'none' }, null), false)
   assert.equal(bannerWanted({ ...s, status: 'downloading' }, null), true, 'stays up while downloading')
-  assert.equal(releaseUrlFor('0.4.0'), 'https://github.com/mrg1nger/VibeApp/releases/tag/v0.4.0')
+  assert.equal(releaseUrlFor('0.4.0'), 'https://github.com/mrg1nger/starwright/releases/tag/v0.4.0')
 })
 
 test('after an update, the version it came from is noticed once', () => {
@@ -44,5 +44,5 @@ test('a remote device can see an update but not install it', () => {
   assert.equal(checkRemoteCall('vibe:update:check', [], false).allowed, true)
   const install = checkRemoteCall('vibe:update:install', [true], false)
   assert.equal(install.allowed, false)
-  assert.match(install.reason ?? '', /computer running VibeApp/)
+  assert.match(install.reason ?? '', /computer running Starwright/)
 })

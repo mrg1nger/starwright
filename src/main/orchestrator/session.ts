@@ -39,7 +39,7 @@ export interface CompactResult {
 
 function memoryInstructions(autoMemory: boolean): string {
   const saving = autoMemory
-    ? "2. VibeApp saves lasting facts from each request automatically after you reply, so don't spend a step on it: call mcp__vibe_memory__remember only when the user asks you to remember something."
+    ? "2. Starwright saves lasting facts from each request automatically after you reply, so don't spend a step on it: call mcp__vibe_memory__remember only when the user asks you to remember something."
     : '2. Before your final reply, call mcp__vibe_memory__remember for each new lasting fact you learned or decided: what the project is, how to run/build/test/deploy it, decisions and why, the user\'s stated preferences, and non-obvious gotchas. One standalone sentence each, with a category; mark key: true only for facts needed on almost every request. Skip anything already remembered.'
   return MEMORY_INSTRUCTIONS_TEMPLATE.replace('{{SAVING}}', saving)
 }
@@ -55,22 +55,22 @@ You share a persistent memory with Codex through the mcp__vibe_memory tools. The
 7. To deploy, use mcp__vibe_tools__run_deploy first (the project's saved Deploy). Before any other operational job (publish, release, restart a service, restore or migrate data, run the tests), or a deploy with no saved Deploy, find out how it was done before: the project brief and key facts below, mcp__vibe_memory__recall (try "deploy" or "procedure") and mcp__vibe_memory__history. Follow the method that worked. Don't write a new script or invent steps when one exists; if you find nothing, say so before working it out.`
 
 const APP_INSTRUCTIONS = `# Live preview
-VibeApp shows the user a live preview of their project next to this chat. It starts the preview with \`npm run dev\` (or \`npm start\`) when package.json has that script, otherwise it serves index.html from the project root. For web projects, keep one of those working so the user can see the result, and have dev servers print their local URL. Don't start long-running dev servers yourself; VibeApp runs them.
-Messages may start with bracketed notes from VibeApp (for example, an element the user pointed at in the preview, or remembered facts and files that look relevant to the request). Use them as context; they're not something the user typed. Notes from a search are hints: check them against the code before relying on them.
+Starwright shows the user a live preview of their project next to this chat. It starts the preview with \`npm run dev\` (or \`npm start\`) when package.json has that script, otherwise it serves index.html from the project root. For web projects, keep one of those working so the user can see the result, and have dev servers print their local URL. Don't start long-running dev servers yourself; Starwright runs them.
+Messages may start with bracketed notes from Starwright (for example, an element the user pointed at in the preview, or remembered facts and files that look relevant to the request). Use them as context; they're not something the user typed. Notes from a search are hints: check them against the code before relying on them.
 Codex is automatically given the user's original request, the key facts and recent hand-offs when you hand it a task, so a task only needs to say what to do, which files are involved, and what done looks like.
 Helpers: you can start sub-agents (the Agent tool) for self-contained jobs so this long conversation isn't re-read for them. Use explorer (cheap, read-only) to find where something is or survey several files, reviewer after a large or risky change (name the files and any rules that apply), and test-runner when test output would be long. They don't see this conversation, so put everything they need in the task. Don't use one for something a single file read would answer.
-VibeApp doesn't commit anything for the user, so the working tree usually holds uncommitted work from earlier requests (some done by Codex while you were unavailable). A whole-tree git diff or git status therefore shows much more than the current request changed. Judge what a request changed from hand-off results, which list their own files and diff, and don't try to untangle or revert earlier uncommitted work unless asked.
+Starwright doesn't commit anything for the user, so the working tree usually holds uncommitted work from earlier requests (some done by Codex while you were unavailable). A whole-tree git diff or git status therefore shows much more than the current request changed. Judge what a request changed from hand-off results, which list their own files and diff, and don't try to untangle or revert earlier uncommitted work unless asked.
 If the user wants a new tool for you and Codex ("add a tool that...", "make an MCP server for..."), build it as a small MCP server in the project, then call mcp__vibe_tools__install_extension so it's available everywhere. Don't edit .mcp.json for that: servers listed there are only seen by you in this project.
-Schedules: when the user wants something to happen on a schedule or after each Deploy ("every morning…", "check the site every 15 minutes"), call mcp__vibe_tools__save_schedule (and list_schedules to see or change existing ones). VibeApp runs those itself. Claude Code's own scheduling (the schedule and loop skills, CronCreate, RemoteTrigger, ScheduleWakeup) doesn't work inside VibeApp: don't use it.
-GitHub: VibeApp uploads the project to its GitHub copy itself (from Publish, after each request when that's on, or on a schedule) and brings in newer work from the user's other computer. Don't push, pull or merge with GitHub yourself unless the user asks. For a backup on a schedule, use save_schedule with the github_backup action.
-Deploy: when the user asks to deploy or put it live (or a plan step deploys), call mcp__vibe_tools__run_deploy. VibeApp runs the project's saved, checked Deploy steps with no AI and tells you how it went, which costs far less than deploying step by step yourself. If the project has none yet, offer to write one with save_deploy_recipe.`
+Schedules: when the user wants something to happen on a schedule or after each Deploy ("every morning…", "check the site every 15 minutes"), call mcp__vibe_tools__save_schedule (and list_schedules to see or change existing ones). Starwright runs those itself. Claude Code's own scheduling (the schedule and loop skills, CronCreate, RemoteTrigger, ScheduleWakeup) doesn't work inside Starwright: don't use it.
+GitHub: Starwright uploads the project to its GitHub copy itself (from Publish, after each request when that's on, or on a schedule) and brings in newer work from the user's other computer. Don't push, pull or merge with GitHub yourself unless the user asks. For a backup on a schedule, use save_schedule with the github_backup action.
+Deploy: when the user asks to deploy or put it live (or a plan step deploys), call mcp__vibe_tools__run_deploy. Starwright runs the project's saved, checked Deploy steps with no AI and tells you how it went, which costs far less than deploying step by step yourself. If the project has none yet, offer to write one with save_deploy_recipe.`
 
 /** What Claude hears when Plan mode turns a tool call away. */
 function planDenyReason(blocked: string, refused: boolean): string {
   if (refused) {
-    return `Plan mode is on, so VibeApp didn't let this ${blocked}. The user chose to keep planning in this request: change nothing, and finish with the plan.`
+    return `Plan mode is on, so Starwright didn't let this ${blocked}. The user chose to keep planning in this request: change nothing, and finish with the plan.`
   }
-  return `Plan mode is on, so VibeApp didn't let this ${blocked}. While planning, only look (read, search, read-only commands) and write the plan. If this was only to look or check, skip it or make it a step in the plan. If the user's message needs it done now, call mcp__vibe_tools__leave_plan_mode once, saying what you want to do and why: VibeApp asks the user.`
+  return `Plan mode is on, so Starwright didn't let this ${blocked}. While planning, only look (read, search, read-only commands) and write the plan. If this was only to look or check, skip it or make it a step in the plan. If the user's message needs it done now, call mcp__vibe_tools__leave_plan_mode once, saying what you want to do and why: Starwright asks the user.`
 }
 
 /** Claude Code's own scheduling, which doesn't run inside VibeApp: VibeApp's schedules are the way. */
@@ -91,9 +91,9 @@ function secretsInstructions(projectId: string): string {
   return `
 
 # Secrets
-The user keeps API keys and other secrets in VibeApp's Secrets panel (the 🔑 button in the chat header), not in project files. ${
+The user keeps API keys and other secrets in Starwright's Secrets panel (the 🔑 button in the chat header), not in project files. ${
     names.length
-      ? `This project has: ${names.join(', ')}. VibeApp sets them as environment variables when it runs the app preview and when you run commands (except ANTHROPIC_*/CLAUDE_* ones, which only the app gets).`
+      ? `This project has: ${names.join(', ')}. Starwright sets them as environment variables when it runs the app preview and when you run commands (except ANTHROPIC_*/CLAUDE_* ones, which only the app gets).`
       : 'This project has none yet.'
   }
 - Read secrets from the environment (process.env.NAME in Node; in Vite client code the name needs a VITE_ prefix and is read with import.meta.env.VITE_NAME). Never hard-code a secret value in a file, and never print, echo, or log one.
@@ -359,7 +359,7 @@ export class ClaudeSession extends EventEmitter {
             hookEventName: 'PreToolUse',
             permissionDecision: 'deny',
             permissionDecisionReason:
-              "Claude Code's own scheduling doesn't run inside VibeApp. Use mcp__vibe_tools__save_schedule instead: VibeApp runs it (the user checks the draft and turns it on)."
+              "Claude Code's own scheduling doesn't run inside Starwright. Use mcp__vibe_tools__save_schedule instead: Starwright runs it (the user checks the draft and turns it on)."
           }
         }
       }
@@ -417,7 +417,7 @@ export class ClaudeSession extends EventEmitter {
         hookSpecificOutput: {
           hookEventName: 'PreToolUse',
           permissionDecision: 'deny',
-          permissionDecisionReason: "The user clicked Deny for this in VibeApp's Allow/Deny prompt. It was their choice, not a setting: don't retry it, and if it's really needed, explain why in plain words and let them decide."
+          permissionDecisionReason: "The user clicked Deny for this in Starwright's Allow/Deny prompt. It was their choice, not a setting: don't retry it, and if it's really needed, explain why in plain words and let them decide."
         }
       }
     }
@@ -478,7 +478,7 @@ ${extensionInstructions(extensions)}` : ''}`
             return {
               behavior: 'deny',
               message:
-                "VibeApp is showing this plan to the user to approve, change or cancel. End your turn now with one short line (for example \"Here's the plan.\") and do nothing else until they reply."
+                "Starwright is showing this plan to the user to approve, change or cancel. End your turn now with one short line (for example \"Here's the plan.\") and do nothing else until they reply."
             }
           }
           // Claude asking the user something comes through here too. The
@@ -516,7 +516,7 @@ ${extensionInstructions(extensions)}` : ''}`
           )
           return approved
             ? { behavior: 'allow', updatedInput: input }
-            : { behavior: 'deny', message: "The user clicked Deny for this in VibeApp's Allow/Deny prompt. It was their choice, not a setting: don't retry it, and if it's really needed, explain why in plain words and let them decide." }
+            : { behavior: 'deny', message: "The user clicked Deny for this in Starwright's Allow/Deny prompt. It was their choice, not a setting: don't retry it, and if it's really needed, explain why in plain words and let them decide." }
         },
         hooks: {
           PreToolUse: [{ hooks: [destructiveCommandGate] }],

@@ -863,7 +863,7 @@ export function registerIpcHandlers(getSender: () => WebContents | undefined): v
   ipc.handle('vibe:schedules:list', (_event, projectId: string) => listSchedules(String(projectId)))
   ipc.handle('vibe:schedules:all', () => withNames(listSchedules()))
   ipc.handle('vibe:schedules:save', (_event, projectId: string, input: ScheduleInput & { id?: string }) => {
-    if (!getProject(projectId)) throw new Error("That project isn't in VibeApp.")
+    if (!getProject(projectId)) throw new Error("That project isn't in Starwright.")
     return saveSchedule(projectId, input ?? {}, 'user', true)
   })
   ipc.handle('vibe:schedules:setEnabled', (_event, id: string, enabled: boolean) => setScheduleEnabled(String(id), !!enabled))
@@ -1013,7 +1013,7 @@ export function registerIpcHandlers(getSender: () => WebContents | undefined): v
     getSender()?.send('vibe:settings:changed', next)
     return { topic: next.phoneAlertTopic, url: topicUrl(next.phoneAlertServer, next.phoneAlertTopic ?? '') }
   })
-  ipc.handle('vibe:phone:test', () => sendPhoneAlert('VibeApp test alert', 'Phone alerts are working. You will hear from VibeApp when something needs you.', { force: true }))
+  ipc.handle('vibe:phone:test', () => sendPhoneAlert('Starwright test alert', 'Phone alerts are working. You will hear from Starwright when something needs you.', { force: true }))
 
   // Starts an installed extension the way the agents do and makes sure it really works.
   // (Also run right after installing, so the first agent to use it doesn't wait for the download.)
@@ -1024,7 +1024,7 @@ export function registerIpcHandlers(getSender: () => WebContents | undefined): v
     const probe: SelfTestProbe | undefined = ext.args.some((a) => /@playwright\/mcp\b/.test(a))
       ? {
           tool: 'browser_navigate',
-          arguments: { url: 'data:text/html,<title>VibeApp check</title><p>ok</p>' },
+          arguments: { url: 'data:text/html,<title>Starwright check</title><p>ok</p>' },
           doing: 'opening a test page in the browser'
         }
       : undefined
@@ -1540,7 +1540,7 @@ function runAsk(
       const keyFacts = keyFactsBlock(memoryDb(), projectId)
       const relevant = await prefetchBlock(projectId, text)
       const chosen = getSettings().claudeModel
-      const system = `You are answering a question about the user's software project inside VibeApp. You can't change the project's files: you can only read and search them and look things up in the project's memory. You can look at and update the user's to-do list for this project (add items, tick them off) and read their notes, when they ask. Answer directly in plain, friendly language and keep it short unless asked for depth. If the question turns out to need changes to the project, say so and suggest they switch to Build mode.\n\n## Key facts\n${keyFacts}`
+      const system = `You are answering a question about the user's software project inside Starwright. You can't change the project's files: you can only read and search them and look things up in the project's memory. You can look at and update the user's to-do list for this project (add items, tick them off) and read their notes, when they ask. Answer directly in plain, friendly language and keep it short unless asked for depth. If the question turns out to need changes to the project, say so and suggest they switch to Build mode.\n\n## Key facts\n${keyFacts}`
       const prompt = [relevant, text].filter(Boolean).join('\n\n')
       let answer
       const blocked = claudeBlockedUntil() !== null

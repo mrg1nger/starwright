@@ -1,5 +1,8 @@
 appId: com.vibeapp.desktop
-productName: VibeApp
+# The Windows identity stays com.vibeapp.desktop after the rename to Starwright (0.11.0): it is
+# how the installer finds and replaces an existing copy, and how Windows ties notifications and
+# "start with Windows" to it. Changing it would install Starwright beside VibeApp instead.
+productName: Starwright
 directories:
   buildResources: build
   output: release
@@ -35,7 +38,7 @@ npmRebuild: false
 publish:
   provider: github
   owner: mrg1nger
-  repo: VibeApp
+  repo: starwright
   releaseType: release
 win:
   target: nsis

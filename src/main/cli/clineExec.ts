@@ -167,13 +167,13 @@ export async function prepareClineHome(): Promise<PreparedHome> {
   const dir = vibeClineDir()
   if (prepared?.at === source.length + ':' + dir && existsSync(join(dir, 'hooks', 'PreToolUse.js'))) return prepared.home
   const node = await findNode()
-  if (!node) throw new Error("Cline needs Node.js on this computer for VibeApp's safety checks, and none was found (\"node\" isn't on the PATH).")
+  if (!node) throw new Error("Cline needs Node.js on this computer for Starwright's safety checks, and none was found (\"node\" isn't on the PATH).")
   mkdirSync(join(dir, 'hooks'), { recursive: true })
   writeFileSync(join(dir, 'hooks', 'PreToolUse.js'), source)
   const blockedNote = join(dir, 'blocked.txt')
   writeFileSync(
     blockedNote,
-    'BLOCKED by VibeApp: reading that file is not allowed in this run (only files in the project are). Do not try another way round it; work with what you have and say in your report if something needs the user.\n'
+    'BLOCKED by Starwright: reading that file is not allowed in this run (only files in the project are). Do not try another way round it; work with what you have and say in your report if something needs the user.\n'
   )
   // The user's telemetry choice carries over; Cline mustn't update itself in the middle of VibeApp's work.
   let telemetryOptOut = false
@@ -206,8 +206,8 @@ export async function prepareClineHome(): Promise<PreparedHome> {
   const policy: ClinePolicy = { mode: 'build', projectPath: dir }
   const refused = await probe({ name: 'run_commands', input: { commands: ['git push --force'] } }, policy)
   const unknown = await probe({ name: 'composio_search_tools', input: {} }, policy)
-  if (!/BLOCKED by VibeApp/.test(refused) || !/"cancel":true/.test(unknown)) {
-    throw new Error(`VibeApp's safety check for Cline didn't work (it answered ${JSON.stringify(refused.slice(0, 120))}), so Cline wasn't started.`)
+  if (!/BLOCKED by (Starwright|VibeApp)/.test(refused) || !/"cancel":true/.test(unknown)) {
+    throw new Error(`Starwright's safety check for Cline didn't work (it answered ${JSON.stringify(refused.slice(0, 120))}), so Cline wasn't started.`)
   }
   let nodeHasSqlite = false
   try {
@@ -357,7 +357,7 @@ export function describeClineActivity(e: ClineEvent): DelegationActivity | null 
   const input = ev.input ?? {}
   const result = done ? outputText(ev.output) : { text: '', ok: true }
   // A command the hook swapped for its explanation.
-  const blocked = /BLOCKED by VibeApp/.test(result.text)
+  const blocked = /BLOCKED by (Starwright|VibeApp)/.test(result.text)
   switch (name) {
     case 'run_commands': {
       if (!done) {
@@ -370,7 +370,7 @@ export function describeClineActivity(e: ClineEvent): DelegationActivity | null 
       return {
         id,
         step: 'run',
-        text: blocked ? 'Blocked by VibeApp: a command it may not run' : scrubSecrets(parts.text || 'Ran commands'),
+        text: blocked ? 'Blocked by Starwright: a command it may not run' : scrubSecrets(parts.text || 'Ran commands'),
         detail: tidy(result.text) || undefined,
         done: true,
         ok: result.ok && !blocked
@@ -483,7 +483,7 @@ export async function runCline(args: ClineRunArgs, onActivity?: (activity: Deleg
   const mcpPath = join(temp, 'mcp.json')
   prompt += writeMcpSettings(mcpPath, home, args.memory)
   // A last check, here in VibeApp, that the policy itself refuses an unknown tool.
-  if (decideToolCall(policy, { name: 'composio_search_tools' }).allow) return fail('VibeApp\'s Cline policy check failed, so Cline wasn\'t started.')
+  if (decideToolCall(policy, { name: 'composio_search_tools' }).allow) return fail('Starwright\'s Cline policy check failed, so Cline wasn\'t started.')
 
   const cliArgs = ['--json', '-c', args.cwd, '--compaction', 'agentic']
   if (args.mode === 'review') cliArgs.push('-p')
@@ -574,7 +574,7 @@ export async function runCline(args: ClineRunArgs, onActivity?: (activity: Deleg
   const message = lastError || (finishReason === 'error' ? text : '')
   let error: string
   if (finishReason === 'aborted' && blocked.length) {
-    error = `VibeApp stopped Cline: ${blocked[blocked.length - 1]}`
+    error = `Starwright stopped Cline: ${blocked[blocked.length - 1]}`
   } else if (message) {
     error = clineFailure(message)
     if (/no access to clinepass/i.test(message)) markUnavailable(error, 10 * 60_000)

@@ -15,7 +15,7 @@ export const PLAN_INSTRUCTIONS = `The user is planning this change before anythi
 Do not write the code itself in the plan.`
 
 /** Claude's plan mode only (Codex plans in a read-only sandbox and has no leave_plan_mode). */
-export const CLAUDE_PLAN_LIMITS = `While planning, VibeApp turns away anything that changes something: editing files, commands that aren't read-only (ssh included), Deploy and hand-offs to Codex or Cline. Put those in the plan as steps. If the user's message needs something done now rather than planned (for example "done, go ahead and deploy"), call mcp__vibe_tools__leave_plan_mode once with what and why; VibeApp asks the user.`
+export const CLAUDE_PLAN_LIMITS = `While planning, Starwright turns away anything that changes something: editing files, commands that aren't read-only (ssh included), Deploy and hand-offs to Codex or Cline. Put those in the plan as steps. If the user's message needs something done now rather than planned (for example "done, go ahead and deploy"), call mcp__vibe_tools__leave_plan_mode once with what and why; Starwright asks the user.`
 
 /** A short name for a plan: its heading, or its first sentence. */
 export function planTitle(plan: string): string {

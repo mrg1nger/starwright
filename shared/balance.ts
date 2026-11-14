@@ -16,7 +16,7 @@ export const BALANCE_LABELS: Record<BalanceStep, string> = {
 export const BALANCE_HELP: Record<BalanceStep, string> = {
   claude: 'Claude does the work itself. Codex is only used for reviews and clearly separate pieces.',
   'lean-claude': 'Claude does most of the work; Codex gets at most a separate piece of bigger requests.',
-  balanced: 'VibeApp decides, request by request, how much suits Codex.',
+  balanced: 'Starwright decides, request by request, how much suits Codex.',
   'lean-codex': 'Straightforward implementation goes to Codex more often; Claude plans and reviews.',
   codex: 'Claude plans and reviews; Codex builds nearly everything that isn\'t a quick tweak.'
 }

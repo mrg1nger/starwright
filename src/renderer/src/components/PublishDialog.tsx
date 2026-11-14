@@ -119,7 +119,7 @@ function PublishDialog({ project, onClose, onError, onFixLeaks }: PublishDialogP
                 `Secret keys are written into project files:\n${leaks
                   .slice(0, 20)
                   .map((l) => `- ${l.file}:${l.line} (${l.what})`)
-                  .join('\n')}\nMove them out: read each from an environment variable instead and delete the value from the file. Tell me the names so I can add any that aren't in VibeApp's Secrets panel yet.`
+                  .join('\n')}\nMove them out: read each from an environment variable instead and delete the value from the file. Tell me the names so I can add any that aren't in Starwright's Secrets panel yet.`
               )
             }
           >
@@ -249,7 +249,7 @@ function PublishDialog({ project, onClose, onError, onFixLeaks }: PublishDialogP
                     Back up automatically after each request
                     <small>
                       Uploads when Claude or Codex finishes, so GitHub always has the latest. It also keeps your other
-                      computer in step: open the project there and VibeApp offers the newer work.
+                      computer in step: open the project there and Starwright offers the newer work.
                     </small>
                   </span>
                 </label>

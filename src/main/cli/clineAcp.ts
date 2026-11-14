@@ -168,7 +168,7 @@ function onAgentRequest(agent: Agent, message: { id: number; method: string; par
     return
   }
   // VibeApp offers no file or terminal services: Cline does its own (behind the hook).
-  send(agent, { id: message.id, error: { code: -32601, message: `VibeApp doesn't handle ${message.method}.` } })
+  send(agent, { id: message.id, error: { code: -32601, message: `Starwright doesn't handle ${message.method}.` } })
 }
 
 async function startAgent(key: string, args: ClineRunArgs): Promise<Agent> {
@@ -180,7 +180,7 @@ async function startAgent(key: string, args: ClineRunArgs): Promise<Agent> {
   const policy: ClinePolicy = { mode: args.mode, projectPath: args.cwd, goNutz: !!args.goNutz, blockedNote: home.blockedNote, readFiles: [home.blockedNote] }
   const mcpPath = join(temp, 'mcp.json')
   const memoryNote = writeMcpSettings(mcpPath, home, args.memory)
-  if (decideToolCall(policy, { name: 'composio_search_tools' }).allow) throw new Error("VibeApp's Cline policy check failed.")
+  if (decideToolCall(policy, { name: 'composio_search_tools' }).allow) throw new Error("Starwright's Cline policy check failed.")
   const env: NodeJS.ProcessEnv = {
     ...clineEnv(launch, home, args.mode, mcpPath, policy, hookLog),
     // ClinePass, never pay-as-you-go: unset, ACP sessions start on "Cline Usage-Billing".
@@ -241,7 +241,7 @@ async function startAgent(key: string, args: ClineRunArgs): Promise<Agent> {
   child.on('error', () => shutDown(agent))
   agents.set(key, agent)
   try {
-    await request(agent, 'initialize', { protocolVersion: 1, clientCapabilities: {}, clientInfo: { name: 'VibeApp', version: '1' } })
+    await request(agent, 'initialize', { protocolVersion: 1, clientCapabilities: {}, clientInfo: { name: 'Starwright', version: '1' } })
   } catch (err) {
     shutDown(agent)
     throw err
@@ -397,7 +397,7 @@ export async function runClineHosted(args: ClineRunArgs, onActivity?: (activity:
     }
     const finishReason = finishFromStop(stopReason)
     if (finishReason === 'completed') return { ...base, finishReason, ok: true }
-    const error = finishReason === 'aborted' && blocked.length ? `VibeApp stopped Cline: ${blocked[blocked.length - 1]}` : `Cline stopped (${stopReason ?? 'no reason given'}).`
+    const error = finishReason === 'aborted' && blocked.length ? `Starwright stopped Cline: ${blocked[blocked.length - 1]}` : `Cline stopped (${stopReason ?? 'no reason given'}).`
     return { ...base, finishReason, ok: false, error }
   } catch (err) {
     // The session couldn't start: the one-off run gets a go.

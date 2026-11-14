@@ -48,7 +48,7 @@ function FolderBrowser({ purpose, onChoose, onClose }: FolderBrowserProps) {
 
   return (
     <Modal title={purpose === 'open' ? 'Open a folder' : 'Create a new project'} onClose={onClose} wide>
-      <p className="modal-muted">Folders on the computer running VibeApp.</p>
+      <p className="modal-muted">Folders on the computer running Starwright.</p>
       <div className="folder-path">{path || 'Choose a place to start'}</div>
       <ul className="folder-list">
         {parent !== null && (

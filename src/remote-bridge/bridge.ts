@@ -61,7 +61,7 @@ function connect(): void {
   }
   ws.onclose = (event) => {
     socket = null
-    for (const p of pending.values()) p.reject(new Error('The connection to VibeApp was lost.'))
+    for (const p of pending.values()) p.reject(new Error('The connection to Starwright was lost.'))
     pending.clear()
     if (event.code === 4401) {
       location.href = '/login'
@@ -73,7 +73,7 @@ function connect(): void {
         if (r.status === 401) location.href = '/login'
       })
       .catch(() => undefined)
-    banner('Reconnecting to VibeApp…')
+    banner('Reconnecting to Starwright…')
     setTimeout(connect, backoff)
     backoff = Math.min(backoff * 2, 10_000)
   }

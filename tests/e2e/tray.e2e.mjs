@@ -28,7 +28,7 @@ const BROWSER_DEBUG = PORT + 601
 const NTFY_PORT = PORT + 602
 
 const packaged = process.argv.includes('--packaged')
-const exe = join(root, 'release', 'win-unpacked', 'VibeApp.exe')
+const exe = join(root, 'release', 'win-unpacked', 'Starwright.exe')
 if (!packaged && !process.argv.includes('--no-build')) {
   console.log('Building the app...')
   const built = spawnSync('npx', ['electron-vite', 'build'], { cwd: root, stdio: 'inherit', shell: true })
@@ -202,7 +202,7 @@ try {
     await until(async () => (await fetch(`http://127.0.0.1:${PORT}/login`)).status === 200, 'the Remote access server', 60_000)
     await sleep(4000)
     if ((await appWindows()).length) throw new Error('a window opened')
-    await until(async () => /Open VibeApp/.test(trayMenu()) && /Remote access: on · 0 connected/.test(trayMenu()), 'the tray menu', 15_000)
+    await until(async () => /Open Starwright/.test(trayMenu()) && /Remote access: on · 0 connected/.test(trayMenu()), 'the tray menu', 15_000)
     if (!/Copy pairing code \(\d{6}\)/.test(trayMenu())) throw new Error(`no pairing code in the menu: ${trayMenu()}`)
   })
 
@@ -280,7 +280,7 @@ try {
     await sleep(3000)
     if (appExited) throw new Error('VibeApp quit when the window closed')
     if ((await fetch(`http://127.0.0.1:${PORT}/login`)).status !== 200) throw new Error('Remote access stopped')
-    if (!/Open VibeApp/.test(trayMenu())) throw new Error('the tray menu is gone')
+    if (!/Open Starwright/.test(trayMenu())) throw new Error('the tray menu is gone')
   })
   await step('restoring a backup restarts VibeApp with the data as it was', async () => {
     await browser.evaluate(`window.vibe.todos.add('${PROJECT_ID}', 'Made before the backup')`)

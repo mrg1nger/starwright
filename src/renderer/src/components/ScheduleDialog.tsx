@@ -296,8 +296,8 @@ function ScheduleDialog({ project, onClose, onError, focusId }: ScheduleDialogPr
         </label>
 
         <p className="modal-muted">
-          Schedules run while VibeApp is running on this computer (in the tray is enough). One that was missed while it was off runs when
-          VibeApp starts, if it&apos;s less than 3 hours late. If the project is busy, it waits its turn.
+          Schedules run while Starwright is running on this computer (in the tray is enough). One that was missed while it was off runs when
+          Starwright starts, if it&apos;s less than 3 hours late. If the project is busy, it waits its turn.
         </p>
         <div className="modal-actions">
           <button className="modal-primary" disabled={saving} onClick={save}>

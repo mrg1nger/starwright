@@ -117,7 +117,7 @@ test('refused: paths outside the project, destructive commands, pushing, .git', 
   assert.equal(result.blocked.length, 5, result.blocked.join(' | '))
   assert.equal(existsSync(join(tmpdir(), 'evil.txt')), false)
   const toolResults = requests.at(-1)!.messages.filter((m) => m.role === 'tool').map((m) => m.content)
-  assert.ok(toolResults.every((t) => t.startsWith('BLOCKED by VibeApp')), toolResults.join(' | '))
+  assert.ok(toolResults.every((t) => t.startsWith('BLOCKED by Starwright')), toolResults.join(' | '))
 })
 
 test('write_file creates folders; a missing file to edit says to use write_file', async () => {

@@ -28,7 +28,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 // ---- setup ----------------------------------------------------------------------
 
-const exe = join(root, 'release', 'win-unpacked', 'VibeApp.exe')
+const exe = join(root, 'release', 'win-unpacked', 'Starwright.exe')
 if (packaged && !existsSync(exe)) {
   console.error(`No packaged app at ${exe}. Run \`npm run package\` first.`)
   process.exit(1)
@@ -302,7 +302,7 @@ try {
   })
 
   await step('after an update, VibeApp says so once', async () => {
-    await waitFor(`/VibeApp was updated to [\\d.]+ \\(from 0\\.0\\.1\\)/.test(document.querySelector('.update-banner')?.innerText ?? '')`, 'the "updated" note', 10_000)
+    await waitFor(`/Starwright was updated to [\\d.]+ \\(from 0\\.0\\.1\\)/.test(document.querySelector('.update-banner')?.innerText ?? '')`, 'the "updated" note', 10_000)
     await click('OK', '.update-banner button')
     await waitFor(`!document.querySelector('.update-banner')`, 'the note to go', 5000)
     const saved = JSON.parse(readFileSync(join(data, 'settings.json'), 'utf-8'))
@@ -1157,7 +1157,7 @@ try {
     await idle(300_000)
     const added = transcriptText().slice(before)
     if (!/gh repo delete/.test(added)) throw new Error("Claude didn't try the command, so the block wasn't exercised")
-    if (!/VibeApp doesn't let Claude do this/.test(added)) throw new Error('the command was not blocked')
+    if (!/Starwright doesn't let Claude do this/.test(added)) throw new Error('the command was not blocked')
   })
 
   await step('GitHub: "Get a project from GitHub" asks to sign in first when GitHub isn\'t signed in', async () => {
@@ -1204,10 +1204,10 @@ try {
     try {
       writeFileSync(switchFile, '99.0.0')
       await evaluate(`window.vibe.update.check()`)
-      await waitFor(`(${banner}).includes('VibeApp 99.0.0 is available')`, 'the update banner', 10_000)
+      await waitFor(`(${banner}).includes('Starwright 99.0.0 is available')`, 'the update banner', 10_000)
       await shot('update-banner')
       const link = await evaluate(`[...document.querySelectorAll('.update-banner a')].find((a) => a.textContent.includes("What's new"))?.href`)
-      if (link !== 'https://github.com/mrg1nger/VibeApp/releases/tag/v99.0.0') throw new Error(`What's new goes to ${link}`)
+      if (link !== 'https://github.com/mrg1nger/starwright/releases/tag/v99.0.0') throw new Error(`What's new goes to ${link}`)
       // Skip: gone, remembered, and Settings can bring it back.
       await click('Skip this version', '.update-banner button')
       await waitFor(`!document.querySelector('.update-banner')`, 'the banner to go after Skip', 5000)
@@ -1225,9 +1225,9 @@ try {
       // A newer one shows again; Update downloads and installs (the test app only pretends to).
       writeFileSync(switchFile, '99.1.0')
       await evaluate(`window.vibe.update.check()`)
-      await waitFor(`(${banner}).includes('VibeApp 99.1.0 is available')`, 'the banner for a newer version', 10_000)
+      await waitFor(`(${banner}).includes('Starwright 99.1.0 is available')`, 'the banner for a newer version', 10_000)
       await click('Update and restart', '.update-banner button')
-      await waitFor(`(${banner}).includes('Installing VibeApp 99.1.0')`, 'the download and install', 10_000)
+      await waitFor(`(${banner}).includes('Installing Starwright 99.1.0')`, 'the download and install', 10_000)
       await waitFor(`!document.querySelector('.update-banner')`, 'the banner to clear', 10_000)
     } finally {
       rmSync(switchFile, { force: true })

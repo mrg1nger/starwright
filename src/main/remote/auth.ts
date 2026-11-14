@@ -162,7 +162,7 @@ export function pair(
       data.pairingCode = newCode()
       write(data)
     }
-    throw new PairingError("That code isn't right. Check the code in VibeApp's Settings.", 401)
+    throw new PairingError("That code isn't right. Check the code in Starwright's Settings.", 401)
   }
   failures.delete(address)
   const token = randomBytes(32).toString('base64url')
@@ -309,8 +309,8 @@ export function checkRemoteCall(channel: string, args: unknown[], readOnly: bool
     return {
       allowed: false,
       reason: channel.startsWith('vibe:update:')
-        ? 'Updates are installed on the computer running VibeApp.'
-        : 'Remote access settings can only be changed on the computer running VibeApp.'
+        ? 'Updates are installed on the computer running Starwright.'
+        : 'Remote access settings can only be changed on the computer running Starwright.'
     }
   }
   if (readOnly && !READ_CHANNELS.has(channel)) {

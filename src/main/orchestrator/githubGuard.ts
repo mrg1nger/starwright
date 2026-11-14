@@ -28,5 +28,5 @@ export function githubDanger(command: string): string | null {
 }
 
 export function githubDenyReason(what: string): string {
-  return `VibeApp doesn't let Claude do this: ${what}. It's the user's own GitHub account, so this stays with them. Don't try another way round it. If it's really needed, explain in plain words what you wanted to do and why, and they can do it on github.com themselves.`
+  return `Starwright doesn't let Claude do this: ${what}. It's the user's own GitHub account, so this stays with them. Don't try another way round it. If it's really needed, explain in plain words what you wanted to do and why, and they can do it on github.com themselves.`
 }

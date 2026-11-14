@@ -133,7 +133,7 @@ function App() {
           </button>
         </div>
         {window.vibe.host === 'browser' ? (
-          <span className="remote-indicator" title="You're using VibeApp through Remote access">📡 Remote</span>
+          <span className="remote-indicator" title="You're using Starwright through Remote access">📡 Remote</span>
         ) : (
           remoteOnline !== null && (
             <button

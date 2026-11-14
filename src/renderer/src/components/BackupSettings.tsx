@@ -42,7 +42,7 @@ function BackupSettings({ settings, onSettingsChange, onError }: BackupSettingsP
   const restore = (path: string, when: string): void => {
     if (
       !window.confirm(
-        `Restore VibeApp's data from the backup of ${when}?\n\nYour memory, chats, notes, settings and secrets go back to how they were then. Your current data is backed up first, so you can undo this by restoring that. VibeApp restarts to finish.`
+        `Restore Starwright's data from the backup of ${when}?\n\nYour memory, chats, notes, settings and secrets go back to how they were then. Your current data is backed up first, so you can undo this by restoring that. Starwright restarts to finish.`
       )
     ) {
       return
@@ -55,7 +55,7 @@ function BackupSettings({ settings, onSettingsChange, onError }: BackupSettingsP
       <label className="settings-toggle">
         <input type="checkbox" checked={settings.backupDaily} onChange={(e) => onSettingsChange({ backupDaily: e.target.checked }).catch(() => undefined)} />
         <span>
-          Back up VibeApp's data every day
+          Back up Starwright's data every day
           <small>
             Memory, chat history, to-dos and notes, settings, secrets, deploy steps, extensions and themes: everything that isn't in
             your project's own files. Your code is in git; this is what would be lost with this computer's disk. The newest{' '}
@@ -108,9 +108,9 @@ function BackupSettings({ settings, onSettingsChange, onError }: BackupSettingsP
       )}
 
       <details className="backup-list">
-        <summary>Move VibeApp to another computer (export / import)</summary>
+        <summary>Move Starwright to another computer (export / import)</summary>
         <p className="review-muted">
-          Export makes a backup in any folder (a USB stick, say). On the other computer, install VibeApp, then restore from that
+          Export makes a backup in any folder (a USB stick, say). On the other computer, install Starwright, then restore from that
           folder here. Secrets and extension keys are locked to this Windows account, so on a new computer you'll need to enter them
           again; devices for Remote access pair again too.
         </p>
@@ -121,7 +121,7 @@ function BackupSettings({ settings, onSettingsChange, onError }: BackupSettingsP
           </button>
         </div>
         <div className="backup-path-row">
-          <input value={restoreFrom} placeholder="A backup folder to restore, e.g. E:\VibeApp backup 2026-10-26 …" onChange={(e) => setRestoreFrom(e.target.value)} />
+          <input value={restoreFrom} placeholder="A backup folder to restore, e.g. E:\Starwright backup 2026-10-26 …" onChange={(e) => setRestoreFrom(e.target.value)} />
           <button disabled={!!working || !restoreFrom.trim()} onClick={() => restore(restoreFrom.trim(), 'that folder')}>
             Restore
           </button>

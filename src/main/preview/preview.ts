@@ -31,7 +31,7 @@ function planPreview(projectPath: string): PlannedCommand | string {
     try {
       pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'))
     } catch {
-      return "package.json couldn't be read, so VibeApp can't tell how to start this app."
+      return "package.json couldn't be read, so Starwright can't tell how to start this app."
     }
     const hasDeps =
       Object.keys(pkg.dependencies ?? {}).length + Object.keys(pkg.devDependencies ?? {}).length > 0
