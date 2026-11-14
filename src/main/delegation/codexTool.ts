@@ -6,6 +6,7 @@ import * as z from 'zod/v4'
 import { codexReport, runCodexExec, type CodexExecArgs, type CodexExecResult } from '../cli/codexExec'
 import { runCline } from '../cli/clineExec'
 import { clineModelFor } from '../cli/clineAcp'
+import { runLocalAgent } from '../local/localAgent'
 import { progressNote } from '../cli/codexActivity'
 import { getSettings } from '../settings/store'
 import { memoryDb } from '../memory/paths'
@@ -45,6 +46,9 @@ const HANDOFF_TIMEOUT_MS = 15 * 60_000
 
 /** Ahead of every Cline hand-off: what VibeApp expects of it. */
 const CLINE_INSTRUCTIONS = `You are working for Claude inside VibeApp, on the user's project in the current folder. Do the task below completely, then check it the way the task says (run the tests it names), and finish with a short report: what you changed, file by file, and how the checks went. Stay inside the project folder. Some things are refused by VibeApp (deleting folders, pushing, anything outside the project): if a command comes back "BLOCKED by VibeApp", don't try another way, just say in your report what was needed. You share a memory with Claude through the vibe_memory tools: recall searches it, where finds which file holds something, handoffs shows earlier hand-offs. Don't save facts unless the task asks you to.`
+
+/** Most memory context sent with a local-model hand-off (its room is limited). */
+const LOCAL_CONTEXT_CHARS = 6000
 
 /** Longest summary returned to Claude; the full report is kept for the handoffs tool. */
 const SUMMARY_CHARS = 1500
@@ -424,6 +428,59 @@ export function createCodexDelegationServer(
               }
             })
           })
+      ),
+      tool(
+        'run_local_subtask',
+        "Delegate a scoped coding subtask to the local model: VibeApp's own coding agent on the open-weight model the user runs in LM Studio on this computer. It's free (no plan is used) and nothing leaves the computer, but it's slower than Codex and less capable on hard work. Best for straightforward, well-specified work: a clear change in named files, a bug with a failing test, boilerplate, tests for existing code. Keep tricky or wide-reaching work with Codex or yourself. Say what to do, which files, what \"done\" looks like and how to check it (the tests to run). It can list, read, search, edit and write files and run commands, only inside the project (VibeApp refuses deleting folders, pushing and anything outside). The result is its report, the files changed (with a small diff) and the automatic checks. Hand-offs run one at a time.",
+        {
+          prompt: z.string().describe('The subtask instructions for the local model to carry out.'),
+          timeoutMs: z.number().optional().describe('Optional timeout in milliseconds. Defaults to 15 minutes.')
+        },
+        (args) =>
+          oneAtATime(() => {
+            const signal = getStopSignal?.()
+            const request = getRequestContext?.()
+            return handOff('Local model', args.prompt, async () => {
+              if (!getSettings().localHandoffs) {
+                return { report: "Hand-offs to the local model are switched off in VibeApp's Settings. Do the work yourself or hand it to Codex.", ok: false }
+              }
+              const context = memory ? await attemptLater(() => handoffContext(memory.projectId, args.prompt, request)) : undefined
+              // Kept short: the local model's room is limited, and the task matters most.
+              const background = [
+                memory ? `Key facts:\n${currentKeyFacts(memory.projectId) ?? '(none yet)'}` : undefined,
+                memory ? attempt(() => briefBlock(memory.projectId)) : undefined,
+                context
+              ]
+                .filter(Boolean)
+                .join('\n\n')
+                .slice(0, LOCAL_CONTEXT_CHARS)
+              const task = [background ? `Background on the project (from VibeApp's memory):\n${background}` : undefined, `Task from Claude:\n${args.prompt}`]
+                .filter(Boolean)
+                .join('\n\n')
+              const result = await runLocalAgent({
+                task,
+                cwd: projectPath,
+                goNutz: isGoNutzMode(),
+                signal,
+                timeoutMs: args.timeoutMs ?? HANDOFF_TIMEOUT_MS,
+                onActivity: (activity) => {
+                  onActivity?.(activity)
+                  const note = progressNote(activity)
+                  if (note) onProgress(note)
+                }
+              })
+              recordUsage(memory?.projectId, 'handoff', 'lmstudio', result.usage)
+              if (signal?.aborted) throw new Error('The local model run was cancelled')
+              const blocked = result.blocked.length
+                ? `\n[VibeApp refused ${result.blocked.length === 1 ? 'one thing' : `${result.blocked.length} things`} the local model tried: ${[...new Set(result.blocked)].join('; ')}. If it's needed, ask the user or do it yourself.]`
+                : ''
+              const failed = result.ok || !result.text || !result.error ? '' : `\n[${result.error}]`
+              return {
+                report: `${result.text || result.error || '(The local model finished with no report.)'}${failed}\n[${result.model ?? 'local model'}, ${result.steps} steps]${blocked}`,
+                ok: result.ok
+              }
+            })
+          })
       )
     ]
   })
@@ -433,7 +490,7 @@ export function createCodexDelegationServer(
    * files changed (and a diff) come back to Claude, and the automatic checks.
    */
   async function handOff(
-    agent: 'Codex' | 'Cline',
+    agent: 'Codex' | 'Cline' | 'Local model',
     prompt: string,
     execute: () => Promise<{ report: string; ok: boolean }>
   ): Promise<{ content: { type: 'text'; text: string }[]; isError: boolean }> {
@@ -442,7 +499,7 @@ export function createCodexDelegationServer(
     const projectId = memory?.projectId
 
     const handoffId = projectId
-      ? attempt(() => startHandoff(memoryDb(), projectId, agent.toLowerCase(), prompt, request?.text ?? null))
+      ? attempt(() => startHandoff(memoryDb(), projectId, agent === 'Local model' ? 'local' : agent.toLowerCase(), prompt, request?.text ?? null))
       : undefined
     const before = await takeSnapshot(projectPath, 'before hand-off').catch(() => undefined)
 
@@ -495,7 +552,7 @@ export function createCodexDelegationServer(
         full.length > SUMMARY_CHARS
           ? `${full.slice(0, SUMMARY_CHARS)}\n… (shortened; the full report is saved: handoffs tool, id ${handoffId ?? '?'})`
           : full
-      const parts = [`${agent === 'Codex' ? 'Hand-off' : 'Cline hand-off'}${handoffId !== undefined ? ` #${handoffId}` : ''}`]
+      const parts = [`${agent === 'Codex' ? 'Hand-off' : `${agent} hand-off`}${handoffId !== undefined ? ` #${handoffId}` : ''}`]
       if (changes) parts.push(changes.length ? `files changed: ${describeChanges(changes)}` : 'no files changed')
       const lines = [summary, `[${parts.join(' · ')}]`]
       if (checks) lines.push(`[${checks}]`)

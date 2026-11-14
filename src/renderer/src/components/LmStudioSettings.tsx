@@ -89,6 +89,23 @@ function LmStudioSettings({ settings, onSettingsChange }: LmStudioSettingsProps)
         </span>
       </label>
 
+      <label className="settings-toggle">
+        <input
+          type="checkbox"
+          checked={settings.localHandoffs}
+          onChange={(e) => onSettingsChange({ localHandoffs: e.target.checked }).catch(() => undefined)}
+        />
+        <span>
+          Claude can hand coding work to LM Studio
+          <small>
+            Straightforward, well-specified work can go to VibeApp's own coding agent on this model, for free, instead
+            of Codex or Cline. The model can only list, read, search, edit and write files and run commands, and VibeApp
+            carries out each one itself, only inside the project: deleting folders, pushing and anything outside it are
+            refused. Codex reviews what it changed. It's slower than Codex; give the model 32k or more of context.
+          </small>
+        </span>
+      </label>
+
       <label className="settings-field">
         <span>Server address</span>
         <input value={url} placeholder="http://localhost:1234" onChange={(e) => setUrl(e.target.value)} onBlur={saveUrl} />
@@ -101,7 +118,7 @@ function LmStudioSettings({ settings, onSettingsChange }: LmStudioSettingsProps)
 
       {status?.running && models.length > 0 && (
         <label className="settings-field">
-          <span>Model for background jobs</span>
+          <span>Model</span>
           <select
             value={chosen ?? ''}
             onChange={(e) => {

@@ -46,6 +46,7 @@ const ACTING_VIBE_TOOLS: Record<string, string> = {
   run_deploy: 'run the Deploy',
   run_codex_subtask: 'hand work to Codex',
   run_cline_subtask: 'hand work to Cline',
+  run_local_subtask: 'hand work to the local model',
   install_extension: 'install a tool'
 }
 

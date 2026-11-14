@@ -2,6 +2,15 @@
 
 The version goes up with each improvement that ships: the middle number for new features, the last for fixes only. Settings shows the version a computer is running.
 
+## 0.10.0 (2026-11-14)
+
+**Coding hand-offs to the local model.** Claude can hand straightforward coding work to VibeApp's own coding agent running on the model in LM Studio: free, and nothing leaves the computer.
+- **Turn it on** in Settings → LM Studio → "Claude can hand coding work to LM Studio" (off until you do). Claude is told it's there on requests where it might hand work off, and that it suits simple, well-specified jobs.
+- **Controlled by VibeApp.** The model can only ask for six things: list, read, search, edit or write files, and run a command. VibeApp carries out each one itself, only inside the project: deleting folders, pushing and anything outside the project are refused, as for Cline.
+- **Like the other hand-offs:** its steps show live in the chat ("Local model is working"); Claude gets back its report, the files changed with a diff, and the automatic checks; Codex reviews the change; and it's logged as LM Studio usage (free) in the usage report.
+- **Built for a local model:** short instructions, edits that still apply when the model copies text with different line endings or spaces, older tool output trimmed when the conversation fills the model's context, and a stop when it repeats itself or runs out of steps. Thinking is off (the same score at about twice the speed).
+- Tested: Qwen3.6 35B-A3B in LM Studio (RTX 4060, 8 GB) passed all five coding tasks of the hand-off eval twice (fixing a bug, adding a feature, a rename across files, a feature over three files, and a bug that isn't where the failing test points), about 24 s per task. A real Claude session handed it a task and got the change back in 21 s. Codex on LM Studio was tried first and doesn't work with this model.
+
 ## 0.9.0 (2026-11-13)
 
 **LM Studio: VibeApp's background jobs on a model on your own computer.**

@@ -1,0 +1,42 @@
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { existsSync } from 'fs'
+import { join } from 'path'
+import type { VibeEvent } from '@shared/types'
+import { forgetLmStudioStatus, lmStudioStatus } from '../../src/main/cli/lmStudio'
+import { memoryDb } from '../../src/main/memory/paths'
+import { usageSummary } from '../../src/main/memory/store'
+import { updateSettings } from '../../src/main/settings/store'
+import { makeProject, projectId, testSession, turn } from '../support/fixtures'
+
+// The local model (VibeApp's own coding agent on LM Studio) taking a hand-off from
+// a real Claude session. Needs LM Studio's server running with a model loaded;
+// skipped otherwise. Claude (Haiku) spends a little plan; the local model nothing.
+
+const MINUTES = 60_000
+
+test('Claude hands a task to the local model and gets back the files changed', { timeout: 15 * MINUTES }, async (t) => {
+  const status = await lmStudioStatus('http://localhost:1234')
+  if (!status.running || !status.models.some((m) => m.loaded)) return t.skip('LM Studio is not running with a model loaded')
+  updateSettings({ claudeModel: 'haiku', autoMemory: false, localHandoffs: true, lmStudioUrl: 'http://localhost:1234', lmStudioModel: null })
+  forgetLmStudioStatus()
+  const pid = projectId('local-handoff')
+  const since = new Date(Date.now() - 1000).toISOString()
+  const dir = makeProject()
+  const s = testSession(t, pid, dir)
+  const events = await turn(
+    s,
+    'Use the run_local_subtask tool (do not edit any files yourself) to have the local model create util.js exporting a function add(a, b) that returns their sum. Then reply DONE.',
+    14 * MINUTES
+  )
+  const call = events.find((e) => e.type === 'tool_call' && e.name === 'mcp__vibe_tools__run_local_subtask') as Extract<VibeEvent, { type: 'tool_call' }> | undefined
+  assert.ok(call, 'Claude called run_local_subtask')
+  const result = events.find((e) => e.type === 'tool_result' && e.toolUseId === call.toolUseId) as Extract<VibeEvent, { type: 'tool_result' }> | undefined
+  const text = Array.isArray(result?.raw) ? (result!.raw as { text?: string }[]).map((b) => b.text ?? '').join('\n') : String(result?.summary)
+  assert.match(text, /Local model hand-off.*files changed: .*util\.js/s, text)
+  assert.ok(existsSync(join(dir, 'util.js')))
+  const add = require(join(dir, 'util.js')) as { add?: (a: number, b: number) => number } | ((a: number, b: number) => number)
+  assert.equal(typeof add === 'function' ? add(2, 3) : add.add?.(2, 3), 5)
+  assert.ok(events.some((e) => e.type === 'delegation_activity'), "the local model's steps reached the chat")
+  assert.ok(usageSummary(memoryDb(), since, pid).some((r) => r.kind === 'handoff (lmstudio)'), 'logged as LM Studio usage')
+})

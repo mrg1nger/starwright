@@ -1045,7 +1045,7 @@ export function registerIpcHandlers(getSender: () => WebContents | undefined): v
       await setModelForAllSessions(next.claudeModel)
     }
     if ('remoteAccess' in patch || 'remotePort' in patch) await applyRemoteSettings()
-    if ('lmStudioHelpers' in patch || 'lmStudioUrl' in patch || 'lmStudioModel' in patch) forgetLmStudioStatus()
+    if ('lmStudioHelpers' in patch || 'lmStudioUrl' in patch || 'lmStudioModel' in patch || 'localHandoffs' in patch) forgetLmStudioStatus()
     // Every other window (the app, remote browsers) shows the change too, or
     // each kept showing what it loaded (the slider said "Auto" on one screen
     // and "Codex-led" on another).

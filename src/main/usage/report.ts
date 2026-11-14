@@ -38,6 +38,7 @@ const STEP_LABELS: Record<StepKind, string> = {
   browser: 'browser checks',
   handoff: 'hand-offs to Codex',
   cline: 'hand-offs to Cline',
+  local: 'hand-offs to the local model',
   deploy: 'saved Deploy',
   progress: 'plan ticks',
   memory: 'memory',
@@ -178,6 +179,12 @@ export function buildReport(input: {
       `- After handing off, Claude still edited files in ${after('edit')}, checked in a browser in ${after('browser')}, ran server commands in ${after('server')} and local commands in ${after('command')}.`,
       `- Claude's share of the work there: ${stepMix(Object.fromEntries(Object.entries(handedOff.reduce<Record<string, number>>((acc, r) => (addTools(acc, r.tools), acc), {})).filter(([kind]) => kind !== 'handoff')))}`,
       `- Codex tokens per hand-off request: ${k(sum(handedOff.map((r) => weight(r.codex))) / Math.max(1, handedOff.length))}; Claude's: ${k(sum(handedOff.map(reqWeight)) / Math.max(1, handedOff.length))}.`
+    )
+  }
+  const toLocal = requests.filter((r) => (r.tools.local ?? 0) > 0)
+  if (toLocal.length) {
+    lines.push(
+      `- Local model: ${toLocal.length} request${toLocal.length === 1 ? '' : 's'} handed work to the local model (${sum(toLocal.map((r) => r.tools.local ?? 0))} hand-offs, free; Claude's per request there: ${k(sum(toLocal.map(reqWeight)) / toLocal.length)}).`
     )
   }
   const toCline = requests.filter((r) => (r.tools.cline ?? 0) > 0)

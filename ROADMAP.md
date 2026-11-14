@@ -10,6 +10,11 @@ Everything recommended so far, in one place. Tick items off as they ship.
 
 ## Bigger features
 
+- [ ] **Local model for coding hand-offs (0.10.0 shipped the first version).** VibeApp's own coding agent on the LM Studio model (`src/main/local/localAgent.ts`): six tools (list, read, search, edit, write, run a command) that VibeApp carries out itself, behind the same safety rules as Cline's runs; Claude calls it with `run_local_subtask`; Codex reviews the result. Off by default (Settings → LM Studio).
+  - Why our own loop: Codex on LM Studio (`codex exec --oss --local-provider lmstudio`, 0.158.0) failed every request on Qwen3.6: Codex sends system messages mid-conversation and Qwen's chat template refuses them ("System message must be at the beginning"). Cline on LM Studio is untried.
+  - Eval (`npm run eval -- local-coding`, the five shared coding tasks): Qwen3.6 35B-A3B on an RTX 4060 (8 GB) with 32 GB RAM, 2026-11-14: 10/10 over two runs with thinking off, 24 s and 6 steps per task. With thinking on, the same score at 72 s per task, so it's off. (A first run showed 4/5: the fifth task's test script was broken, not the model.) Claude handing it a task in a real session: 21 s end to end.
+  - Still open: watch real use (usage report → "Local model") before routing more to it; the local model as the last takeover when Claude, Codex and Cline are all out; giving it VibeApp's memory tools; trying other models (the eval takes any loaded model).
+
 - [x] **Cline as a third agent (ClinePass).** Add the Cline CLI alongside Claude and Codex, signed in with a ClinePass subscription ($9.99/month flat, open-weight models such as Qwen, GLM, Kimi and DeepSeek, its own 5-hour/weekly/monthly limits, separate from the Claude and Codex plans). What it would add:
   - a cheap place for straightforward implementation work Claude would otherwise spend its own plan on;
   - a more independent second reviewer (a different model family from Claude and Codex);
@@ -131,7 +136,7 @@ Everything recommended so far, in one place. Tick items off as they ship.
       - Facts an agent saves itself during a request (the `remember` tool) are linked only to files they name, not to what the request changed: which of the changed files a fact is about isn't known then.
       - Changes made outside VibeApp (in an editor, a `git pull`) aren't counted, only deletions. Counting them would need the old version of each file kept.
       - The "changed a lot" bar (about the file's own length) and the 60 days / 30 requests aren't measured on real use yet. Worth a look once real projects have a few weeks of links: how many facts get marked, and how many of those the tidy-up retires.
-  - [ ] **Step 4 (0.10.0, memory travels).** Needs its own short plan first.
+  - [ ] **Step 4 (0.11.0, memory travels).** Needs its own short plan first.
     - A readable memory file in the project (this project's facts and brief; never global preferences, never fingerprints), written after changes and sent with the GitHub backup; merged when newer work is picked up on another computer (newest change to a fact wins; forgetting travels too).
     - Off by default, switched on per project; refused or warned for a public repository; the secrets scanner runs over it before every write.
     - Open questions for that plan: the file's format (Markdown you can read against something that merges cleanly), how global preferences get between computers (not through a project), what happens when both computers changed the same fact.

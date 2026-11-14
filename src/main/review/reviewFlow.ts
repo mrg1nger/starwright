@@ -68,7 +68,7 @@ export function handleSessionEvent(
   if (turn && event.type === 'tool_call') {
     if (event.name === 'mcp__vibe_tools__run_codex_subtask') turn.delegated = true
     // Cline's work gets Codex's review like Claude's own: a different agent, so it's independent.
-    else if (event.name === 'mcp__vibe_tools__run_cline_subtask' || EDIT_TOOLS.has(event.name)) turn.claudeEdited = true
+    else if (event.name === 'mcp__vibe_tools__run_cline_subtask' || event.name === 'mcp__vibe_tools__run_local_subtask' || EDIT_TOOLS.has(event.name)) turn.claudeEdited = true
   }
 
   if (event.type !== 'turn_complete' || !turn || turn.phase === 'reviewing') {

@@ -651,8 +651,10 @@ export interface AppSettings {
   lmStudioHelpers: boolean
   /** LM Studio's server address (Developer → Start Server). */
   lmStudioUrl: string
-  /** LM Studio model for background jobs; null = the one loaded now. */
+  /** LM Studio model for background jobs and hand-offs; null = the one loaded now. */
   lmStudioModel: string | null
+  /** Claude may hand coding work to VibeApp's own agent on the LM Studio model. */
+  localHandoffs: boolean
   /** Look for new versions on GitHub Releases (at start and every few hours). */
   updateChecks: boolean
   /** A version the user chose to skip: no banner for it (a newer one still shows). */

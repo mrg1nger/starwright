@@ -9,7 +9,7 @@ interface CodexFeedProps {
   startedAt?: number
   projectPath: string
   /** Who's doing the hand-off (default Codex). */
-  agent?: 'Codex' | 'Cline'
+  agent?: 'Codex' | 'Cline' | 'Local model'
 }
 
 function clock(ms: number): string {

@@ -81,7 +81,7 @@ export function removeRecipe(projectId: string): void {
 }
 
 /** Git Bash (what the agents' commands, and so the saved procedures, are written for). */
-function bashPath(): string | undefined {
+export function bashPath(): string | undefined {
   if (process.platform !== 'win32') return '/bin/bash'
   const roots = [process.env.ProgramFiles, process.env['ProgramFiles(x86)'], process.env.LOCALAPPDATA && join(process.env.LOCALAPPDATA, 'Programs')]
   for (const root of roots) {

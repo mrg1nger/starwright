@@ -70,10 +70,19 @@ export async function lmStudioStatus(url?: string | null): Promise<LmStudioStatu
 // kept briefly so a burst of jobs doesn't probe the server every time.
 let cached: { key: string; at: number; status: LmStudioStatus } | undefined
 
-/** Turned on in Settings, the server is answering, and there's a chat model to use. */
+/** Background jobs on LM Studio: turned on in Settings, the server is answering, and there's a chat model to use. */
 export async function lmStudioReady(): Promise<boolean> {
+  return getSettings().lmStudioHelpers && (await lmStudioAvailable())
+}
+
+/** Coding hand-offs to the local model: the same, with their own switch. */
+export async function localHandoffsReady(): Promise<boolean> {
+  return getSettings().localHandoffs && (await lmStudioAvailable())
+}
+
+/** The server is answering and there's a chat model to use (looked at most every 15-30 s). */
+export async function lmStudioAvailable(): Promise<boolean> {
   const settings = getSettings()
-  if (!settings.lmStudioHelpers) return false
   const key = lmStudioBase(settings.lmStudioUrl)
   const fresh = cached && cached.key === key && Date.now() - cached.at < (cached.status.running ? 30_000 : 15_000)
   if (!fresh) cached = { key, at: Date.now(), status: await lmStudioStatus(key) }

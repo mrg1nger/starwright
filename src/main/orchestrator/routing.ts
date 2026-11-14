@@ -3,6 +3,7 @@ import { claudeHelpersAllowed, peekUsage, percentLeft } from '../usage/usage'
 import { requestClassifier, type Classification } from './classifier'
 import { BALANCE_LABELS, applyBalance, leanFor, stepOfLean } from '@shared/balance'
 import { clineUnavailable, resolveClineLaunch } from '../cli/clineExec'
+import { localHandoffsReady } from '../cli/lmStudio'
 
 export interface RouteDecision {
   /** Model to use for this message; null = the user's chosen model (or account default). */
@@ -56,6 +57,9 @@ const CODEX_LED_NOTE = `The user has set VibeApp to Codex-led: you plan and revi
 const CLINE_OPTION_NOTE =
   "Cline (run_cline_subtask) is also available, on the user's separate ClinePass plan: hand it the simple, well-specified parts (a clear change in named files, boilerplate, tests for existing code) and keep tricky or wide-reaching work with Codex."
 
+const LOCAL_OPTION_NOTE =
+  "The local model (run_local_subtask) is also available: VibeApp's own agent on the model in LM Studio on the user's computer, free and private but slower and less capable. Hand it simple, well-specified parts (a clear change in named files, a bug with a failing test, boilerplate, tests for existing code), with the tests to run."
+
 /** Whether Claude may hand work to Cline right now: switched on, installed, and not out of plan. */
 export async function clineReadyForHandoffs(settings: AppSettings): Promise<boolean> {
   if (!settings.clineHandoffs || clineUnavailable()) return false
@@ -78,6 +82,8 @@ export async function routeMessage(
     notQuick?: boolean
     /** Whether Cline can take hand-offs (looked up when not given). */
     clineReady?: boolean
+    /** Whether the local model can take hand-offs (looked up when not given). */
+    localReady?: boolean
   } = {}
 ): Promise<RouteDecision> {
   // Smart switching off means no model changes and no Haiku judge, but the
@@ -111,28 +117,31 @@ export async function routeMessage(
 
   // Cline (a third agent on its own ClinePass plan), when it's set up for hand-offs.
   const cline = request.size !== 'quick' && (context.clineReady ?? (await clineReadyForHandoffs(settings)))
+  // The local model (VibeApp's own agent on LM Studio), when it's switched on and LM Studio is up.
+  const local = request.size !== 'quick' && (context.localReady ?? (await localHandoffsReady()))
+  const helperNotes = (): string[] => [...(cline ? [CLINE_OPTION_NOTE] : []), ...(local ? [LOCAL_OPTION_NOTE] : [])]
 
   const notes: string[] = []
   if (codexLow) {
     notes.push(
-      cline
-        ? `Codex plan usage is nearly used up (${Math.round(codexLeft)}% left). Don't delegate to Codex for this request: hand straightforward, well-specified implementation to Cline with run_cline_subtask (its own plan), and do the tricky parts yourself.`
+      cline || local
+        ? `Codex plan usage is nearly used up (${Math.round(codexLeft)}% left). Don't delegate to Codex for this request: hand straightforward, well-specified implementation to ${[cline ? 'Cline with run_cline_subtask (its own plan)' : '', local ? 'the local model with run_local_subtask (free)' : ''].filter(Boolean).join(' or ')}, and do the tricky parts yourself.`
         : `Codex plan usage is nearly used up (${Math.round(codexLeft)}% left). Don't delegate to Codex for this request; do the work yourself.`
     )
   } else if (codex === 'most' && lean >= 2) {
     notes.push(CODEX_LED_NOTE)
-    if (cline) notes.push(CLINE_OPTION_NOTE)
+    notes.push(...helperNotes())
   } else if (codex !== 'none') {
     notes.push(CODEX_NOTES[codex])
     if (lean >= 1) notes.push(CODEX_CHECKS_NOTE)
     if (lean >= 1 && codex === 'some') notes.push('The user prefers that you lean on Codex, so hand that part over.')
     if (claudeLow) notes.push(`Claude plan usage is also low (${Math.round(claudeLeft)}% left), so lean on Codex.`)
-    if (cline) notes.push(CLINE_OPTION_NOTE)
+    notes.push(...helperNotes())
   } else if (lean <= -1 && request.size !== 'quick') {
     notes.push('The user prefers that you do the work yourself rather than hand it to Codex.')
   } else if (claudeLow && codexLeft !== undefined && request.size !== 'quick') {
     notes.push(`Claude plan usage is low (${Math.round(claudeLeft)}% left). Delegate implementation work to Codex with run_codex_subtask wherever it's reasonable, and keep your own work to planning, coordination and review.`)
-    if (cline) notes.push(CLINE_OPTION_NOTE)
+    notes.push(...helperNotes())
   }
   // Checking and saving memory would cost more than a quick edit itself.
   if (request.size === 'quick') {

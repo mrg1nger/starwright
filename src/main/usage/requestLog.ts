@@ -14,6 +14,7 @@ export type StepKind =
   | 'browser' // Playwright: checking the app in a browser
   | 'handoff' // giving work to Codex
   | 'cline' // giving work to Cline
+  | 'local' // giving work to the local model (LM Studio)
   | 'deploy' // the saved Deploy (no AI)
   | 'progress' // ticking off plan steps
   | 'memory' // memory, history, to-dos
@@ -25,6 +26,7 @@ const SERVER_COMMAND = /\b(ssh|scp|rsync|sftp)\b/
 export function stepKind(name: string, input?: unknown): StepKind {
   if (/run_codex_subtask$/.test(name)) return 'handoff'
   if (/run_cline_subtask$/.test(name)) return 'cline'
+  if (/run_local_subtask$/.test(name)) return 'local'
   if (/run_deploy$/.test(name)) return 'deploy'
   if (/plan_progress$/.test(name)) return 'progress'
   if (/playwright|browser_/i.test(name)) return 'browser'

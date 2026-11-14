@@ -979,7 +979,7 @@ try {
     if (JSON.parse(readFileSync(join(data, 'settings.json'), 'utf-8')).clineHelperModel !== null) throw new Error('"Same as hand-offs" was not saved')
   })
 
-  await step('LM Studio in Settings: off at first, finds the server and its models, saves, and the test answers', async () => {
+  await step('LM Studio in Settings: off at first, finds the server and its models, both switches save, and the test answers', async () => {
     const settingsNow = () => JSON.parse(readFileSync(join(data, 'settings.json'), 'utf-8'))
     const panel = `document.querySelector('.lmstudio-settings')`
     await click('Settings', '.app-nav-tabs button')
@@ -991,6 +991,10 @@ try {
     await evaluate(`${panel}.querySelector('input[type=checkbox]').click()`)
     await sleep(800)
     if (settingsNow().lmStudioHelpers !== true) throw new Error('turning it on was not saved')
+    if (settingsNow().localHandoffs !== false) throw new Error('coding hand-offs were on before being turned on')
+    await evaluate(`${panel}.querySelectorAll('input[type=checkbox]')[1].click()`)
+    await sleep(800)
+    if (settingsNow().localHandoffs !== true) throw new Error('turning on coding hand-offs was not saved')
     if (running) {
       const select = `${panel}.querySelector('select')`
       await waitFor(`${select}?.options.length > 1`, 'the LM Studio model menu', 10_000)
@@ -1006,6 +1010,7 @@ try {
     }
     await shot('lmstudio-settings')
     // Back to how the test started.
+    await evaluate(`${panel}.querySelectorAll('input[type=checkbox]')[1].click()`)
     await evaluate(`${panel}.querySelector('input[type=checkbox]').click()`)
     await sleep(800)
   })
