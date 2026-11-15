@@ -21,7 +21,7 @@ function load(projectId: string): Record<string, string> {
   try {
     return JSON.parse(safeStorage.decryptString(readFileSync(file))) as Record<string, string>
   } catch {
-    throw new Error("This project's secrets couldn't be unlocked (were they created by another Windows user?).")
+    throw new Error("This project's secrets were saved on another computer or Windows account, so they can't be opened here. Enter them again, or restore a backup made with a backup password (Settings → Backups).")
   }
 }
 

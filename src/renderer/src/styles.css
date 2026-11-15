@@ -3786,6 +3786,36 @@ textarea {
   min-width: 0;
 }
 
+.backup-actions {
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.backup-password {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 10px 0;
+}
+
+.backup-password small {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.backup-unlock {
+  margin: 8px 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--warning-bg);
+  color: var(--warning-text);
+}
+
+.backup-unlock .modal-text {
+  margin: 0 0 4px;
+  color: inherit;
+}
+
 .phone-setup ol {
   margin: 6px 0;
   padding-left: 20px;

@@ -157,7 +157,8 @@ import {
 } from '../extensions/store'
 import { selfTestServer, type SelfTestProbe } from '../extensions/selftest'
 import { deployEvents, getRecipe, isDeploying, removeRecipe, runDeploy, saveRecipe, stopDeploy, type DeployResult } from '../deploy/deploy'
-import { backupDir, backupNow, defaultBackupDir, listBackups, stageRestore } from '../backup/backup'
+import { backupDir, backupNow, defaultBackupDir, inspectBackup, listBackups, stageRestore } from '../backup/backup'
+import { hasBackupPassword, setBackupPassword } from '../backup/lockedSecrets'
 import { DEFAULT_NTFY_SERVER, newTopic, sendPhoneAlert, topicUrl } from '../notify/phone'
 import { notifyUser } from '../tray'
 import {
@@ -297,11 +298,13 @@ export function registerIpcHandlers(getSender: () => WebContents | undefined): v
     return relocate(projectId, target)
   })
   // Downloads a project whose folder is missing from its GitHub copy, into `parent`, and links it.
-  ipc.handle('vibe:project:redownload', async (_event, projectId: string, parent: string) => {
+  ipc.handle('vibe:project:redownload', async (_event, projectId: string, parent: string, repo?: string) => {
     const project = getProject(String(projectId))
     if (!project) throw new Error("That project isn't in the list any more.")
-    if (!project.githubUrl) throw new Error("Starwright doesn't know a GitHub copy of this project.")
-    const folder = await cloneRepo(project.githubUrl, String(parent ?? ''))
+    // Its own GitHub address when known; otherwise (data from before 0.11.1) the repository the user picked.
+    const source = project.githubUrl || String(repo ?? '').trim()
+    if (!source) throw new Error('Pick the repository this project is on GitHub.')
+    const folder = await cloneRepo(source, String(parent ?? ''))
     return relocate(project.id, folder)
   })
 
@@ -1043,11 +1046,21 @@ export function registerIpcHandlers(getSender: () => WebContents | undefined): v
   })
 
   // Backups of VibeApp's own data.
-  ipc.handle('vibe:backup:status', () => ({ dir: backupDir(), defaultDir: defaultBackupDir(), backups: listBackups() }))
+  ipc.handle('vibe:backup:status', () => ({
+    dir: backupDir(),
+    defaultDir: defaultBackupDir(),
+    backups: listBackups(),
+    passwordSet: hasBackupPassword()
+  }))
+  ipc.handle('vibe:backup:inspect', (_event, path: string) => inspectBackup(String(path ?? '')))
+  ipc.handle('vibe:backup:setPassword', (_event, password: string | null) => {
+    setBackupPassword(typeof password === 'string' ? password : null)
+    return hasBackupPassword()
+  })
   ipc.handle('vibe:backup:now', () => backupNow('manual'))
   ipc.handle('vibe:backup:export', (_event, folder: string) => backupNow('export', String(folder ?? '')))
-  ipc.handle('vibe:backup:restore', (_event, path: string) => {
-    const info = stageRestore(String(path ?? ''))
+  ipc.handle('vibe:backup:restore', (_event, path: string, password?: string) => {
+    const info = stageRestore(String(path ?? ''), typeof password === 'string' && password ? password : undefined)
     // Applied as VibeApp starts again, before anything opens the data.
     setTimeout(() => {
       app.relaunch()

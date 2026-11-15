@@ -19,6 +19,7 @@ import type {
   DeployRecipe,
   DeployEvent,
   BackupInfo,
+  BackupSecrets,
   PickedElement,
   PreviewProblem,
   PreviewState,
@@ -137,9 +138,9 @@ export function createVibeApi(ipcRenderer: IpcLike, host: 'electron' | 'browser'
       /** Points a project at where its folder is now (keeping its memory and history). No folder: a dialog asks (desktop only). */
       relocate: (projectId: string, folder?: string): Promise<ProjectRecord | null> =>
         ipcRenderer.invoke('vibe:project:relocate', projectId, folder),
-      /** Downloads a project whose folder is missing from its GitHub copy into `parent`, and links it. */
-      redownload: (projectId: string, parent: string): Promise<ProjectRecord> =>
-        ipcRenderer.invoke('vibe:project:redownload', projectId, parent)
+      /** Downloads a project whose folder is missing from its GitHub copy (or `repo`, when its address isn't known) into `parent`, and links it. */
+      redownload: (projectId: string, parent: string, repo?: string): Promise<ProjectRecord> =>
+        ipcRenderer.invoke('vibe:project:redownload', projectId, parent, repo)
     },
 
     fs: {
@@ -398,11 +399,16 @@ export function createVibeApi(ipcRenderer: IpcLike, host: 'electron' | 'browser'
     },
 
     backup: {
-      status: (): Promise<{ dir: string; defaultDir: string; backups: BackupInfo[] }> => ipcRenderer.invoke('vibe:backup:status'),
+      status: (): Promise<{ dir: string; defaultDir: string; backups: BackupInfo[]; passwordSet: boolean }> =>
+        ipcRenderer.invoke('vibe:backup:status'),
+      /** What restoring would bring back here: can its secrets be opened on this computer? */
+      inspect: (path: string): Promise<{ info: BackupInfo; secrets: BackupSecrets }> => ipcRenderer.invoke('vibe:backup:inspect', path),
+      /** The backup password (null removes it): backups then carry the secrets locked with it. */
+      setPassword: (password: string | null): Promise<boolean> => ipcRenderer.invoke('vibe:backup:setPassword', password),
       now: (): Promise<BackupInfo> => ipcRenderer.invoke('vibe:backup:now'),
       export: (folder: string): Promise<BackupInfo> => ipcRenderer.invoke('vibe:backup:export', folder),
       /** Puts the backup in place and restarts VibeApp. */
-      restore: (path: string): Promise<BackupInfo> => ipcRenderer.invoke('vibe:backup:restore', path)
+      restore: (path: string, password?: string): Promise<BackupInfo> => ipcRenderer.invoke('vibe:backup:restore', path, password)
     },
 
     phone: {

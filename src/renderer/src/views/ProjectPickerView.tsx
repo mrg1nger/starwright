@@ -120,7 +120,7 @@ function ProjectPickerView({ onOpen, onError, onRemoved }: ProjectPickerViewProp
           <p className="modal-muted">{missing.path}</p>
           <p className="modal-text">
             If it&apos;s somewhere else on this computer, find it. Otherwise
-            {missing.githubUrl ? ' download it from GitHub' : ' copy the folder over first, then find it'}. Either way, its
+            {' download it from GitHub (or copy the folder over, then find it)'}. Either way, its
             memory and history carry on.
           </p>
           {missingError && <p className="chat-error">{missingError}</p>}
@@ -129,12 +129,14 @@ function ProjectPickerView({ onOpen, onError, onRemoved }: ProjectPickerViewProp
               Find it…
               <small>Pick the folder where this project is now.</small>
             </button>
-            {missing.githubUrl && (
-              <button disabled={busy} onClick={() => setRelinking('github')}>
-                Get it from GitHub
-                <small>Download {missing.githubUrl.replace('https://github.com/', '')} and link it.</small>
-              </button>
-            )}
+            <button disabled={busy} onClick={() => setRelinking('github')}>
+              Get it from GitHub
+              <small>
+                {missing.githubUrl
+                  ? `Download ${missing.githubUrl.replace('https://github.com/', '')} and link it.`
+                  : 'Pick its repository, download it and link it.'}
+              </small>
+            </button>
           </div>
           <div className="modal-actions">
             <button

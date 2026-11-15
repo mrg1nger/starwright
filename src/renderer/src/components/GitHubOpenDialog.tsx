@@ -22,7 +22,9 @@ function GitHubOpenDialog({ onOpen, onClose, relink }: GitHubOpenDialogProps) {
   const [terminal, setTerminal] = useState<{ sessionId: string; purpose: 'install' | 'login' } | null>(null)
   const [repos, setRepos] = useState<GitHubRepoInfo[] | null>(null)
   const [filter, setFilter] = useState('')
-  const [picked, setPicked] = useState(relink?.githubUrl ?? '')
+  // A project from before 0.11.1 has no saved GitHub address: the user picks its repository from the list.
+  const known = relink?.githubUrl ?? ''
+  const [picked, setPicked] = useState(known)
   const [folder, setFolder] = useState('')
   const [browsing, setBrowsing] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -42,10 +44,15 @@ function GitHubOpenDialog({ onOpen, onClose, relink }: GitHubOpenDialogProps) {
   }, [loadAccount])
 
   useEffect(() => {
-    if (!account?.loggedIn || relink) return
+    if (!account?.loggedIn || known) return
     window.vibe.github
       .repos()
-      .then(setRepos)
+      .then((list) => {
+        setRepos(list)
+        // Linking a project: its repository is most likely the one with the same name.
+        const same = relink && list.find((r) => r.nameWithOwner.split('/')[1]?.toLowerCase() === relink.name.toLowerCase())
+        if (same) setPicked(same.nameWithOwner)
+      })
       .catch((err) => setError(clean(err)))
   }, [account?.loggedIn])
 
@@ -78,7 +85,11 @@ function GitHubOpenDialog({ onOpen, onClose, relink }: GitHubOpenDialogProps) {
     setBusy(true)
     setError('')
     try {
-      onOpen(relink ? await window.vibe.project.redownload(relink.id, folder) : await window.vibe.github.clone(repo, folder))
+      onOpen(
+        relink
+          ? await window.vibe.project.redownload(relink.id, folder, known ? undefined : repo)
+          : await window.vibe.github.clone(repo, folder)
+      )
     } catch (err) {
       setError(clean(err))
     } finally {
@@ -138,7 +149,7 @@ function GitHubOpenDialog({ onOpen, onClose, relink }: GitHubOpenDialogProps) {
             </button>
           </div>
         </>
-      ) : relink ? (
+      ) : relink && known ? (
         <>
           <p className="modal-text">
             Downloads {repo.replace('https://github.com/', '')} to this computer and links it to “{relink.name}”, so its memory,
@@ -155,8 +166,9 @@ function GitHubOpenDialog({ onOpen, onClose, relink }: GitHubOpenDialogProps) {
       ) : (
         <>
           <p className="modal-muted">
-            Your repositories{account.login ? ` on ${account.login}` : ''}. Pick one to download it here and open it as a
-            project. It keeps itself backed up to GitHub after each request (you can turn that off in Publish).
+            {relink
+              ? `Pick the repository “${relink.name}” is in. It's downloaded here and linked, so its memory, chats, notes and to-dos carry on.`
+              : `Your repositories${account.login ? ` on ${account.login}` : ''}. Pick one to download it here and open it as a project. It keeps itself backed up to GitHub after each request (you can turn that off in Publish).`}
           </p>
           <input
             className="github-filter"
@@ -204,7 +216,7 @@ function GitHubOpenDialog({ onOpen, onClose, relink }: GitHubOpenDialogProps) {
             Cancel
           </button>
           <button className="modal-primary" disabled={busy || !repo || !folder} onClick={download}>
-            {busy ? 'Downloading…' : 'Download & open'}
+            {busy ? 'Downloading…' : relink ? 'Download & link' : 'Download & open'}
           </button>
         </div>
       )}

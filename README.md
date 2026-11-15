@@ -63,7 +63,7 @@ Starwright is for "vibe coding": you describe what you want, watch it appear in 
 - **System tray mode,** Windows notifications and phone alerts (through the free ntfy app).
 - **Updates itself** from GitHub Releases, with a banner to update, skip that version, or not now.
 - **Themes**, including RedAstra (RedAstra Labs' own colours) and a theme generator.
-- **Backups** of Starwright's own data, with restore and export to move to another PC.
+- **Backups** of Starwright's own data, with restore and export to move to another PC. Set a backup password and your secrets come along too.
 
 ---
 

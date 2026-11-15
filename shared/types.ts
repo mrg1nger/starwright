@@ -385,7 +385,15 @@ export interface BackupInfo {
   bytes: number
   computer: string
   appVersion: string
+  /** It holds a copy of the secrets and extension keys locked with the backup password (from 0.11.2). */
+  secretsLocked?: boolean
 }
+
+/**
+ * Whether a backup's secrets can come back on this computer: none to restore; readable here
+ * (made on this computer and Windows account); locked with the backup password; or neither (lost).
+ */
+export type BackupSecrets = 'none' | 'here' | 'locked' | 'lost'
 
 /** One command in a project's deploy recipe, run from the project folder. */
 export interface DeployStep {

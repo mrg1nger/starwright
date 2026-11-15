@@ -2,6 +2,18 @@
 
 The version goes up with each improvement that ships: the middle number for new features, the last for fixes only. Settings shows the version a computer is running. (Starwright was called VibeApp up to 0.10.0.)
 
+## 0.12.0 (2026-11-15)
+
+**Secrets move to a new computer with a backup password.** Secrets and extension keys are locked to the Windows account that saved them, so until now a backup couldn't bring them to another computer.
+- **Set a backup password** in Settings, Backups. Every backup (nightly, by hand or exported) then also carries the secrets and extension keys, locked with that password (AES-256 with a key made from it by scrypt). The password stays on this computer, locked with its Windows key, and never goes in a backup. Backups that carry them say "secrets included".
+- **Restoring on another computer asks for it**, then locks the secrets again with the new computer's key, so they work as before. A wrong password stops the restore before anything changes. Without it (or with no password set), everything else restores and those projects simply ask for their secrets again, instead of showing "couldn't be unlocked".
+- Only Starwright on the computer itself can set the backup password, not a Remote access device.
+- Sign-ins to Claude, Codex and GitHub belong to those tools and are made again on the new computer; Remote access pairings stay with each computer.
+
+**Get it from GitHub for every missing project.** Projects restored from a backup made before 0.11.1 have no saved GitHub address; "Get it from GitHub" now offers them too, with your repository list (the one with the project's name already picked), then downloads it and links it, keeping its memory and history.
+
+Also: two backups made in the same second no longer collide.
+
 ## 0.11.1 (2026-11-14)
 
 **Projects whose folder isn't on this computer** (after restoring a backup made on another computer, or after moving or deleting a folder):

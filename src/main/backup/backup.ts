@@ -2,9 +2,10 @@ import { app } from 'electron'
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'fs'
 import { hostname } from 'os'
 import { join } from 'path'
-import type { BackupInfo } from '@shared/types'
+import type { BackupInfo, BackupSecrets } from '@shared/types'
 import { memoryDb } from '../memory/paths'
 import { getSettings, updateSettings } from '../settings/store'
+import { fitSecretsToThisComputer, inspectSecrets, unlockBackupSecrets, writeLockedSecrets } from './lockedSecrets'
 
 // Backups of VibeApp's own data: the projects' memory, chat history, notes
 // and to-dos, settings, secrets, deploy recipes, extensions and themes. The
@@ -13,7 +14,10 @@ import { getSettings, updateSettings } from '../settings/store'
 // nightly, the newest few kept.
 
 const PREFIX = 'Starwright backup '
-/** What's copied (when present). Remote access pairings and its certificate stay with this computer. */
+/**
+ * What's copied (when present). Remote access pairings and its certificate stay with this computer,
+ * and so does the backup password (backup-key.bin): see lockedSecrets.ts.
+ */
 const FILES = ['settings.json', 'projects.json', 'extensions.json', 'memory-global.json', 'schedules.json']
 const FOLDERS = ['transcripts', 'secrets', 'talk', 'themes', 'deploy', 'extensions', 'attachments', 'memory-projects']
 
@@ -53,7 +57,10 @@ export function backupNow(reason: 'nightly' | 'manual' | 'before restore' | 'exp
   if (backingUp) throw new Error('A backup is already being made.')
   backingUp = true
   const parent = into || backupDir()
-  const dest = join(parent, `${PREFIX}${stamp()}${reason === 'before restore' ? ' (before restore)' : ''}`)
+  const base = join(parent, `${PREFIX}${stamp()}${reason === 'before restore' ? ' (before restore)' : ''}`)
+  // Two in the same second (an export just after another) don't share a folder.
+  let dest = base
+  for (let n = 2; existsSync(dest); n++) dest = `${base} (${n})`
   try {
     mkdirSync(dest, { recursive: true })
     // A consistent copy of the live database (it's in use, and has a write-ahead log beside it).
@@ -67,13 +74,21 @@ export function backupNow(reason: 'nightly' | 'manual' | 'before restore' | 'exp
       const from = join(userData(), name)
       if (existsSync(from)) cpSync(from, join(dest, name), { recursive: true })
     }
+    // With a backup password, the secrets also go in locked with it, so another computer can open them.
+    let secretsLocked = false
+    try {
+      secretsLocked = writeLockedSecrets(dest)
+    } catch (err) {
+      console.warn("The backup's password-locked secrets couldn't be made:", (err as Error).message)
+    }
     const info: BackupInfo = {
       path: dest,
       createdAt: new Date().toISOString(),
       reason,
       bytes: folderSize(dest),
       computer: hostname(),
-      appVersion: app.getVersion()
+      appVersion: app.getVersion(),
+      secretsLocked
     }
     writeFileSync(join(dest, 'backup.json'), JSON.stringify(info, null, 2), 'utf-8')
     if (!into) {
@@ -115,18 +130,32 @@ export function listBackups(parent = backupDir()): BackupInfo[] {
 
 const pendingDir = (): string => join(userData(), 'restore-pending')
 
+function readManifest(path: string): BackupInfo {
+  const manifest = join(path, 'backup.json')
+  if (!existsSync(manifest) || !existsSync(join(path, 'memory.db'))) throw new Error("That folder isn't a Starwright backup.")
+  return { ...(JSON.parse(readFileSync(manifest, 'utf-8')) as BackupInfo), path }
+}
+
+/** What restoring a backup would bring back here, the secrets above all (asked before restoring). */
+export function inspectBackup(path: string): { info: BackupInfo; secrets: BackupSecrets } {
+  return { info: readManifest(path), secrets: inspectSecrets(path) }
+}
+
 /**
  * Restoring replaces the data VibeApp has open (its database above all), so
  * it's staged here and applied at the next start, before anything opens it.
  * The current data is backed up first, so a restore can itself be undone.
+ * password: the backup password, for secrets made on another computer (without it they're left out).
  */
-export function stageRestore(path: string): BackupInfo {
-  const manifest = join(path, 'backup.json')
-  if (!existsSync(manifest) || !existsSync(join(path, 'memory.db'))) throw new Error("That folder isn't a Starwright backup.")
-  const info = JSON.parse(readFileSync(manifest, 'utf-8')) as BackupInfo
+export function stageRestore(path: string, password?: string): BackupInfo {
+  const info = readManifest(path)
+  const secrets = inspectSecrets(path)
+  // A wrong password stops here, before anything is changed.
+  const unlocked = secrets === 'locked' && password ? unlockBackupSecrets(path, password) : null
   backupNow('before restore')
   rmSync(pendingDir(), { recursive: true, force: true })
   cpSync(path, pendingDir(), { recursive: true })
+  fitSecretsToThisComputer(pendingDir(), unlocked)
   return info
 }
 

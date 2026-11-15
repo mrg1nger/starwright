@@ -273,6 +273,7 @@ const READ_CHANNELS = new Set([
   'vibe:github:repos',
   'vibe:github:defaultFolder',
   'vibe:backup:status',
+  'vibe:backup:inspect',
   'vibe:notes:get',
   'vibe:themes:list',
   'vibe:usage:get',
@@ -293,8 +294,9 @@ const READ_CHANNELS = new Set([
 /**
  * Managing Remote access itself stays on the computer, so a remote device can't widen its own access.
  * So does installing an update: it restarts VibeApp, and someone should be at the computer for that.
+ * And the backup password: with it, a backup carries every secret off this computer.
  */
-const DESKTOP_ONLY = /^vibe:remote:(?!previewUrl$)|^vibe:update:install$/
+const DESKTOP_ONLY = /^vibe:remote:(?!previewUrl$)|^vibe:update:install$|^vibe:backup:setPassword$/
 const REMOTE_SETTINGS = ['remoteAccess', 'remotePort', 'remoteReadOnly'] as const
 
 export interface CallCheck {
