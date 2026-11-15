@@ -34,8 +34,8 @@ import {
  * How alike a fact or file must be to a request to be attached to it unasked (1 = means the
  * same): CLOSE on its own, or NEAR when the keyword pre-fetch picked it too. Two signs
  * agreeing can be trusted at a lower bar than one, and how alike "alike" is shifts from
- * project to project. Measured, not guessed: see tests/eval/search.test.ts and ROADMAP.md
- * (Memory v3, Step 2). Otherwise nothing is attached, which is right for "yes please".
+ * project to project. Measured, not guessed: see tests/eval/search.test.ts
+ * (the scores are at its top). Otherwise nothing is attached, which is right for "yes please".
  */
 export const CLOSE = 0.84
 export const NEAR = 0.8

@@ -22,7 +22,7 @@ import { getSettings } from '../settings/store'
 
 // Cline hosted the way editors host it (Zed, JetBrains, Neovim): `cline --acp` keeps
 // running and VibeApp talks to it over the Agent Client Protocol (JSON-RPC on stdio).
-// Found in the trial on cline 3.0.74 (2026-11-10, see ROADMAP):
+// Found in the trial on cline 3.0.74 (2026-11-10):
 // - It starts in about a second; a later hand-off in the same session starts at once
 //   and keeps the conversation (a one-off CLI run starts cold every time).
 // - Every step comes to VibeApp as a permission request with its full input, after

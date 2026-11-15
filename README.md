@@ -242,7 +242,7 @@ tests/              unit, smoke, e2e and eval tests
 patches/            patch-package fixes for dependencies
 ```
 
-[ROADMAP.md](ROADMAP.md) lists what's done, what's planned and the loose ends. [CHANGELOG.md](CHANGELOG.md) lists what changed in each version.
+[CHANGELOG.md](CHANGELOG.md) lists what changed in each version.
 
 ---
 

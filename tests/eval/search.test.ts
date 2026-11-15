@@ -43,7 +43,7 @@ import { FACTS, FACT_QUESTIONS, FILES, FILE_QUESTIONS, OFF_TOPIC, type SearchQue
 //
 // 2026-11-10 (0.5.5, the trial before building search by meaning): keyword 70% (93% of the
 // questions that share a word with their answer, 0% of the 30 that don't). Meaning with a small
-// local model 90-95% (gte-small 93-95%, all-MiniLM-L6-v2 92-93%). Details in ROADMAP.md, Memory v3 Step 2.
+// local model 90-95% (gte-small 93-95%, all-MiniLM-L6-v2 92-93%).
 //
 // 2026-11-10 (0.6.0, search by meaning built in, gte-small): the app's search 93% (78% first;
 // 98% with a shared word, 80% without). Pre-fetch: the right fact or file attached to 38 of 60
