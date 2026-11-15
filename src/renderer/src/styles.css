@@ -201,6 +201,22 @@ button.active,
   color: var(--text-muted);
 }
 
+/* A project whose folder isn't on this computer (after a restore from another one). */
+.project-row.missing .project-name,
+.project-row.missing .project-path {
+  opacity: 0.7;
+}
+
+.project-missing {
+  margin-left: 8px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  font-weight: 500;
+  background: var(--warning-bg);
+  color: var(--warning-text);
+}
+
 .chat-view {
   display: flex;
   flex-direction: column;

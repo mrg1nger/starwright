@@ -2,6 +2,14 @@
 
 The version goes up with each improvement that ships: the middle number for new features, the last for fixes only. Settings shows the version a computer is running. (Starwright was called VibeApp up to 0.10.0.)
 
+## 0.11.1 (2026-11-14)
+
+**Projects whose folder isn't on this computer** (after restoring a backup made on another computer, or after moving or deleting a folder):
+- **Marked in the list** as "Not on this computer". Clicking one no longer opens a project that can't work; it explains, and offers:
+- **Find it…:** pick where the folder is now. The project keeps its memory, chats, notes and to-dos (before, opening it from a different place started it afresh, with its memory left behind under the old one). A folder that is plainly a different GitHub project, or one already in the list, is refused.
+- **Get it from GitHub:** for projects with a GitHub copy, download it and link it in one step. Starwright now notes each project's GitHub address while its folder is here, so this works after a restore.
+- Requests and schedules for a project whose folder is missing stop with a clear message instead of failing partway.
+
 ## 0.11.0 (2026-11-14)
 
 **VibeApp is now Starwright**, a better fit for what it has become: a control center where Claude, Codex, Cline and a local model work on your projects together.

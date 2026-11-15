@@ -38,6 +38,8 @@ export function listProjects(): ProjectRecord[] {
 }
 
 function samePath(a: string, b: string): boolean {
+  // A hand-edited or partly written entry may have no path: it matches nothing.
+  if (!a || !b) return false
   const norm = (p: string): string => p.replace(/[\\/]+$/, '').replace(/\//g, '\\').toLowerCase()
   return norm(a) === norm(b)
 }
@@ -71,6 +73,46 @@ export function recordProjectOpened(path: string): ProjectRecord {
   if (kept) data.removed = data.removed!.filter((r) => r !== kept)
   writeStore(data)
   return record
+}
+
+/**
+ * Points a project at the folder it now lives in (another computer after a restore, or a
+ * moved folder), keeping its id, so its memory, chats, notes and to-dos stay with it.
+ * The old Claude Code session is dropped: it belongs to the old folder (and usually the old computer).
+ */
+export function relocateProject(projectId: string, newPath: string): ProjectRecord {
+  const data = readStore()
+  const project = data.projects.find((p) => p.id === projectId)
+  if (!project) throw new Error("That project isn't in the list any more.")
+  const other = data.projects.find((p) => p.id !== projectId && samePath(p.path, newPath))
+  if (other) {
+    throw new Error(
+      `That folder is already in the list as “${other.name}”. Remove that one from the list first (choose whether to keep or erase its data), then try again.`
+    )
+  }
+  project.path = newPath
+  project.name = newPath.split(/[\\/]/).filter(Boolean).pop() ?? newPath
+  project.lastOpened = new Date().toISOString()
+  delete project.sdkSessionId
+  // A removed project that used this folder must not claim it later.
+  if (data.removed) data.removed = data.removed.filter((r) => !samePath(r.path, newPath))
+  writeStore(data)
+  return project
+}
+
+/** Remembers a project's GitHub address, so it can be downloaded again where its folder is missing. */
+export function setGitHubUrls(urls: Map<string, string>): void {
+  if (!urls.size) return
+  const data = readStore()
+  let changed = false
+  for (const p of data.projects) {
+    const url = urls.get(p.id)
+    if (url && p.githubUrl !== url) {
+      p.githubUrl = url
+      changed = true
+    }
+  }
+  if (changed) writeStore(data)
 }
 
 export function setSdkSessionId(projectId: string, sdkSessionId: string): void {

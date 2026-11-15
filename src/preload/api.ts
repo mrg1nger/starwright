@@ -133,7 +133,13 @@ export function createVibeApi(ipcRenderer: IpcLike, host: 'electron' | 'browser'
       /** For the browser, which has no folder dialogs: open or create a project by folder path. */
       openFolder: (folder: string): Promise<ProjectRecord> => ipcRenderer.invoke('vibe:project:openFolder', folder),
       createFolder: (parent: string, name: string): Promise<ProjectRecord> =>
-        ipcRenderer.invoke('vibe:project:createFolder', parent, name)
+        ipcRenderer.invoke('vibe:project:createFolder', parent, name),
+      /** Points a project at where its folder is now (keeping its memory and history). No folder: a dialog asks (desktop only). */
+      relocate: (projectId: string, folder?: string): Promise<ProjectRecord | null> =>
+        ipcRenderer.invoke('vibe:project:relocate', projectId, folder),
+      /** Downloads a project whose folder is missing from its GitHub copy into `parent`, and links it. */
+      redownload: (projectId: string, parent: string): Promise<ProjectRecord> =>
+        ipcRenderer.invoke('vibe:project:redownload', projectId, parent)
     },
 
     fs: {

@@ -7,6 +7,8 @@ import FolderBrowser from './FolderBrowser'
 interface GitHubOpenDialogProps {
   onOpen: (project: ProjectRecord) => void
   onClose: () => void
+  /** A listed project whose folder isn't on this computer: download its own GitHub copy and link it (keeping its memory and history). */
+  relink?: ProjectRecord
 }
 
 // In a browser (Remote access) there are no folder dialogs; folders are browsed on the computer instead.
@@ -15,12 +17,12 @@ const inBrowser = window.vibe.host === 'browser'
 const clean = (err: unknown): string => String((err as Error).message ?? err).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
 
 /** Downloads one of the user's GitHub repositories as a new project (or a project from another computer). */
-function GitHubOpenDialog({ onOpen, onClose }: GitHubOpenDialogProps) {
+function GitHubOpenDialog({ onOpen, onClose, relink }: GitHubOpenDialogProps) {
   const [account, setAccount] = useState<{ ghInstalled: boolean; loggedIn: boolean; login?: string } | null>(null)
   const [terminal, setTerminal] = useState<{ sessionId: string; purpose: 'install' | 'login' } | null>(null)
   const [repos, setRepos] = useState<GitHubRepoInfo[] | null>(null)
   const [filter, setFilter] = useState('')
-  const [picked, setPicked] = useState('')
+  const [picked, setPicked] = useState(relink?.githubUrl ?? '')
   const [folder, setFolder] = useState('')
   const [browsing, setBrowsing] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -40,7 +42,7 @@ function GitHubOpenDialog({ onOpen, onClose }: GitHubOpenDialogProps) {
   }, [loadAccount])
 
   useEffect(() => {
-    if (!account?.loggedIn) return
+    if (!account?.loggedIn || relink) return
     window.vibe.github
       .repos()
       .then(setRepos)
@@ -76,7 +78,7 @@ function GitHubOpenDialog({ onOpen, onClose }: GitHubOpenDialogProps) {
     setBusy(true)
     setError('')
     try {
-      onOpen(await window.vibe.github.clone(repo, folder))
+      onOpen(relink ? await window.vibe.project.redownload(relink.id, folder) : await window.vibe.github.clone(repo, folder))
     } catch (err) {
       setError(clean(err))
     } finally {
@@ -99,7 +101,7 @@ function GitHubOpenDialog({ onOpen, onClose }: GitHubOpenDialogProps) {
 
   const name = repo.replace(/\.git$/, '').split(/[/:]/).pop() ?? ''
   return (
-    <Modal title="Get a project from GitHub" onClose={onClose} wide>
+    <Modal title={relink ? `Get “${relink.name}” from GitHub` : 'Get a project from GitHub'} onClose={onClose} wide>
       {terminal ? (
         <div className="publish-terminal">
           <p className="modal-muted">
@@ -134,6 +136,20 @@ function GitHubOpenDialog({ onOpen, onClose }: GitHubOpenDialogProps) {
             <button className="modal-primary" onClick={() => startTerminal('login')}>
               Sign in to GitHub
             </button>
+          </div>
+        </>
+      ) : relink ? (
+        <>
+          <p className="modal-text">
+            Downloads {repo.replace('https://github.com/', '')} to this computer and links it to “{relink.name}”, so its memory,
+            chats, notes and to-dos carry on.
+          </p>
+          <div className="github-folder">
+            <span>
+              Put it in: <strong>{folder || '…'}</strong>
+              {name && folder ? ` (as the folder "${name}")` : ''}
+            </span>
+            <button onClick={changeFolder}>Change…</button>
           </div>
         </>
       ) : (

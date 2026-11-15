@@ -19,6 +19,7 @@ import type {
   ApprovedPlan,
   PickedElement,
   PreviewProblem,
+  ProjectRecord,
   PreviewState,
   QuestionAnswers,
   Schedule,
@@ -47,7 +48,9 @@ import {
   setGoNutzMode,
   setDeployUrl,
   setGitHubAutoBackup,
-  removeProject
+  removeProject,
+  relocateProject,
+  setGitHubUrls
 } from '../projects/store'
 import {
   BehindError,
@@ -56,6 +59,7 @@ import {
   getLatest,
   githubAccount,
   githubUrl,
+  githubUrlFromConfig,
   listRepos,
   syncStatus,
   uploadToGitHub,
@@ -250,7 +254,56 @@ export function registerIpcHandlers(getSender: () => WebContents | undefined): v
     disposeInstallSession(sessionId)
   })
 
-  ipc.handle('vibe:project:list', () => listProjects())
+  // Each listed project says whether its folder is here (after a restore from another computer
+  // it may not be), and notes its GitHub address while it is, for downloading it again elsewhere.
+  ipc.handle('vibe:project:list', () => {
+    const projects = listProjects()
+    const urls = new Map<string, string>()
+    const shown = projects.map((p) => {
+      const missing = !existsSync(p.path)
+      const url = missing ? null : githubUrlFromConfig(p.path)
+      if (url) urls.set(p.id, url)
+      return { ...p, ...(url ? { githubUrl: url } : {}), missing }
+    })
+    setGitHubUrls(urls)
+    return shown
+  })
+
+  /** Points a project at where its folder is now, keeping its memory, chats, notes and to-dos. */
+  const relocate = async (projectId: string, folder: string): Promise<ProjectRecord> => {
+    if (!/^[A-Za-z0-9_-]+$/.test(String(projectId))) throw new Error('Invalid project id.')
+    const project = getProject(projectId)
+    if (!project) throw new Error("That project isn't in the list any more.")
+    if (projectBusy(projectId)) throw new Error('Wait until the current request has finished.')
+    if (!folder || !existsSync(folder) || !statSync(folder).isDirectory()) throw new Error("That folder doesn't exist.")
+    // A folder that is plainly a different GitHub project is a wrong pick, not a move.
+    const there = githubUrlFromConfig(folder)
+    if (project.githubUrl && there && there.toLowerCase() !== project.githubUrl.toLowerCase()) {
+      throw new Error(`That folder is a copy of ${there.replace('https://github.com/', '')}, but “${project.name}” is ${project.githubUrl.replace('https://github.com/', '')}. Pick its own folder.`)
+    }
+    disposeSession(projectId)
+    findPreview(projectId)?.stop(true)
+    await ensureRepo(folder)
+    return relocateProject(projectId, folder)
+  }
+  ipc.handle('vibe:project:relocate', async (_event, projectId: string, folder?: string) => {
+    let target = folder ? String(folder) : ''
+    if (!target) {
+      // The desktop window picks with a dialog; a browser sends the folder it browsed to.
+      const result = await dialog.showOpenDialog({ title: 'Where is this project now?', properties: ['openDirectory'] })
+      if (result.canceled || result.filePaths.length === 0) return null
+      target = result.filePaths[0]
+    }
+    return relocate(projectId, target)
+  })
+  // Downloads a project whose folder is missing from its GitHub copy, into `parent`, and links it.
+  ipc.handle('vibe:project:redownload', async (_event, projectId: string, parent: string) => {
+    const project = getProject(String(projectId))
+    if (!project) throw new Error("That project isn't in the list any more.")
+    if (!project.githubUrl) throw new Error("Starwright doesn't know a GitHub copy of this project.")
+    const folder = await cloneRepo(project.githubUrl, String(parent ?? ''))
+    return relocate(project.id, folder)
+  })
 
   // Takes a project off the list; its folder is never touched. With erase,
   // VibeApp's own data for it (history, memory, secrets) is deleted too.
@@ -313,6 +366,9 @@ export function registerIpcHandlers(getSender: () => WebContents | undefined): v
       /** Plan mode (propose a plan, change nothing), or building a plan the user approved. */
       extra?: { mode?: 'build' | 'plan'; approvedPlan?: string; todoId?: string }
     ) => {
+      if (!projectPath || !existsSync(projectPath)) {
+        throw new Error(`This project's folder isn't on this computer (${projectPath}). Go back to Projects and use “Find it…” or “Get it from GitHub”.`)
+      }
       let planning = extra?.mode === 'plan'
       // "Build this" on a to-do: tick it off when this request finishes (a plan's, once it's built).
       if (extra?.todoId && !planning) turnTodos.set(projectId, { id: String(extra.todoId) })

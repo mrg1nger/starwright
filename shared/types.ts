@@ -302,6 +302,10 @@ export interface ProjectRecord {
   githubAutoBackup?: boolean
   /** When the last GitHub backup went up (kept across restarts, for Publish). */
   githubLastBackupAt?: string
+  /** Its GitHub address (https://github.com/owner/name), noted while its folder is here, for downloading it again elsewhere. */
+  githubUrl?: string
+  /** In the list only (not saved): its folder isn't on this computer (a restore from another computer, or it was moved or deleted). */
+  missing?: boolean
 }
 
 /** How the project on this computer compares with its copy on GitHub. */

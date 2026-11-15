@@ -7,6 +7,8 @@ import GitHubOpenDialog from '../components/GitHubOpenDialog'
 // In a browser (Remote access) there are no folder dialogs; folders are browsed on the computer instead.
 const inBrowser = window.vibe.host === 'browser'
 
+const clean = (err: unknown): string => String((err as Error).message ?? err).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
+
 interface ProjectPickerViewProps {
   onOpen: (project: ProjectRecord) => void
   onError: (message: string) => void
@@ -20,6 +22,10 @@ function ProjectPickerView({ onOpen, onError, onRemoved }: ProjectPickerViewProp
   const [removing, setRemoving] = useState<ProjectRecord | null>(null)
   const [browsing, setBrowsing] = useState<'open' | 'create' | null>(null)
   const [fromGitHub, setFromGitHub] = useState(false)
+  // A listed project whose folder isn't on this computer, and what's being done about it.
+  const [missing, setMissing] = useState<ProjectRecord | null>(null)
+  const [relinking, setRelinking] = useState<'browse' | 'github' | null>(null)
+  const [missingError, setMissingError] = useState('')
 
   useEffect(() => {
     window.vibe.project.list().then(setRecent)
@@ -51,6 +57,33 @@ function ProjectPickerView({ onOpen, onError, onRemoved }: ProjectPickerViewProp
     }
   }, [onOpen, onError])
 
+  const linked = useCallback(
+    (project: ProjectRecord | null) => {
+      if (!project) return
+      setMissing(null)
+      setRelinking(null)
+      setMissingError('')
+      onOpen(project)
+    },
+    [onOpen]
+  )
+
+  const handleFindIt = useCallback(
+    async (project: ProjectRecord) => {
+      if (inBrowser) return setRelinking('browse')
+      setBusy(true)
+      setMissingError('')
+      try {
+        linked(await window.vibe.project.relocate(project.id))
+      } catch (err) {
+        setMissingError(clean(err))
+      } finally {
+        setBusy(false)
+      }
+    },
+    [linked]
+  )
+
   const handleRemove = useCallback(
     async (project: ProjectRecord, erase: boolean) => {
       setBusy(true)
@@ -69,6 +102,56 @@ function ProjectPickerView({ onOpen, onError, onRemoved }: ProjectPickerViewProp
 
   return (
     <div className="project-picker">
+      {missing && relinking === 'browse' && (
+        <FolderBrowser
+          purpose="open"
+          onClose={() => setRelinking(null)}
+          onChoose={async (folder) => linked(await window.vibe.project.relocate(missing.id, folder))}
+        />
+      )}
+      {missing && relinking === 'github' && (
+        <GitHubOpenDialog relink={missing} onClose={() => setRelinking(null)} onOpen={linked} />
+      )}
+      {missing && !relinking && (
+        <Modal title={`“${missing.name}” isn't on this computer`} onClose={() => setMissing(null)}>
+          <p className="modal-text">
+            Starwright still has its memory, chats, notes and to-dos, but its folder isn&apos;t here:
+          </p>
+          <p className="modal-muted">{missing.path}</p>
+          <p className="modal-text">
+            If it&apos;s somewhere else on this computer, find it. Otherwise
+            {missing.githubUrl ? ' download it from GitHub' : ' copy the folder over first, then find it'}. Either way, its
+            memory and history carry on.
+          </p>
+          {missingError && <p className="chat-error">{missingError}</p>}
+          <div className="remove-choices">
+            <button className="modal-primary" disabled={busy} onClick={() => handleFindIt(missing)}>
+              Find it…
+              <small>Pick the folder where this project is now.</small>
+            </button>
+            {missing.githubUrl && (
+              <button disabled={busy} onClick={() => setRelinking('github')}>
+                Get it from GitHub
+                <small>Download {missing.githubUrl.replace('https://github.com/', '')} and link it.</small>
+              </button>
+            )}
+          </div>
+          <div className="modal-actions">
+            <button
+              disabled={busy}
+              onClick={() => {
+                setRemoving(missing)
+                setMissing(null)
+              }}
+            >
+              Remove from list…
+            </button>
+            <button disabled={busy} onClick={() => setMissing(null)}>
+              Cancel
+            </button>
+          </div>
+        </Modal>
+      )}
       {browsing && (
         <FolderBrowser
           purpose={browsing}
@@ -110,8 +193,18 @@ function ProjectPickerView({ onOpen, onError, onRemoved }: ProjectPickerViewProp
           <ul>
             {recent.map((project) => (
               <li key={project.id} className="project-item">
-                <button className="project-row" onClick={() => onOpen(project)}>
-                  <span className="project-name">{project.name}</span>
+                <button
+                  className={`project-row${project.missing ? ' missing' : ''}`}
+                  onClick={() => {
+                    if (!project.missing) return onOpen(project)
+                    setMissingError('')
+                    setMissing(project)
+                  }}
+                >
+                  <span className="project-name">
+                    {project.name}
+                    {project.missing && <span className="project-missing">Not on this computer</span>}
+                  </span>
                   <span className="project-path">{project.path}</span>
                 </button>
                 <button

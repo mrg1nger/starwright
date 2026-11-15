@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
-import { readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { AddressInfo } from 'node:net'
 import { app } from 'electron'
@@ -71,7 +71,13 @@ let todo: { id: string; text: string } | undefined
 process.env.VIBEAPP_SCHEDULE_TICK_MS = '100'
 process.env.VIBEAPP_TEST_HOOKS = '1'
 startScheduler({
-  projectPath: (id) => (id === 'gone' ? undefined : `C:/projects/${id}`),
+  // Real folders: a schedule for a project whose folder isn't on this computer is skipped.
+  projectPath: (id) => {
+    if (id === 'gone') return undefined
+    const dir = join(app.getPath('userData'), 'projects', id)
+    mkdirSync(dir, { recursive: true })
+    return dir
+  },
   busy: () => busy,
   startRequest: async (projectId, _path, text, mode, todoId) => {
     started.push({ projectId, text, mode, todoId })

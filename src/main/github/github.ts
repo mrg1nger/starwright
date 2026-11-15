@@ -1,5 +1,5 @@
 import { execFile } from 'child_process'
-import { existsSync, readdirSync } from 'fs'
+import { existsSync, readdirSync, readFileSync } from 'fs'
 import { join } from 'path'
 import { promisify } from 'util'
 import type { GitHubGetResult, GitHubRepoInfo, GitHubSync } from '@shared/types'
@@ -39,6 +39,22 @@ export async function githubUrl(projectPath: string): Promise<string | null> {
   const url = await git(projectPath, ['config', '--get', 'remote.origin.url']).catch(() => '')
   const m = /github\.com[:/]+([^/\s]+)\/([^/\s]+?)(?:\.git)?\/?$/i.exec(url)
   return m ? `https://github.com/${m[1]}/${m[2]}` : null
+}
+
+/**
+ * The same, read straight from .git/config with no git process (cheap enough for every
+ * project each time the list is shown). Null when there's no GitHub origin or no plain .git folder.
+ */
+export function githubUrlFromConfig(projectPath: string): string | null {
+  try {
+    const config = readFileSync(join(projectPath, '.git', 'config'), 'utf-8')
+    const section = /\[remote "origin"\]([^[]*)/.exec(config)?.[1] ?? ''
+    const url = /^\s*url\s*=\s*(\S+)/m.exec(section)?.[1] ?? ''
+    const m = /github\.com[:/]+([^/\s]+)\/([^/\s]+?)(?:\.git)?\/?$/i.exec(url)
+    return m ? `https://github.com/${m[1]}/${m[2]}` : null
+  } catch {
+    return null
+  }
 }
 
 /** One git job per project at a time (a backup and "get it" must not overlap). */

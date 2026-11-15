@@ -213,6 +213,10 @@ async function start(s: Schedule, trigger: ScheduleRun['trigger']): Promise<bool
     skip(s, "the project isn't in Starwright any more.", trigger, false)
     return true
   }
+  if (!existsSync(path)) {
+    skip(s, `its folder isn't on this computer (${path}). Link it again on the Projects screen.`, trigger, false)
+    return true
+  }
   if (s.action.kind === 'site_check') {
     void siteCheck(s, path, trigger)
     return true
