@@ -2,6 +2,10 @@
 
 The version goes up with each improvement that ships: the middle number for new features, the last for fixes only. Settings shows the version a computer is running. (Starwright was called VibeApp up to 0.10.0.)
 
+## 0.14.1 (2026-11-15)
+
+**Codex, Cline and the local model can use the project's secrets.** Only Claude had them: the other agents were started without them, so a hand-off (or a takeover when Claude is out) that needed an API key failed. Now each gets the same secrets Claude gets, as environment variables (Starwright's own keys still stay hidden from all of them), and its task lists their names, never their values, with how to read them. A Cline that keeps running between hand-offs starts afresh when the project's secrets change.
+
 ## 0.14.0 (2026-11-15)
 
 **Starwright now decides who gets each hand-off** (step 2 of the work equalizer). Claude used to choose between Codex, Cline and the local model itself, and in practice almost always picked Codex: on one install, Cline and the local model got no coding work in 30 days although both were switched on.

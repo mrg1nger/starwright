@@ -31,6 +31,8 @@ export interface LocalAgentRun {
   thinking?: boolean
   model?: string
   onActivity?: (activity: DelegationActivity) => void
+  /** Extra environment variables for its commands: the project's secrets, as Claude has them. */
+  env?: Record<string, string>
 }
 
 export interface LocalAgentResult {
@@ -191,13 +193,19 @@ interface ToolOutcome {
   blocked?: string
 }
 
-function runShell(command: string, cwd: string, timeoutSec: number, signal?: AbortSignal): Promise<{ code: number | null; output: string; timedOut: boolean }> {
+function runShell(
+  command: string,
+  cwd: string,
+  timeoutSec: number,
+  signal?: AbortSignal,
+  extra: Record<string, string> = {}
+): Promise<{ code: number | null; output: string; timedOut: boolean }> {
   return new Promise((done) => {
     const bash = bashPath()
     const child = trackChild(
       bash
-        ? spawn(bash, ['-lc', command], { cwd, env: { ...process.env, CHERE_INVOKING: '1', CI: '1' }, windowsHide: true })
-        : spawn(command, { cwd, shell: true, env: { ...process.env, CI: '1' }, windowsHide: true })
+        ? spawn(bash, ['-lc', command], { cwd, env: { ...process.env, ...extra, CHERE_INVOKING: '1', CI: '1' }, windowsHide: true })
+        : spawn(command, { cwd, shell: true, env: { ...process.env, ...extra, CI: '1' }, windowsHide: true })
     )
     let output = ''
     const add = (d: Buffer): void => {
@@ -322,7 +330,7 @@ async function runTool(name: string, args: Record<string, unknown>, run: LocalAg
         }
       }
       const timeout = Math.min(600, Math.max(5, Math.floor(Number(args.timeout_seconds) || 120)))
-      const result = await runShell(command, cwd, timeout, run.signal)
+      const result = await runShell(command, cwd, timeout, run.signal, run.env)
       const output = clip(result.output.trim() || '(no output)')
       const status = result.timedOut ? `Stopped after ${timeout} s (still running).` : `Exit code ${result.code}.`
       return {

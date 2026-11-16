@@ -24,6 +24,7 @@ import { chooseRoutes, helperAvailability, type HelperRoute } from '../orchestra
 import type { AgentInstallRequest } from '../extensions/install'
 import { saveRecipe } from '../deploy/deploy'
 import { listSchedules, saveSchedule, summarize as summarizeSchedule } from '../schedule/scheduler'
+import { agentSecretEnv, helperSecretsNote } from '../secrets/vault'
 
 export type DelegationProgressListener = (note: string) => void
 
@@ -170,6 +171,11 @@ export function createCodexDelegationServer(
     return run
   }
 
+  // The project's secrets reach each helper as environment variables, as they reach Claude (the same
+  // ones: Starwright's own keys stay hidden), and the task names them, so the helper knows they're there.
+  const secrets = (): Record<string, string> | undefined => (memory ? attempt(() => agentSecretEnv(memory.projectId)) : undefined)
+  const secretsNote = (): string | undefined => (memory ? attempt(() => helperSecretsNote(memory.projectId)) || undefined : undefined)
+
   // What each agent does with a hand-off; handOff() wraps it with snapshots, the record and the checks.
   const codexWork =
     (prompt: string, timeoutMs?: number) =>
@@ -182,7 +188,8 @@ export function createCodexDelegationServer(
     const run = (resumeThreadId?: string): Promise<CodexExecResult> =>
       runCodexExec(
         {
-          prompt,
+          prompt: [prompt, secretsNote()].filter(Boolean).join('\n\n'),
+          env: secrets(),
           cwd: projectPath,
           timeoutMs: timeoutMs ?? HANDOFF_TIMEOUT_MS,
           unsandboxed,
@@ -241,6 +248,7 @@ export function createCodexDelegationServer(
       memory ? `Key facts:\n${currentKeyFacts(memory.projectId) ?? '(none yet)'}` : undefined,
       memory ? attempt(() => briefBlock(memory.projectId)) : undefined,
       context,
+      secretsNote(),
       `Task from Claude:\n${prompt}`
     ]
       .filter(Boolean)
@@ -248,6 +256,7 @@ export function createCodexDelegationServer(
     const result = await runCline(
       {
         prompt: fullPrompt,
+        env: secrets(),
         mode: 'build',
         cwd: projectPath,
         model: await clineModelFor('handoff'),
@@ -293,11 +302,16 @@ export function createCodexDelegationServer(
       .filter(Boolean)
       .join('\n\n')
       .slice(0, LOCAL_CONTEXT_CHARS)
-    const task = [background ? `Background on the project (from Starwright's memory):\n${background}` : undefined, `Task from Claude:\n${prompt}`]
+    const task = [
+      background ? `Background on the project (from Starwright's memory):\n${background}` : undefined,
+      secretsNote(),
+      `Task from Claude:\n${prompt}`
+    ]
       .filter(Boolean)
       .join('\n\n')
     const result = await runLocalAgent({
       task,
+      env: secrets(),
       cwd: projectPath,
       goNutz: isGoNutzMode(),
       signal,

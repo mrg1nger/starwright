@@ -1,4 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'child_process'
+import { createHash } from 'crypto'
 import { mkdtempSync, readFileSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
@@ -182,7 +183,7 @@ async function startAgent(key: string, args: ClineRunArgs): Promise<Agent> {
   const memoryNote = writeMcpSettings(mcpPath, home, args.memory)
   if (decideToolCall(policy, { name: 'composio_search_tools' }).allow) throw new Error("Starwright's Cline policy check failed.")
   const env: NodeJS.ProcessEnv = {
-    ...clineEnv(launch, home, args.mode, mcpPath, policy, hookLog),
+    ...clineEnv(launch, home, args.mode, mcpPath, policy, hookLog, args.env),
     // ClinePass, never pay-as-you-go: unset, ACP sessions start on "Cline Usage-Billing".
     CLINE_PROVIDER: 'cline-pass',
     ...(args.model ? { CLINE_MODEL: args.model } : {})
@@ -282,7 +283,10 @@ function hookLines(path: string): string[] {
  * never throws for Cline's own failures.
  */
 export async function runClineHosted(args: ClineRunArgs, onActivity?: (activity: DelegationActivity) => void): Promise<ClineRunResult | null> {
-  const key = JSON.stringify([args.mode, args.cwd.toLowerCase(), !!args.goNutz, args.memory?.projectId ?? null, args.model ?? null])
+  // A Cline that keeps running has the secrets it started with: a change to them starts a new one
+  // (only a fingerprint goes in the key, never the values).
+  const secrets = args.env && Object.keys(args.env).length ? createHash('sha256').update(JSON.stringify(args.env)).digest('hex').slice(0, 16) : null
+  const key = JSON.stringify([args.mode, args.cwd.toLowerCase(), !!args.goNutz, args.memory?.projectId ?? null, args.model ?? null, secrets])
   let agent = agents.get(key)
   if (agent?.busy) return null
   try {

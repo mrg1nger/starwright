@@ -240,6 +240,8 @@ export function markUnavailable(reason: string, ms: number): void {
 
 export interface ClineRunArgs {
   prompt: string
+  /** Extra environment variables for the run: the project's secrets, as Claude has them. */
+  env?: Record<string, string>
   mode: ClineMode
   /** The working folder: the project, or an empty folder for a background job. */
   cwd: string
@@ -430,10 +432,20 @@ export function writeMcpSettings(mcpPath: string, home: PreparedHome, memory: Cl
 }
 
 /** Cline's environment for a run: VibeApp's own Cline folder and hook, the user's sign-in, this run's policy. */
-export function clineEnv(launch: ClineLaunch, home: PreparedHome, mode: ClineMode, mcpPath: string, policy: ClinePolicy, hookLog: string): NodeJS.ProcessEnv {
+export function clineEnv(
+  launch: ClineLaunch,
+  home: PreparedHome,
+  mode: ClineMode,
+  mcpPath: string,
+  policy: ClinePolicy,
+  hookLog: string,
+  extra: Record<string, string> = {}
+): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     ...launch.env,
+    // The project's secrets; Starwright's own settings below always win.
+    ...extra,
     CLINE_DIR: home.dir,
     CLINE_DATA_DIR: clineDataDir(),
     CLINE_SESSION_BACKEND_MODE: 'local',
@@ -494,7 +506,7 @@ export async function runCline(args: ClineRunArgs, onActivity?: (activity: Deleg
   if (args.timeoutMs) cliArgs.push('-t', String(Math.max(30, Math.round(args.timeoutMs / 1000) - 5)))
   cliArgs.push(prompt)
 
-  const env = clineEnv(launch, home, args.mode, mcpPath, policy, hookLog)
+  const env = clineEnv(launch, home, args.mode, mcpPath, policy, hookLog, args.env)
 
   let final: ClineEvent | undefined
   let lastError = ''

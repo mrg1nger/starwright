@@ -67,3 +67,22 @@ test('a simple hand-off with no agent named goes to the free local model first',
   assert.equal(row.difficulty, 'simple')
   assert.ok(row.task_kind, 'the kind of task is recorded')
 })
+
+test("the local model's commands see the project's secrets", { timeout: 15 * MINUTES }, async (t) => {
+  const status = await lmStudioStatus('http://localhost:1234')
+  if (!status.running || !status.models.some((m) => m.loaded)) return t.skip('LM Studio is not running with a model loaded')
+  updateSettings({ claudeModel: 'haiku', autoMemory: false, localHandoffs: true, lmStudioUrl: 'http://localhost:1234', lmStudioModel: null })
+  forgetLmStudioStatus()
+  const pid = projectId('handoff-secrets')
+  const { setSecret } = await import('../../src/main/secrets/vault')
+  setSecret(pid, 'DEMO_SERVICE_TOKEN', 'demo-token-value-123')
+  const dir = makeProject()
+  const s = testSession(t, pid, dir)
+  await turn(
+    s,
+    'Use the run_subtask tool with agent "local" (do not edit or run anything yourself) to have the local model write a file check.js containing: require("fs").writeFileSync("out.txt", process.env.DEMO_SERVICE_TOKEN ? "yes" : "no") and then run node check.js. Then reply DONE.',
+    14 * MINUTES
+  )
+  assert.ok(existsSync(join(dir, 'out.txt')), 'the command ran')
+  assert.equal(require('fs').readFileSync(join(dir, 'out.txt'), 'utf8'), 'yes', 'the secret reached the command')
+})

@@ -78,6 +78,16 @@ export function agentSecretEnv(projectId: string): Record<string, string> {
   return Object.fromEntries(Object.entries(secretEnv(projectId)).filter(([name]) => !HIDDEN_FROM_AGENTS.test(name)))
 }
 
+/**
+ * For a helper agent's task: which of the project's secrets it has as environment variables
+ * (names only), and how to use them. Empty when there are none.
+ */
+export function helperSecretsNote(projectId: string): string {
+  const names = Object.keys(agentSecretEnv(projectId)).sort()
+  if (!names.length) return ''
+  return `The project's secrets are set as environment variables for you (values never shown): ${names.join(', ')}. Read them from the environment (process.env.NAME in code; $NAME in bash, $env:NAME in PowerShell) when the code or a command needs them; never write a value into a file, a commit or your report.`
+}
+
 /** Values to look for when checking files for leaked secrets. */
 export function secretValues(projectId: string): { name: string; value: string }[] {
   return Object.entries(secretEnv(projectId))

@@ -132,6 +132,8 @@ export function killTree(child: ChildProcess): void {
 
 export interface CodexExecArgs {
   prompt: string
+  /** Extra environment variables for the run: the project's secrets, as Claude has them. */
+  env?: Record<string, string>
   /** Who the task is from, as the prompt words it (default: "Task from Claude"). */
   taskLabel?: string
   cwd?: string
@@ -341,7 +343,7 @@ ${args.prompt}`
     const child = trackChild(
       spawn(launch.file, [...launch.prefixArgs, ...cliArgs], {
         windowsHide: true,
-        env: { ...launch.env, ...extensionEnv }
+        env: { ...launch.env, ...(args.env ?? {}), ...extensionEnv }
       })
     )
     let stdoutBuffer = ''

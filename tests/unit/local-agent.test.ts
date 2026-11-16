@@ -173,3 +173,28 @@ test('routing offers the local model only when it can take work, and as a way ro
   const off = await routeMessage('Add a shop screen with a sell button', settings, { clineReady: false })
   assert.doesNotMatch(off.note ?? '', /local model/)
 })
+
+test("the project's secrets reach the local model's commands, and the hand-off names them without values", async () => {
+  const cwd = project({})
+  script = [
+    { calls: [['run_command', { command: "node -e \"process.exit(process.env.SHOP_API_KEY === 'sk-test-123' ? 0 : 1)\"" }]] },
+    { say: 'The key is there.' }
+  ]
+  requests.length = 0
+  const result = await runLocalAgent({ task: 'Check the key.', cwd, env: { SHOP_API_KEY: 'sk-test-123' } })
+  assert.equal(result.ok, true, result.error)
+  const toolResults = requests.at(-1)!.messages.filter((m) => m.role === 'tool').map((m) => m.content)
+  assert.match(toolResults[0], /^Exit code 0\./, 'the command saw the secret')
+
+  const { setSecret, deleteSecret } = await import('../../src/main/secrets/vault')
+  const { helperSecretsNote } = await import('../../src/main/secrets/vault')
+  setSecret('helper-secrets-project', 'SHOP_API_KEY', 'sk-test-123456')
+  setSecret('helper-secrets-project', 'ANTHROPIC_API_KEY', 'sk-ant-hidden-999')
+  const note = helperSecretsNote('helper-secrets-project')
+  assert.match(note, /SHOP_API_KEY/)
+  assert.doesNotMatch(note, /ANTHROPIC_API_KEY/, "Starwright's own keys stay hidden from agents, as from Claude")
+  assert.doesNotMatch(note, /sk-test|sk-ant/, 'never a value')
+  deleteSecret('helper-secrets-project', 'SHOP_API_KEY')
+  deleteSecret('helper-secrets-project', 'ANTHROPIC_API_KEY')
+  assert.equal(helperSecretsNote('helper-secrets-project'), '', 'no secrets, no note')
+})

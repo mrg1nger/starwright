@@ -13,6 +13,7 @@ import { peekUsage, percentLeft } from '../usage/usage'
 import { runCline } from '../cli/clineExec'
 import { clineModelFor } from '../cli/clineAcp'
 import { clineReadyForHandoffs } from './routing'
+import { agentSecretEnv, helperSecretsNote } from '../secrets/vault'
 
 // When Claude's plan is used up, Codex takes the user's request directly:
 // same chat, same memory, same checks, just without Claude in the middle.
@@ -161,7 +162,8 @@ export async function runTakeover(req: TakeoverRequest): Promise<void> {
     const run = (resumeThreadId?: string) =>
       runCodexExec(
         {
-          prompt,
+          prompt: [prompt, attempt(() => helperSecretsNote(projectId))].filter(Boolean).join('\n\n'),
+          env: attempt(() => agentSecretEnv(projectId)),
           taskLabel: "The user's request",
           cwd: projectPath,
           timeoutMs: TIMEOUT_MS,
@@ -308,10 +310,12 @@ async function runClineTakeover(req: TakeoverRequest, afterCodex = false): Promi
           `Key facts:\n${attempt(() => keyFactsBlock(memoryDb(), projectId)) ?? '(none yet)'}`,
           attempt(() => briefBlock(projectId)),
           context,
+          attempt(() => helperSecretsNote(projectId)),
           `The user's request:\n${prompt}`
         ]
           .filter(Boolean)
           .join('\n\n'),
+        env: attempt(() => agentSecretEnv(projectId)),
         mode: 'build',
         cwd: projectPath,
         model: await clineModelFor('handoff'),
