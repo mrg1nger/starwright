@@ -929,6 +929,8 @@ export function registerIpcHandlers(getSender: () => WebContents | undefined): v
   })
   const projectBusy = (projectId: string): boolean =>
     !!getSession(projectId)?.isBusy() || asks.has(projectId) || takeovers.has(projectId) || isDeploying(projectId)
+  // A chat opened again (after Settings, another project, a phone) shows a request still running as running.
+  ipc.handle('vibe:chat:busy', (_event, projectId: string) => !!getSession(projectId)?.isBusy() || asks.has(projectId) || takeovers.has(projectId))
   scheduleEvents.on('changed', (projectId: string) => getSender()?.send('vibe:schedules:changed', projectId))
   scheduleEvents.on('ready', (projectId: string, s: Schedule) =>
     scheduleChat(projectId, { type: 'schedule_ready', scheduleId: s.id, name: s.name, summary: summarizeSchedule(s) })

@@ -250,6 +250,7 @@ const READ_CHANNELS = new Set([
   'vibe:chat:loadRecent',
   'vibe:chat:isGoNutzMode',
   'vibe:chat:contextSize',
+  'vibe:chat:busy',
   'vibe:git:hasChanges',
   'vibe:git:history',
   'vibe:memory:list',

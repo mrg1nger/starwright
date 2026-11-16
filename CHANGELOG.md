@@ -2,6 +2,10 @@
 
 The version goes up with each improvement that ships: the middle number for new features, the last for fixes only. Settings shows the version a computer is running. (Starwright was called VibeApp up to 0.10.0.)
 
+## 0.15.3 (2026-11-16)
+
+**A request still running shows as running when you come back to its chat.** Going to Settings, Extensions or another project and back showed the chat so far, but not that the request was still going: no "working" line and no Stop button, so it looked finished or stuck. The chat now asks whether the project is still busy when it opens, and carries on showing the request's steps as they come.
+
 ## 0.15.2 (2026-11-16)
 
 **Cline and the local model get the same Allow/Deny prompt as Claude.** A command that might reach outside the project used to be refused outright for them, while Claude's would just ask you. Now it asks, saying which agent wants to run what, and the hand-off waits for your answer. Unanswered after 5 minutes, it's refused and the prompt goes away, so a hand-off nobody is watching doesn't hang. Destructive commands and pushing stay refused for them, as before; a one-off Cline run (when the hosted one can't be used) and a takeover still refuse, since there's no prompt to wait on.

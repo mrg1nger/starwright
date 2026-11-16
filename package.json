@@ -1,6 +1,6 @@
 {
   "name": "vibeapp",
-  "version": "0.15.2",
+  "version": "0.15.3",
   "description": "Starwright: a coding control center for Claude Code, Codex, Cline and a local model working together",
   "main": "./out/main/index.js",
   "author": "Chris",

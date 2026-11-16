@@ -226,6 +226,8 @@ export function createVibeApi(ipcRenderer: IpcLike, host: 'electron' | 'browser'
       rotateNow: (projectId: string, projectPath: string): Promise<{ ok: boolean; message?: string }> =>
         ipcRenderer.invoke('vibe:chat:rotateNow', projectId, projectPath),
       contextSize: (projectId: string): Promise<number> => ipcRenderer.invoke('vibe:chat:contextSize', projectId),
+      /** Whether a request is still running for the project (Claude's, an Ask, or a takeover). */
+      busy: (projectId: string): Promise<boolean> => ipcRenderer.invoke('vibe:chat:busy', projectId),
       ask: (projectId: string, projectPath: string, text: string): Promise<void> =>
         ipcRenderer.invoke('vibe:chat:ask', projectId, projectPath, text),
       takeover: (projectId: string, projectPath: string): Promise<void> =>

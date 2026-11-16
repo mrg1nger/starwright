@@ -673,6 +673,14 @@ function ChatView({ project, onBack, onOpenHistory, onOpenMemory, onError, think
             : item
         )
       )
+      // Opened again while a request is still running (after Settings, or another project): show it
+      // running, with Stop, rather than as finished. Its next events carry on from here.
+      window.vibe.chat
+        .busy(project.id)
+        .then((running) => {
+          if (!cancelled) setBusy(running)
+        })
+        .catch(() => undefined)
     })
     return () => {
       cancelled = true

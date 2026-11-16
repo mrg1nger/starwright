@@ -600,6 +600,17 @@ try {
     }
   })
 
+  await step('a request still running shows as running after a visit to Settings, with its new steps', async () => {
+    await send('Run this command and nothing else, then reply with the single word DONE: node -e "setTimeout(() => console.log(42), 20000)"')
+    await click('Settings', '.app-nav-tabs button')
+    await sleep(2000)
+    await click('Projects', '.app-nav-tabs button')
+    await click('e2e-game', 'button.project-row')
+    await waitFor(`!!document.querySelector('.chat-stop') && !!document.querySelector('.chat-item-thinking')`, 'the running request on screen again', 15_000)
+    await idle(300_000)
+    if (!/DONE/.test(await lastReply())) throw new Error(`the reply did not arrive on screen: ${(await lastReply()).slice(0, 200)}`)
+  })
+
   await step("Cline's command outside the project gets Claude's Allow/Deny prompt, and runs once allowed", async () => {
     const outsideFile = join(tmpdir(), `starwright-e2e-outside-${Date.now()}.txt`)
     const shown = outsideFile.replace(/\\/g, '/')
