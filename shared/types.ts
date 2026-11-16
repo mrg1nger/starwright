@@ -1,4 +1,4 @@
-import type { AgentBalance } from './balance'
+import type { AgentBalance, WorkFaders, WorkMode } from './balance'
 
 export type CliName = 'claude' | 'codex'
 
@@ -69,7 +69,7 @@ export type VibeEvent =
   /** Claude's plan limit was reached; it can't run until `resetsAt` (epoch ms, if known). */
   | { type: 'claude_limit'; resetsAt: number | null; message: string }
   /** Codex is handling the request directly because Claude is out. */
-  | { type: 'takeover_started'; resetsAt: number | null }
+  | { type: 'takeover_started'; resetsAt: number | null; /** 'faders': the user set Claude's fader to Off. */ why?: 'limit' | 'faders' }
   /** Claude is out; the user can choose to let Codex handle the request. */
   | { type: 'takeover_offer'; text: string; resetsAt: number | null }
   /** One step of what Codex is doing during a hand-off (shown as a live feed under its card). */
@@ -623,6 +623,10 @@ export interface ThemeDefinition {
 export interface AppSettings {
   /** How work leans between Claude and Codex ("auto" follows which plan has more left). */
   agentBalance: AgentBalance
+  /** The work equalizer: Auto (Starwright decides) or Manual (the faders decide). Unset: from agentBalance. */
+  workMode?: WorkMode
+  /** The equalizer's faders, 0 (off) to 4 (first choice) per route. Unset: from agentBalance. */
+  workFaders?: WorkFaders
   /** When Claude's plan limit is reached: let Codex take the request, ask first, or just report it. */
   limitTakeover: 'auto' | 'ask' | 'off'
   /** Send plain questions typed in Build mode to the cheaper Ask path. */

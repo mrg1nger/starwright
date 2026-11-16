@@ -1,5 +1,8 @@
-// How work is split between Claude (leads, plans, reviews) and Codex
-// (builds hand-offs). The user moves a slider; "auto" follows plan headroom.
+import type { TaskDifficulty, WorkRoute } from './types'
+
+// How work is split between Claude (leads, plans, reviews) and the helpers (Codex, Cline, the
+// local model). The old Claude/Codex slider's steps live on as the lean under the equalizer's
+// faders; "auto" follows plan headroom.
 
 export const BALANCE_STEPS = ['claude', 'lean-claude', 'balanced', 'lean-codex', 'codex'] as const
 export type BalanceStep = (typeof BALANCE_STEPS)[number]
@@ -67,4 +70,116 @@ export function applyBalance(
   else if (lean === 1) i = Math.min(2, i + 1)
   else if (lean >= 2) i = 2
   return SHARES[i]
+}
+
+// ---- The work equalizer: a fader per route (0 off .. 4 first choice) ----
+
+
+export type WorkMode = 'auto' | 'manual'
+export type WorkFaders = Record<WorkRoute, number>
+export type HelperRoute = Exclude<WorkRoute, 'claude'>
+
+export const FADER_MAX = 4
+export const FADER_LABELS = ['Off', 'Rarely', 'Sometimes', 'Often', 'First choice'] as const
+
+export const FADER_HELP: Record<WorkRoute, string> = {
+  claude: 'How much Claude builds itself. It always plans, leads and reviews; at Off, Codex takes every request instead (no Claude usage at all).',
+  codex: 'Hand-offs to Codex: any difficulty, and it reviews Claude\'s work.',
+  cline: 'Hand-offs to Cline, on its own ClinePass plan: well-specified building, tests, background jobs.',
+  local: 'Hand-offs to the local model in LM Studio (free): simple, clearly specified parts only, never hard work.'
+}
+
+/** Equal faders keep Starwright's usual order (simple work: local, Cline, Codex; harder: Codex first). */
+export const DEFAULT_FADERS: WorkFaders = { claude: 3, codex: 3, cline: 3, local: 3 }
+
+export interface FaderPreset {
+  id: string
+  label: string
+  help: string
+  faders: WorkFaders
+}
+
+export const FADER_PRESETS: FaderPreset[] = [
+  { id: 'balanced', label: 'Balanced', help: 'Claude and the helpers share the work; simple parts go to the cheaper agents first.', faders: DEFAULT_FADERS },
+  { id: 'save-claude', label: 'Save Claude', help: 'Claude plans and reviews; the helpers do nearly all the building.', faders: { claude: 1, codex: 3, cline: 3, local: 3 } },
+  { id: 'free-first', label: 'Free first', help: 'The free local model and Cline before Codex wherever the work allows.', faders: { claude: 2, codex: 2, cline: 3, local: 4 } },
+  { id: 'best-quality', label: 'Best quality', help: 'Claude and Codex do the work; Cline only as a fallback, the local model not at all.', faders: { claude: 4, codex: 4, cline: 1, local: 0 } }
+]
+
+export function presetOf(faders: WorkFaders): FaderPreset | undefined {
+  return FADER_PRESETS.find((p) => (Object.keys(p.faders) as WorkRoute[]).every((r) => p.faders[r] === faders[r]))
+}
+
+/** The faders matching an old slider position, so a user's choice carries over. */
+export function fadersFromBalance(step: BalanceStep): WorkFaders {
+  const claude = { claude: 4, 'lean-claude': 3, balanced: 3, 'lean-codex': 2, codex: 1 }[step]
+  const helpers = step === 'claude' || step === 'lean-claude' ? 2 : 3
+  return { claude, codex: helpers, cline: helpers, local: helpers }
+}
+
+export function clampFader(n: unknown): number {
+  const v = Math.round(Number(n))
+  return Number.isFinite(v) ? Math.max(0, Math.min(FADER_MAX, v)) : 3
+}
+
+/** The user's faders, filled in and in range (settings saved by older versions have none). */
+export function fadersOf(settings: { workFaders?: Partial<WorkFaders> | null; agentBalance?: AgentBalance }): WorkFaders {
+  const saved = settings.workFaders
+  if (!saved) return settings.agentBalance && settings.agentBalance !== 'auto' ? fadersFromBalance(settings.agentBalance) : { ...DEFAULT_FADERS }
+  return {
+    claude: clampFader(saved.claude ?? DEFAULT_FADERS.claude),
+    codex: clampFader(saved.codex ?? DEFAULT_FADERS.codex),
+    cline: clampFader(saved.cline ?? DEFAULT_FADERS.cline),
+    local: clampFader(saved.local ?? DEFAULT_FADERS.local)
+  }
+}
+
+/** Manual unless the user has never left Auto (an old slider position counts as manual). */
+export function workModeOf(settings: { workMode?: WorkMode | null; agentBalance?: AgentBalance }): WorkMode {
+  if (settings.workMode) return settings.workMode
+  return settings.agentBalance && settings.agentBalance !== 'auto' ? 'manual' : 'auto'
+}
+
+/** Why these faders can't be used as they are, or null. */
+export function faderProblem(f: WorkFaders): string | null {
+  if (f.claude === 0 && f.codex === 0) return 'With Claude off, Codex leads every request, so Codex can\'t be off too.'
+  return null
+}
+
+/**
+ * How far Claude leans toward handing work off (-2 does it all itself .. +2 hands off nearly
+ * everything): the strongest helper that can take work, against Claude's own fader. The local
+ * model only takes simple parts, so it counts for at most "Sometimes" here: turning it up sends
+ * it more of the simple parts, not whole jobs. No helper able to take work: Claude does it all.
+ */
+export function leanFromFaders(f: WorkFaders, available: Record<HelperRoute, boolean>): number {
+  const weights = [available.codex ? f.codex : 0, available.cline ? f.cline : 0, available.local ? Math.min(f.local, 2) : 0]
+  const strongest = Math.max(...weights)
+  if (strongest === 0) return -2
+  return Math.max(-2, Math.min(2, strongest - f.claude))
+}
+
+/**
+ * The helpers in order of trying under the faders: higher faders first, ties keeping the usual
+ * order for this difficulty; off ones dropped. The local model never moves ahead of the others for
+ * work above simple (it's there as a last resort).
+ */
+export function orderByFaders(order: HelperRoute[], f: WorkFaders, difficulty: TaskDifficulty): HelperRoute[] {
+  const on = order.filter((r) => f[r] > 0)
+  const ranked = (list: HelperRoute[]): HelperRoute[] =>
+    list.map((r, i) => ({ r, i })).sort((a, b) => f[b.r] - f[a.r] || a.i - b.i).map((x) => x.r)
+  if (difficulty === 'simple') return ranked(on)
+  return [...ranked(on.filter((r) => r !== 'local')), ...on.filter((r) => r === 'local')]
+}
+
+/** Claude's fader at Off (in Manual): Codex leads every request, as when Claude's plan is used up. */
+export function claudeAtZero(settings: { workMode?: WorkMode | null; workFaders?: Partial<WorkFaders> | null; agentBalance?: AgentBalance }): boolean {
+  if (workModeOf(settings) !== 'manual') return false
+  const f = fadersOf(settings)
+  return f.claude === 0 && !faderProblem(f)
+}
+
+/** Short form for the request log and the route tag, e.g. "Claude 1 · Codex 3 · Cline 3 · local 3". */
+export function fadersText(f: WorkFaders): string {
+  return `Claude ${f.claude} · Codex ${f.codex} · Cline ${f.cline} · local ${f.local}`
 }

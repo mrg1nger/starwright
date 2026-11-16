@@ -51,7 +51,7 @@ Starwright is for "vibe coding": you describe what you want, watch it appear in 
 - **Long chats are compacted in place.** Rules, decisions and work in progress are kept, and a meter shows how full the chat is.
 
 **Control and cost**
-- **A Claude/Codex balance slider:** Claude-led, balanced, Codex-led, or Auto (follows whichever plan has more left).
+- **The work equalizer:** a fader each for Claude, Codex, Cline and the local model (Off to First choice), with a meter beside each showing what it actually built this week. Manual or Auto, with presets (Balanced, Save Claude, Free first, Best quality). Claude can go to Off: Codex then plans, builds and answers every request.
 - **Usage meters** for Claude and Codex, and a detailed report of where the usage went.
 - **Smart model switching:** Haiku for quick edits, Sonnet when Claude's plan is running low. Your chosen model is a ceiling.
 - **Takeover.** When Claude's plan limit is reached, Codex carries on with the same memory, and Claude is told what happened when it returns.

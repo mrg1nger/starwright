@@ -144,7 +144,7 @@ import { listClaudeModels } from '../cli/claudeModels'
 import { listCodexModels } from '../cli/codexModels'
 import { listThemes, deleteTheme, themesDir } from '../themes/store'
 import { generateTheme } from '../themes/generate'
-import { claudeBlockedUntil, clearClaudeLimit, getUsage, noteClaudeLimit } from '../usage/usage'
+import { claudeBlockedUntil, claudeStandsDown, clearClaudeLimit, getUsage, noteClaudeLimit } from '../usage/usage'
 import { helpersAllowed } from '../helpers/helperJob'
 import { checkCline, clineStatus } from '../cli/clineExec'
 import { clineModelFor, listClineModels } from '../cli/clineAcp'
@@ -188,6 +188,7 @@ import {
   watchDeployEvent
 } from '../schedule/scheduler'
 import type { ScheduleInput } from '@shared/schedule'
+import { fadersOf, fadersText, workModeOf } from '@shared/balance'
 import { runTakeover, takeCatchUpNote } from '../orchestrator/takeover'
 import { getPreview, findPreview, previewEvents } from '../preview/preview'
 import { beginTurn, handleSessionEvent, skipReview, takeReviewNote } from '../review/reviewFlow'
@@ -422,15 +423,17 @@ export function registerIpcHandlers(getSender: () => WebContents | undefined): v
       // rejected; Codex takes the request (or the user is asked).
       const blockedUntil = claudeBlockedUntil()
       const takeoverMode = getSettings().limitTakeover
-      if (planning && blockedUntil !== null) {
+      // Claude's fader at Off: Codex plans and builds every request, without asking.
+      const standDown = claudeStandsDown()
+      if (planning && (blockedUntil !== null || standDown)) {
         // Claude is out: Codex makes the plan instead, read-only. Nothing is built until it's approved.
         appendUserMessage(projectId, text)
         recordUserMessage(projectId, text, 'plan (by Codex)')
         // A question answered just before goes along, as it does for Claude.
-        void runCodexPlan(session, projectId, projectPath, [takeAskNote(projectId), text].filter(Boolean).join('\n\n'))
+        void runCodexPlan(session, projectId, projectPath, [takeAskNote(projectId), text].filter(Boolean).join('\n\n'), standDown && blockedUntil === null)
         return { snapshot: undefined, thumbnails: [] as string[] }
       }
-      if (blockedUntil !== null && takeoverMode !== 'off' && !process.env.VIBEAPP_SKIP_PREEMPTIVE) {
+      if (standDown || (blockedUntil !== null && takeoverMode !== 'off' && !process.env.VIBEAPP_SKIP_PREEMPTIVE)) {
         const snapshot = await takeSnapshot(projectPath, text).catch(() => undefined)
         const thumbnails = prepared.map((p) => p.thumbnail)
         const element = picked ? pickedNote(picked) : undefined
@@ -457,7 +460,9 @@ export function registerIpcHandlers(getSender: () => WebContents | undefined): v
           rememberApprovedPlan(projectId, extra.approvedPlan)
           startPlanBuild(projectId, extra.approvedPlan)
         }
-        if (takeoverMode === 'ask') {
+        if (standDown) {
+          startTakeover(session, projectId, projectPath, request, null, 'faders')
+        } else if (takeoverMode === 'ask') {
           session.emit('event', { type: 'takeover_offer', text, resetsAt: blockedUntil } satisfies VibeEvent)
         } else {
           startTakeover(session, projectId, projectPath, request, blockedUntil)
@@ -545,7 +550,7 @@ export function registerIpcHandlers(getSender: () => WebContents | undefined): v
         projectId,
         mode: planning ? 'plan' : extra?.approvedPlan ? 'plan_build' : 'build',
         text,
-        balance: getSettings().agentBalance ?? 'auto',
+        balance: workModeOf(getSettings()) === 'manual' ? `manual: ${fadersText(fadersOf(getSettings()))}` : 'auto',
         route: route.label ? `${route.label}${route.reason ? ` · ${route.reason}` : ''}${route.detail ? ` [${route.detail}]` : ''}` : null,
         size: route.size
       })
@@ -1429,14 +1434,20 @@ async function runCodexPlan(
   session: ReturnType<typeof getOrCreateSession>,
   projectId: string,
   projectPath: string,
-  text: string
+  text: string,
+  /** Claude's fader is at Off (rather than its plan used up). */
+  byFaders = false
 ): Promise<void> {
   const emit = (event: VibeEvent): void => void session.emit('event', event)
   const abort = new AbortController()
   takeovers.set(projectId, abort)
   const toolUseId = `codex-plan-${Date.now()}`
   try {
-    emit({ type: 'route', label: 'Planned by Codex', reason: 'Claude is out right now; nothing changes until you approve' })
+    emit({
+      type: 'route',
+      label: 'Planned by Codex',
+      reason: `${byFaders ? "Claude's fader is at Off" : 'Claude is out right now'}; nothing changes until you approve`
+    })
     emit({
       type: 'tool_call',
       toolUseId,
@@ -1652,7 +1663,7 @@ function runAsk(
       const system = `You are answering a question about the user's software project inside Starwright. You can't change the project's files: you can only read and search them and look things up in the project's memory. You can look at and update the user's to-do list for this project (add items, tick them off) and read their notes, when they ask. Answer directly in plain, friendly language and keep it short unless asked for depth. If the question turns out to need changes to the project, say so and suggest they switch to Build mode.\n\n## Key facts\n${keyFacts}`
       const prompt = [relevant, text].filter(Boolean).join('\n\n')
       let answer
-      const blocked = claudeBlockedUntil() !== null
+      const blocked = claudeBlockedUntil() !== null || claudeStandsDown()
       if (!blocked) {
         try {
           answer = await askClaude({
@@ -1699,7 +1710,7 @@ ${prompt}`,
           abort
         })
         recordUsage(projectId, 'chat', 'codex', answer.counts)
-        emit({ type: 'route', label: 'Answered by Codex', reason: 'Claude is out right now' })
+        emit({ type: 'route', label: 'Answered by Codex', reason: claudeStandsDown() ? "Claude's fader is at Off" : 'Claude is out right now' })
       }
       recordAssistantMessage(projectId, answer.text)
       noteAsk(projectId, text, answer.text)
@@ -1719,7 +1730,8 @@ function startTakeover(
   projectId: string,
   projectPath: string,
   request: LastRequest,
-  resetsAt: number | null
+  resetsAt: number | null,
+  why: 'limit' | 'faders' = 'limit'
 ): void {
   if (takeovers.has(projectId)) return
   const abort = new AbortController()
@@ -1733,6 +1745,7 @@ function startTakeover(
     element: request.element,
     images: request.images,
     resetsAt,
+    why,
     snapshot: request.snapshot,
     unsandboxed: session.isGoNutzMode(),
     emit: (event) => session.emit('event', event),

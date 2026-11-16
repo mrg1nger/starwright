@@ -230,14 +230,14 @@ export function buildReport(input: {
     )
   }
 
-  // ---- the Claude/Codex split: where the slider asked for Codex
+  // ---- the Claude/Codex split: where routing asked for a helper
   const codexRouted = requests.filter((r) => r.mode !== 'plan' && r.mode !== 'takeover' && /Codex/i.test(r.route ?? ''))
   if (codexRouted.length) {
     const handedOff = codexRouted.filter((r) => r.handoffs > 0)
     const after = (kind: StepKind): number => handedOff.filter((r) => (r.tools[kind] ?? 0) > 0).length
     lines.push(
       '',
-      `## Teamwork (${codexRouted.length} requests the slider sent to Codex)`,
+      `## Teamwork (${codexRouted.length} requests routed to the helpers)`,
       `- Called Codex: ${handedOff.length} (${pct(handedOff.length, codexRouted.length)}). Didn't: ${codexRouted.length - handedOff.length}.`,
       `- After handing off, Claude still edited files in ${after('edit')}, checked in a browser in ${after('browser')}, ran server commands in ${after('server')} and local commands in ${after('command')}.`,
       `- Claude's share of the work there: ${stepMix(Object.fromEntries(Object.entries(handedOff.reduce<Record<string, number>>((acc, r) => (addTools(acc, r.tools), acc), {})).filter(([kind]) => kind !== 'handoff')))}`,

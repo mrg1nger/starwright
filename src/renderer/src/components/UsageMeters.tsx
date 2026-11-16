@@ -1,12 +1,10 @@
-import { Fragment, useCallback, useEffect, useState } from 'react'
+import { Fragment, useCallback, useEffect, useState, type ReactNode } from 'react'
 import type { CliName, CliStatus, UsageSnapshot } from '@shared/types'
-import { autoLean, type AgentBalance } from '@shared/balance'
-import BalanceSlider from './BalanceSlider'
 
 interface UsageMetersProps {
   statuses: Record<CliName, CliStatus>
-  balance?: AgentBalance
-  onBalanceChange?: (balance: AgentBalance) => void
+  /** Shown before the meters (the work equalizer). */
+  children?: ReactNode
 }
 
 const POLL_INTERVAL_MS = 3 * 60_000
@@ -30,7 +28,7 @@ function levelClass(usedPercent: number): string {
 }
 
 /** Compact plan-usage bars for Claude and Codex, shown in the top bar. */
-function UsageMeters({ statuses, balance, onBalanceChange }: UsageMetersProps) {
+function UsageMeters({ statuses, children }: UsageMetersProps) {
   const [usage, setUsage] = useState<Partial<Record<CliName, UsageSnapshot>>>({})
 
   const refresh = useCallback(
@@ -68,16 +66,11 @@ function UsageMeters({ statuses, balance, onBalanceChange }: UsageMetersProps) {
   )
 
   const shown = CLIS.filter(({ cli }) => statuses[cli].status === 'logged_in')
-  // The tightest window's share left, as the router sees it.
-  const leftOf = (cli: CliName): number | undefined => {
-    const s = usage[cli]
-    if (s?.status !== 'ok' || !s.windows.length) return undefined
-    return Math.min(...s.windows.map((w) => 100 - w.usedPercent))
-  }
 
   return (
     <div className="usage-meters">
-      {shown.map(({ cli, name }, position) => {
+      {children}
+      {shown.map(({ cli, name }) => {
         const snapshot = usage[cli]
         const tooltip = !snapshot
           ? `Checking ${name} usage…`
@@ -93,13 +86,6 @@ function UsageMeters({ statuses, balance, onBalanceChange }: UsageMetersProps) {
               ].join('\n')
         return (
           <Fragment key={cli}>
-            {position === 1 && shown.length === 2 && onBalanceChange && (
-              <BalanceSlider
-                balance={balance ?? 'auto'}
-                autoLean={autoLean(leftOf('claude'), leftOf('codex'))}
-                onChange={onBalanceChange}
-              />
-            )}
           <button
             className={`usage-meter${snapshot?.stale ? ' usage-meter-stale' : ''}`}
             title={tooltip}

@@ -571,7 +571,10 @@ function ChatView({ project, onBack, onOpenHistory, onOpenMemory, onError, think
               ...prev,
               {
                 kind: 'notice',
-                text: `Claude is out${event.resetsAt ? ` until ${formatClock(event.resetsAt)}` : ''}. Codex is handling this directly.`
+                text:
+                  event.why === 'faders'
+                    ? "Claude's fader is at Off, so Codex is handling this directly (change it in the equalizer at the top)."
+                    : `Claude is out${event.resetsAt ? ` until ${formatClock(event.resetsAt)}` : ''}. Codex is handling this directly.`
               }
             ]
           case 'takeover_offer':

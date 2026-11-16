@@ -4,6 +4,8 @@ import { existsSync } from 'fs'
 import { join } from 'path'
 import { query, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import type { CliName, UsageSnapshot, UsageWindow } from '@shared/types'
+import { claudeAtZero } from '@shared/balance'
+import { getSettings } from '../settings/store'
 import { resolveClaudeExecutable } from '../cli/claudeBinary'
 import { killTree, resolveCodexLaunch, trackChild } from '../cli/codexExec'
 
@@ -273,9 +275,20 @@ export function claudeBlockedUntil(): number | null {
   return until > now ? until : null
 }
 
+/** The user set Claude's fader to Off: Codex leads every request (as when Claude's plan is used up). */
+export function claudeStandsDown(): boolean {
+  try {
+    return claudeAtZero(getSettings())
+  } catch {
+    return false
+  }
+}
+
 /** Whether small optional Haiku jobs (code map, memory saving, tidy-up) may run: not when Claude is nearly out. */
 export function claudeHelpersAllowed(): boolean {
   if (claudeBlockedUntil() !== null) return false
+  // Claude's fader at Off: nothing uses Claude, the small jobs included.
+  if (claudeStandsDown()) return false
   const left = percentLeft(peekUsage('claude'))
   return left === undefined || left >= HELPERS_STAND_DOWN_BELOW
 }

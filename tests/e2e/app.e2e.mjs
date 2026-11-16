@@ -879,6 +879,39 @@ try {
     }
   })
 
+  // -- the work equalizer --
+
+  await step('the equalizer: presets and faders save, and Claude at Off hands the request to Codex without asking', async () => {
+    const before = await evaluate(`window.vibe.settings.get()`)
+    // "Ask me first" stays on: at Off, Codex takes the request anyway (the user already chose).
+    await evaluate(`window.vibe.settings.update({ limitTakeover: 'ask' })`)
+    try {
+      await click('', '.eq-toggle')
+      await waitFor(`!!document.querySelector('.eq-panel')`, 'the equalizer panel', 5000)
+      await click('Save Claude', '.eq-presets button')
+      await waitFor(`(async () => { const s = await window.vibe.settings.get(); return s.workMode === 'manual' && s.workFaders.claude === 1 })()`, 'the preset saved', 5000)
+      await waitFor(`/Save Claude/.test(document.querySelector('.eq-toggle').innerText)`, 'the button naming the preset', 5000)
+      await shot('equalizer-panel')
+      // Codex Off with Claude Off is refused, with a message.
+      await evaluate(`(() => { const set = (i, v) => { const r = document.querySelectorAll('.eq-channel input')[i]; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(r, String(v)); r.dispatchEvent(new Event('input', { bubbles: true })) }; set(1, 0); })()`)
+      await sleep(300)
+      await evaluate(`(() => { const r = document.querySelectorAll('.eq-channel input')[0]; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(r, '0'); r.dispatchEvent(new Event('input', { bubbles: true })) })()`)
+      await waitFor(`/can't be off too/.test(document.querySelector('.eq-panel').innerText)`, 'the refusal', 5000)
+      // Codex back up, then Claude Off.
+      await evaluate(`window.vibe.settings.update({ workMode: 'manual', workFaders: { claude: 0, codex: 3, cline: 3, local: 3 } })`)
+      await pressEscape()
+      await send('Create a file atzero.txt containing the word off.')
+      await waitFor(`/fader is at Off, so Codex is handling this directly/.test(document.querySelector('.chat-log').innerText)`, 'the Claude-at-Off notice', 30_000)
+      if (await evaluate(`[...document.querySelectorAll('button')].some((b) => b.textContent.includes('Let Codex do it'))`)) throw new Error('it asked first')
+      await idle(600_000)
+      if (!existsSync(join(project, 'atzero.txt'))) throw new Error('Codex did not create the file')
+    } finally {
+      await evaluate(
+        `window.vibe.settings.update(${JSON.stringify({ limitTakeover: before.limitTakeover, workMode: before.workMode ?? 'auto', workFaders: before.workFaders ?? { claude: 3, codex: 3, cline: 3, local: 3 } })})`
+      ).catch(() => undefined)
+    }
+  })
+
   // -- shrinking and stopping --
 
   await step('the context meter shows the chat size against the auto-compact point, and the note can be hidden', async () => {

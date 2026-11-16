@@ -13,6 +13,7 @@ import { peekUsage, percentLeft } from '../usage/usage'
 import { runCline } from '../cli/clineExec'
 import { clineModelFor } from '../cli/clineAcp'
 import { clineReadyForHandoffs } from './routing'
+import { fadersOf, workModeOf } from '@shared/balance'
 import { agentSecretEnv, helperSecretsNote } from '../secrets/vault'
 
 // When Claude's plan is used up, Codex takes the user's request directly:
@@ -70,6 +71,8 @@ export interface TakeoverRequest {
   /** Saved image files the user attached. */
   images: string[]
   resetsAt: number | null
+  /** Why Claude isn't doing it: its plan is used up, or the user set its fader to Off. */
+  why?: 'limit' | 'faders'
   /** The project as it was before this request (the Undo snapshot). */
   snapshot?: string
   unsandboxed: boolean
@@ -99,7 +102,7 @@ export function takeCatchUpNote(projectId: string): string | undefined {
   })
   const first = items.find((i) => i.snapshot)?.snapshot
   return [
-    `[VibeApp note: while Claude's plan limit was reached, Codex handled ${many ? 'these requests' : 'this request'} directly, so ${many ? 'they are' : 'it is'} not in this conversation.`,
+    `[VibeApp note: while Claude was out (its plan limit was reached, or the user had set Claude's fader to Off), Codex handled ${many ? 'these requests' : 'this request'} directly, so ${many ? 'they are' : 'it is'} not in this conversation.`,
     "(Where an outcome says \"by Cline\", Cline did it because Codex was out too.) Those changes are in the working tree as uncommitted edits (Starwright doesn't commit for the user), so git status and git diff will show them mixed in with everything else. That is expected and is not part of the new request unless the user says so; don't try to untangle or revert them.",
     first ? `To see exactly what Codex changed in that time: git diff ${first} (plus git status --short for new files).` : '',
     'Judge what changed during a request from the hand-off results (they list their own files and diff), not from a whole-tree git diff. The handoffs tool has the full reports.',
@@ -124,11 +127,14 @@ export async function runTakeover(req: TakeoverRequest): Promise<void> {
 
   // Codex takes it; Cline only when Codex's plan is used up too (and Cline is set up).
   const codexLeft = percentLeft(peekUsage('codex'))
-  const codexOut = codexLeft !== undefined && codexLeft < CODEX_OUT_BELOW
-  const clineReady = await clineReadyForHandoffs(getSettings())
+  // Codex's fader at Off counts as out (Claude can't be at Off with Codex off too).
+  const settings = getSettings()
+  const codexOff = workModeOf(settings) === 'manual' && fadersOf(settings).codex === 0
+  const codexOut = codexOff || (codexLeft !== undefined && codexLeft < CODEX_OUT_BELOW)
+  const clineReady = await clineReadyForHandoffs(settings)
   if (codexOut && clineReady) return runClineTakeover(req)
 
-  emit({ type: 'takeover_started', resetsAt: req.resetsAt })
+  emit({ type: 'takeover_started', resetsAt: req.resetsAt, why: req.why })
   emit({
     type: 'tool_call',
     toolUseId,
@@ -284,7 +290,7 @@ async function runClineTakeover(req: TakeoverRequest, afterCodex = false): Promi
   const { projectId, projectPath, emit, signal } = req
   const toolUseId = `takeover-cline-${Date.now()}`
   const prompt = [req.text, req.element].filter(Boolean).join('\n\n')
-  if (!afterCodex) emit({ type: 'takeover_started', resetsAt: req.resetsAt })
+  if (!afterCodex) emit({ type: 'takeover_started', resetsAt: req.resetsAt, why: req.why })
   emit({
     type: 'tool_call',
     toolUseId,

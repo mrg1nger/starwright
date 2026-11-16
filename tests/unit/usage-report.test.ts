@@ -85,7 +85,7 @@ test('the report says where usage went, how Codex was used, and names the expens
   assert.match(report, /Claude, by project/)
   assert.match(report, /- yay: 100%/)
   assert.match(report, /Building an approved plan: 1/)
-  assert.match(report, /Teamwork \(2 requests the slider sent to Codex\)/)
+  assert.match(report, /Teamwork \(2 requests routed to the helpers\)/)
   assert.match(report, /Called Codex: 1 \(50%\)/)
   assert.match(report, /checked in a browser in 1, ran server commands in 1/)
   assert.match(report, /requests ran 3\+ server commands by hand/)

@@ -10,6 +10,7 @@ import ExtensionsView from './views/ExtensionsView'
 import TalkView from './views/TalkView'
 import ToastHost from './components/ToastHost'
 import UsageMeters from './components/UsageMeters'
+import Equalizer from './components/Equalizer'
 import UpdateBanner from './components/UpdateBanner'
 import { AppFooter, BrandTitle } from './components/Brand'
 import { useToasts } from './lib/useToasts'
@@ -145,11 +146,9 @@ function App() {
             </button>
           )
         )}
-        <UsageMeters
-          statuses={statuses}
-          balance={settings?.agentBalance ?? 'auto'}
-          onBalanceChange={(agentBalance) => changeSettings({ agentBalance }).catch(() => undefined)}
-        />
+        <UsageMeters statuses={statuses}>
+          {settings && claudeReady && <Equalizer settings={settings} statuses={statuses} onChange={changeSettings} />}
+        </UsageMeters>
       </div>
 
       {settings && <UpdateBanner settings={settings} onSettingsChange={changeSettings} />}

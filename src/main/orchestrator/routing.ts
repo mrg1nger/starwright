@@ -1,7 +1,7 @@
 import type { AppSettings, TaskDifficulty, TaskKind } from '@shared/types'
 import { claudeHelpersAllowed, peekUsage, percentLeft } from '../usage/usage'
 import { requestClassifier, type Classification } from './classifier'
-import { BALANCE_LABELS, applyBalance, leanFor, stepOfLean } from '@shared/balance'
+import { BALANCE_LABELS, applyBalance, fadersOf, fadersText, leanFor, leanFromFaders, orderByFaders, stepOfLean, workModeOf, type HelperRoute, type WorkFaders } from '@shared/balance'
 import { clineUnavailable, resolveClineLaunch } from '../cli/clineExec'
 import { localHandoffsReady } from '../cli/lmStudio'
 
@@ -81,6 +81,7 @@ export function handoffNote(helpers: { codex: boolean; cline: boolean; local: bo
     helpers.cline ? "Cline (on the user's separate ClinePass plan)" : '',
     helpers.codex ? 'Codex' : ''
   ].filter(Boolean)
+  if (!who.length) return ''
   const list = who.length > 1 ? `${who.slice(0, -1).join(', ')} or ${who.at(-1)}` : who[0]
   return `To hand work off, use run_subtask with the task (what to do, which files, what "done" looks like, how to check it), its kind and how hard it is: Starwright picks who does it, ${list}, from the user's settings and what each plan has left, and passes it on if one fails. Split bigger jobs: hand each simple, well-specified part off on its own marked "simple", so it can go to the cheaper agents; mark a part "hard" only if it truly is.`
 }
@@ -90,7 +91,7 @@ const CODEX_NOTES = {
   some: 'Part of this request is independent and well-scoped. Consider handing that part off with run_subtask while you do the rest; skip it if doing it yourself is clearly quicker.'
 }
 
-export type HelperRoute = 'codex' | 'cline' | 'local'
+export type { HelperRoute }
 
 /**
  * Who a hand-off goes to, in order of trying (the next one gets it if one fails without changing
@@ -98,6 +99,7 @@ export type HelperRoute = 'codex' | 'cline' | 'local'
  * to Codex first; hard work to Codex, else Cline, never the local model. Tests, boilerplate and docs
  * count as simple unless Claude says they're hard. A nearly used-up Codex plan moves Codex last; an
  * agent the user asked for goes first. Only agents that can take work right now are included.
+ * With the equalizer on Manual, the faders reorder that (higher first, off dropped; see orderByFaders).
  */
 export function chooseRoutes(input: {
   difficulty: TaskDifficulty
@@ -105,12 +107,16 @@ export function chooseRoutes(input: {
   available: Record<HelperRoute, boolean>
   codexLow: boolean
   asked?: HelperRoute
+  /** The user's faders, when the equalizer is on Manual. */
+  faders?: WorkFaders
 }): HelperRoute[] {
   const plain = input.kind === 'tests' || input.kind === 'boilerplate' || input.kind === 'docs'
   const level = input.difficulty === 'moderate' && plain ? 'simple' : input.difficulty
   let order: HelperRoute[] = level === 'simple' ? ['local', 'cline', 'codex'] : level === 'moderate' ? ['codex', 'cline', 'local'] : ['codex', 'cline']
+  if (input.faders) order = orderByFaders(order, input.faders, level)
   if (input.codexLow && order.includes('codex')) order = [...order.filter((r) => r !== 'codex'), 'codex']
-  if (input.asked) order = [input.asked, ...order.filter((r) => r !== input.asked)]
+  // An agent asked for by name goes first, unless the user switched it off on the faders.
+  if (input.asked && (!input.faders || input.faders[input.asked] > 0)) order = [input.asked, ...order.filter((r) => r !== input.asked)]
   return order.filter((r) => input.available[r])
 }
 
@@ -145,7 +151,7 @@ export async function routeMessage(
   } = {}
 ): Promise<RouteDecision> {
   // Smart switching off means no model changes and no Haiku judge, but the
-  // Claude/Codex slider still applies (it used to be skipped altogether).
+  // equalizer still applies (it used to be skipped altogether).
   const smart = settings.smartRouting
   const images = context.images ?? 0
   // The Haiku judge also spends Claude plan; stand it down when Claude is nearly out.
@@ -164,20 +170,26 @@ export async function routeMessage(
   const claudeLow = claudeLeft !== undefined && claudeLeft < CLAUDE_LOW
   const codexLow = codexLeft !== undefined && codexLeft < CODEX_LOW
 
-  // How much goes to Codex: Haiku's call, shifted by the user's slider (or,
+  // How much goes to the helpers: Haiku's call, shifted by the equalizer (or,
   // on Auto, by which plan has more left), then adjusted for plans that are
   // nearly used up.
   const balance = settings.agentBalance ?? 'auto'
-  const lean = leanFor(balance, claudeLeft, codexLeft)
-  let codex = applyBalance(request.codex, request.size, lean)
-  if (codexLow) codex = 'none'
-  else if (claudeLow && codex === 'some') codex = 'most'
+  // The equalizer: on Manual the faders say who may take work and how much Claude hands off.
+  const manual = workModeOf(settings) === 'manual'
+  const faders = fadersOf(settings)
+  const on = (route: HelperRoute): boolean => !manual || faders[route] > 0
 
   // Cline (a third agent on its own ClinePass plan), when it's set up for hand-offs.
-  const cline = request.size !== 'quick' && (context.clineReady ?? (await clineReadyForHandoffs(settings)))
+  const cline = request.size !== 'quick' && on('cline') && (context.clineReady ?? (await clineReadyForHandoffs(settings)))
   // The local model (VibeApp's own agent on LM Studio), when it's switched on and LM Studio is up.
-  const local = request.size !== 'quick' && (context.localReady ?? (await localHandoffsReady()))
-  const helperNote = handoffNote({ codex: !codexLow, cline, local })
+  const local = request.size !== 'quick' && on('local') && (context.localReady ?? (await localHandoffsReady()))
+  const codexOn = on('codex')
+
+  const lean = manual ? leanFromFaders(faders, { codex: codexOn && !codexLow, cline, local }) : leanFor(balance, claudeLeft, codexLeft)
+  let codex = applyBalance(request.codex, request.size, lean)
+  if (codexLow || (manual && !codexOn && !cline && !local)) codex = 'none'
+  else if (claudeLow && codex === 'some') codex = 'most'
+  const helperNote = handoffNote({ codex: !codexLow && codexOn, cline, local })
 
   const notes: string[] = []
   if (codexLow) {
@@ -211,7 +223,8 @@ export async function routeMessage(
       "This looks like a quick request: don't save anything to memory, and only search memory if the answer depends on something remembered."
     )
   }
-  const note = notes.length ? `[VibeApp note: ${notes.join(' ')}]` : undefined
+  const kept = notes.filter(Boolean)
+  const note = kept.length ? `[VibeApp note: ${kept.join(' ')}]` : undefined
 
   // Which Claude model.
   let model: string | null = null
@@ -268,7 +281,7 @@ export async function routeMessage(
           : settings.aiRouting
           ? 'Keyword rules (Haiku was unavailable)'
           : 'Keyword rules'
-    }${lean !== 0 ? ` · balance: ${BALANCE_LABELS[stepOfLean(lean)]}${balance === 'auto' ? ' (auto)' : ''}` : ''}`,
+    }${manual ? ` · faders: ${fadersText(faders)}` : lean !== 0 ? ` · balance: ${BALANCE_LABELS[stepOfLean(lean)]}${balance === 'auto' ? ' (auto)' : ''}` : ''}`,
     note,
     skipReview: request.size === 'quick',
     size: request.size,

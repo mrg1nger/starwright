@@ -2,6 +2,18 @@
 
 The version goes up with each improvement that ships: the middle number for new features, the last for fixes only. Settings shows the version a computer is running. (Starwright was called VibeApp up to 0.10.0.)
 
+## 0.15.0 (2026-11-16)
+
+**The work equalizer** (step 3): the Claude/Codex slider in the top bar is replaced by a fader each for Claude, Codex, Cline and the local model, from Off to First choice. Click the equalizer button beside the usage meters to open it.
+- **Manual:** the faders decide. A helper's fader sets where it comes in the order for each hand-off (higher first; equal faders keep the usual order: simple work to the local model, then Cline, then Codex; harder work to Codex first). Off means never, even when Claude asks for it by name. Claude's fader against the strongest helper sets how much Claude hands off. The roles still hold: the local model never gets hard work or moves ahead of the others above simple work, and a nearly used-up Codex plan still moves Codex to the back.
+- **Claude can go to Off:** Codex then plans, builds and answers every request directly, as when Claude's plan is used up, without asking first, and nothing (the small background jobs included) uses your Claude plan. Codex can't be Off at the same time. When Claude comes back, it's told what Codex did meanwhile.
+- **Presets:** Balanced, Save Claude, Free first and Best quality.
+- **Meters beside the faders:** what each one actually built over the last 7 days. A route that isn't set up (not signed in, or hand-offs switched off in Settings) says so under its fader.
+- **Auto** works as the slider's Auto did (leaning toward the plan with more left) until it learns from the quality records in a later update.
+- **Your slider setting carries over:** a fixed slider position becomes the matching Manual faders; Auto stays Auto.
+
+**Fix:** on a phone, a long plan step no longer runs off the edge of the screen.
+
 ## 0.14.1 (2026-11-15)
 
 **Codex, Cline and the local model can use the project's secrets.** Only Claude had them: the other agents were started without them, so a hand-off (or a takeover when Claude is out) that needed an API key failed. Now each gets the same secrets Claude gets, as environment variables (Starwright's own keys still stay hidden from all of them), and its task lists their names, never their values, with how to read them. A Cline that keeps running between hand-offs starts afresh when the project's secrets change.

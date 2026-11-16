@@ -21,6 +21,7 @@ import { countsFromCodexEvents, recordUsage } from '../usage/tokens'
 import type { DelegationActivity, TaskDifficulty, TaskKind } from '@shared/types'
 import { agentName, routedNote, type HandoffAgent } from '@shared/handoff'
 import { chooseRoutes, helperAvailability, type HelperRoute } from '../orchestrator/routing'
+import { fadersOf, fadersText, workModeOf } from '@shared/balance'
 import type { AgentInstallRequest } from '../extensions/install'
 import { saveRecipe } from '../deploy/deploy'
 import { listSchedules, saveSchedule, summarize as summarizeSchedule } from '../schedule/scheduler'
@@ -345,8 +346,21 @@ export function createCodexDelegationServer(
     agent?: HelperRoute
     timeoutMs?: number
   }): Promise<{ content: { type: 'text'; text: string }[]; isError: boolean }> {
-    const { available, codexLow } = await helperAvailability(getSettings())
-    const routes = chooseRoutes({ difficulty: args.difficulty, kind: args.kind, available, codexLow, asked: args.agent })
+    const settings = getSettings()
+    const { available, codexLow } = await helperAvailability(settings)
+    const faders = workModeOf(settings) === 'manual' ? fadersOf(settings) : undefined
+    const routes = chooseRoutes({ difficulty: args.difficulty, kind: args.kind, available, codexLow, asked: args.agent, faders })
+    if (!routes.length && faders && (['codex', 'cline', 'local'] as const).some((r) => available[r])) {
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: `The user's equalizer settings don't let any agent take this ${args.difficulty} task (${fadersText(faders)}; the local model only takes simple work). Do it yourself.`
+          }
+        ],
+        isError: true
+      }
+    }
     if (!routes.length) {
       return {
         content: [
