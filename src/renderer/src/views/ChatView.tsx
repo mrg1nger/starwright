@@ -691,9 +691,13 @@ function ChatView({ project, onBack, onOpenHistory, onOpenMemory, onError, think
     const unsubConfirm = window.vibe.chat.onConfirmationRequest((projectId, request) => {
       if (projectId === project.id) addConfirmations([request])
     })
+    const unsubClosed = window.vibe.chat.onConfirmationClosed((projectId, id) => {
+      if (projectId === project.id) setConfirmations((prev) => prev.filter((c) => c.id !== id))
+    })
     return () => {
       unsubEvent()
       unsubConfirm()
+      unsubClosed()
     }
   }, [project.id, applyEvent])
 

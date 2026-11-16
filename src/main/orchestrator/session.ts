@@ -321,7 +321,8 @@ export class ClaudeSession extends EventEmitter {
         return result
       },
       () => this.deployRunner?.() ?? Promise.resolve({ ok: false, text: 'Deploy is not available here.' }),
-      (what, why) => this.askToLeavePlan(what, why)
+      (what, why) => this.askToLeavePlan(what, why),
+      (agent, command) => this.askAboutCommand(agent, command)
     )
 
     const memoryServer = {
@@ -779,6 +780,37 @@ ${extensionInstructions(extensions)}` : ''}`
     })
   }
 
+  /**
+   * A helper's command that may reach outside the project: the same Allow/Deny prompt as
+   * Claude's. Unanswered after a few minutes, it's refused and the prompt goes away, so a
+   * hand-off nobody is watching doesn't wait forever.
+   */
+  askAboutCommand(agent: string, command: string): Promise<boolean> {
+    if (this.disposed) return Promise.resolve(false)
+    const shown = command.length > 300 ? `${command.slice(0, 300)}…` : command
+    return new Promise((resolve) => {
+      const request: ConfirmationRequest = {
+        id: randomUUID(),
+        toolName: 'helper_command',
+        input: { agent, command },
+        reason: `${agent} wants to run a command that may reach outside the project: ${shown}`
+      }
+      const timer = setTimeout(() => {
+        if (!this.confirmationWaiters.delete(request.id)) return
+        this.emit('confirmation_closed', request.id)
+        resolve(false)
+      }, HELPER_ASK_MS)
+      this.confirmationWaiters.set(request.id, {
+        resolve: (approved) => {
+          clearTimeout(timer)
+          resolve(approved)
+        },
+        request
+      })
+      this.emit('confirmation_request', request)
+    })
+  }
+
   /** Shows Claude's questions to the user; resolves with their answers, or null if they skipped. */
   private requestAnswers(input: unknown): Promise<QuestionAnswers | null> {
     const questions = ((input as { questions?: UserQuestion[] })?.questions ?? []).filter(
@@ -850,6 +882,9 @@ ${extensionInstructions(extensions)}` : ''}`
     this.queue.close()
   }
 }
+
+/** How long a helper's command waits for Allow/Deny before it's refused. */
+const HELPER_ASK_MS = 5 * 60_000
 
 const DESTRUCTIVE_PATTERNS = [
   /\brm\s+-[a-z]*r[a-z]*f|\brm\s+-[a-z]*f[a-z]*r/i,

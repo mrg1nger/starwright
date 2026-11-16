@@ -11,6 +11,11 @@ const WINDOWS_PATH = /[A-Za-z]:[\\/][^\s"'`;|&<>()]*/g
 // Git Bash style /c/Users/... and other absolute Unix paths.
 const UNIX_PATH = /(?:^|[\s"'=(;&|])(\/[^\s"'`;|&<>()]*)/g
 const HARMLESS_UNIX = new Set(['/dev/null', '/dev/stdout', '/dev/stderr'])
+// sed/perl substitutions like 's/"//g' or 's/foo/bar/' are text, not paths (found
+// on a real run: Cline's `grep ... | sed 's/"//g'` was refused as "outside the
+// project"). Only the expression goes; file arguments and a `w /file` flag's file
+// are still checked.
+const SUBSTITUTION = /(^|[\s'"])s\/(?:[^/\\\n]|\\.)*\/(?:[^/\\\n]|\\.)*\/[a-z0-9]*(?=$|[\s'";|&)])/gi
 
 function normalise(path: string): string {
   return path.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
@@ -28,7 +33,7 @@ export function staysInProject(command: string, projectPath: string): boolean {
   for (const match of command.match(WINDOWS_PATH) ?? []) {
     if (!inside(match, project)) return false
   }
-  for (const [, path] of command.matchAll(UNIX_PATH)) {
+  for (const [, path] of command.replace(SUBSTITUTION, '$1').matchAll(UNIX_PATH)) {
     if (HARMLESS_UNIX.has(path)) continue
     // /c/Users/me/project -> c:/users/me/project
     const drive = /^\/([a-z])(\/.*)?$/i.exec(path)

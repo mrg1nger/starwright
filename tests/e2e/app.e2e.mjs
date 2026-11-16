@@ -600,6 +600,22 @@ try {
     }
   })
 
+  await step("Cline's command outside the project gets Claude's Allow/Deny prompt, and runs once allowed", async () => {
+    const outsideFile = join(tmpdir(), `starwright-e2e-outside-${Date.now()}.txt`)
+    const shown = outsideFile.replace(/\\/g, '/')
+    try {
+      await send(
+        `Use the run_subtask tool with agent 'cline' to hand this to Cline, word for word: "Run exactly this one command and nothing else, then report its output: node -e \\"require('fs').writeFileSync('${shown}', 'ok')\\"". Don't run it yourself.`
+      )
+      await waitFor(`/Cline wants to run a command/.test(document.querySelector('.confirmation-banner')?.textContent ?? '')`, "Cline's Allow/Deny prompt", 300_000)
+      await click('Allow', '.confirmation-banner button')
+      await idle(600_000)
+      if (!existsSync(outsideFile)) throw new Error('the allowed command did not run')
+    } finally {
+      rmSync(outsideFile, { force: true })
+    }
+  })
+
   const todoOnScreen = (pattern, who) =>
     waitFor(
       `[...document.querySelectorAll('.todo-item')].some((r) => ${pattern}.test(r.textContent) && /from ${who}/.test(r.textContent))`,

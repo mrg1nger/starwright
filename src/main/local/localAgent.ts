@@ -1,7 +1,7 @@
 import { spawn } from 'child_process'
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'fs'
 import { dirname, isAbsolute, relative, resolve, sep } from 'path'
-import { commandDanger } from '../cline/hookPolicy'
+import { OUTSIDE_PROJECT, commandDanger } from '../cline/hookPolicy'
 import { killTree, trackChild } from '../cli/codexExec'
 import { bashPath } from '../deploy/deploy'
 import { countsFromChatUsage, lmStudioBase, lmStudioStatus, pickModel } from '../cli/lmStudio'
@@ -33,6 +33,8 @@ export interface LocalAgentRun {
   onActivity?: (activity: DelegationActivity) => void
   /** Extra environment variables for its commands: the project's secrets, as Claude has them. */
   env?: Record<string, string>
+  /** Asks the user about a command that only failed the folder check (Allow/Deny), as for Claude. None: refused. */
+  ask?: (command: string) => Promise<boolean>
 }
 
 export interface LocalAgentResult {
@@ -321,7 +323,9 @@ async function runTool(name: string, args: Record<string, unknown>, run: LocalAg
     case 'run_command': {
       const command = String(args.command ?? '').trim()
       if (!command) return { text: 'Give a command.', activity: { step: 'run', text: 'Command (empty)', ok: false } }
-      const danger = commandDanger(command, { mode: 'build', projectPath: cwd, goNutz: run.goNutz })
+      let danger = commandDanger(command, { mode: 'build', projectPath: cwd, goNutz: run.goNutz })
+      // Only the folder check failed: the user decides, as for Claude's commands.
+      if (danger === OUTSIDE_PROJECT && run.ask && (await run.ask(command).catch(() => false))) danger = null
       if (danger) {
         return {
           text: `BLOCKED by Starwright: ${danger} is not allowed in this run. Do not try another way round it; say in your report that it needs the user.`,

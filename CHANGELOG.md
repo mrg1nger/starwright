@@ -2,6 +2,12 @@
 
 The version goes up with each improvement that ships: the middle number for new features, the last for fixes only. Settings shows the version a computer is running. (Starwright was called VibeApp up to 0.10.0.)
 
+## 0.15.2 (2026-11-16)
+
+**Cline and the local model get the same Allow/Deny prompt as Claude.** A command that might reach outside the project used to be refused outright for them, while Claude's would just ask you. Now it asks, saying which agent wants to run what, and the hand-off waits for your answer. Unanswered after 5 minutes, it's refused and the prompt goes away, so a hand-off nobody is watching doesn't hang. Destructive commands and pushing stay refused for them, as before; a one-off Cline run (when the hosted one can't be used) and a takeover still refuse, since there's no prompt to wait on.
+
+**Commands with a sed expression aren't taken for paths any more.** `grep ... | sed 's/"//g'` was flagged as "working outside the project folder", because the `//g` looked like a path, and Cline kept retrying it. Expressions like `s/old/new/` are now read as text; files the command reads or writes outside the project still count.
+
 ## 0.15.1 (2026-11-16)
 
 **Plans follow the equalizer.** Plan steps only knew "Claude" or "Codex", so a plan made under "Free first" still showed Codex everywhere and kept plain steps like scaffolding with Claude.

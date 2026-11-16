@@ -204,6 +204,12 @@ export function createVibeApi(ipcRenderer: IpcLike, host: 'electron' | 'browser'
         ipcRenderer.on('vibe:chat:confirmationRequest', listener)
         return () => ipcRenderer.removeListener('vibe:chat:confirmationRequest', listener)
       },
+      /** An Allow/Deny that went unanswered and was refused (a helper's command). */
+      onConfirmationClosed: (cb: (projectId: string, id: string) => void): (() => void) => {
+        const listener = (_event: Electron.IpcRendererEvent, projectId: string, id: string): void => cb(projectId, id)
+        ipcRenderer.on('vibe:chat:confirmationClosed', listener)
+        return () => ipcRenderer.removeListener('vibe:chat:confirmationClosed', listener)
+      },
       respondToConfirmation: (
         projectId: string,
         confirmationId: string,

@@ -23,6 +23,12 @@ export interface ClinePolicy {
   readFiles?: string[]
   /** A file whose text explains a refused read (read instead of the refused file). */
   blockedNote?: string
+  /**
+   * A command that only fails the folder check goes to the user (Allow/Deny), as Claude's
+   * do, instead of being refused: the hook lets it through to Cline's permission request,
+   * which Starwright answers (hosted Cline). One-off CLI runs can't ask, so they refuse.
+   */
+  askOutside?: boolean
 }
 
 export interface ToolCall {
@@ -31,7 +37,8 @@ export interface ToolCall {
 }
 
 export type HookDecision =
-  | { allow: true }
+  /** ask: allowed by the hook, but the permission answer must ask the user first (why). */
+  | { allow: true; ask?: string }
   /** Swap the tool's input for this one (a refused command becomes an echo that says why). */
   | { allow: false; reason: string; overrideInput: unknown }
   /** Stop the whole run: the tool can't be made harmless. */
@@ -62,13 +69,16 @@ function inside(path: string, folder: string): boolean {
   return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
 }
 
-/** Why a command isn't allowed in this run, or null. */
+/** The reason a command gets when it only fails the folder check: the user may still allow it. */
+export const OUTSIDE_PROJECT = 'working outside the project folder'
+
+/** Why a command isn't allowed in this run, or null. OUTSIDE_PROJECT is the one the user can allow. */
 export function commandDanger(command: string, policy: ClinePolicy): string | null {
   const github = githubDanger(command)
   if (github) return github
   if (policy.goNutz) return null
   for (const rule of DESTRUCTIVE) if (rule.pattern.test(command)) return rule.what
-  if (!staysInProject(command, policy.projectPath)) return 'working outside the project folder'
+  if (!staysInProject(command, policy.projectPath)) return OUTSIDE_PROJECT
   return null
 }
 
@@ -122,6 +132,10 @@ export function decideToolCall(policy: ClinePolicy, call: ToolCall): HookDecisio
       const commands = Array.isArray(input.commands) ? input.commands : [input.commands]
       const verdicts = commands.map((c) => commandDanger(commandText(c), policy))
       if (verdicts.every((v) => v === null)) return { allow: true }
+      // Only the folder check failed: the user decides, as for Claude's commands.
+      if (policy.askOutside && verdicts.every((v) => v === null || v === OUTSIDE_PROJECT)) {
+        return { allow: true, ask: OUTSIDE_PROJECT }
+      }
       const reasons = verdicts.filter(Boolean) as string[]
       return {
         allow: false,

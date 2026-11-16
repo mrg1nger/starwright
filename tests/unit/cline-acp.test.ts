@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { acpToolName, finishFromStop, permissionAnswer } from '../../src/main/cli/clineAcp'
-import type { ClinePolicy } from '../../src/main/cline/hookPolicy'
+import { decideToolCall, type ClinePolicy } from '../../src/main/cline/hookPolicy'
 import { CLINE_MODEL_NOTES, CLINE_RECOMMENDED, clineModelLabel } from '@shared/clineModels'
 
 const project = 'C:\\Users\\me\\Game'
@@ -32,6 +32,20 @@ test('permission requests get the same answers as the hook', () => {
   assert.equal(connector.allow, false)
   assert.match(connector.reason ?? '', /composio_search_tools/)
   assert.equal(permissionAnswer({ mode: 'review', projectPath: project }, 'editor: …', { path: `${project}\\a.js` }).allow, false, 'a review may not change files')
+})
+
+test("hosted Cline: a command that only fails the folder check goes to the user; destructive ones are still swapped", () => {
+  const hosted: ClinePolicy = { ...build, askOutside: true }
+  const command = 'grep -o x src/a.ts > /tmp/out.txt'
+  // The hook lets it through to the permission request, which asks.
+  assert.deepEqual(decideToolCall(hosted, { name: 'run_commands', input: { commands: [command] } }), { allow: true, ask: 'working outside the project folder' })
+  assert.deepEqual(permissionAnswer(hosted, `run_commands: ${command}`, { commands: [command] }), { allow: false, reason: 'working outside the project folder', ask: true })
+  // A one-off run can't ask: refused as before.
+  assert.equal(decideToolCall(build, { name: 'run_commands', input: { commands: [command] } }).allow, false)
+  // Mixed with a destructive command: refused, no question.
+  const mixed = decideToolCall(hosted, { name: 'run_commands', input: { commands: [command, 'rm -rf src'] } })
+  assert.equal(mixed.allow, false)
+  assert.equal(decideToolCall(hosted, { name: 'run_commands', input: { commands: ['git push --force'] } }).allow, false)
 })
 
 test('the model menus show test results, the pick, and refused models', () => {

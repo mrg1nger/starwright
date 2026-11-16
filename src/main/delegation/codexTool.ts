@@ -160,7 +160,9 @@ export function createCodexDelegationServer(
   /** Runs the project's saved Deploy recipe (no AI) and describes how it went. */
   runDeploy?: () => Promise<{ ok: boolean; text: string }>,
   /** Plan mode: asks the user whether Claude may stop planning and do something now. */
-  leavePlan?: (what: string, why: string) => Promise<string>
+  leavePlan?: (what: string, why: string) => Promise<string>,
+  /** Asks the user (Allow/Deny) about a helper's command that may reach outside the project, as for Claude's. */
+  askAboutCommand?: (agent: string, command: string) => Promise<boolean>
 ): ReturnType<typeof createSdkMcpServer> {
   // Hand-offs share the project folder and the request's Codex session, and each one's
   // "files changed" comes from before/after snapshots, so two at once would edit the same
@@ -266,7 +268,8 @@ export function createCodexDelegationServer(
         signal,
         memory: memory ? { scriptPath: memory.scriptPath, dbPath: memory.dbPath, projectId: memory.projectId, projectPath: memory.projectPath } : undefined,
         // Later hand-offs in the same request carry on Cline's conversation.
-        session: request ? clineSessionFor(request) : undefined
+        session: request ? clineSessionFor(request) : undefined,
+        ask: askAboutCommand ? (command) => askAboutCommand('Cline', command) : undefined
       },
       (activity) => {
         onActivity?.(activity)
@@ -317,6 +320,7 @@ export function createCodexDelegationServer(
       goNutz: isGoNutzMode(),
       signal,
       timeoutMs: timeoutMs ?? HANDOFF_TIMEOUT_MS,
+      ask: askAboutCommand ? (command) => askAboutCommand('The local model', command) : undefined,
       onActivity: (activity) => {
         onActivity?.(activity)
         const note = progressNote(activity)

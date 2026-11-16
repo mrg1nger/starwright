@@ -257,6 +257,11 @@ export interface ClineRunArgs {
   memory?: { scriptPath: string; dbPath: string; projectId: string; projectPath: string }
   /** Runs with the same key carry on one Cline conversation (hand-offs within one request). */
   session?: string
+  /**
+   * Asks the user about a command that only failed the folder check (Allow/Deny), as for
+   * Claude. Only hosted Cline can wait for the answer; a one-off run refuses such commands.
+   */
+  ask?: (command: string) => Promise<boolean>
 }
 
 export interface ClineRunResult {

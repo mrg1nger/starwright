@@ -198,3 +198,28 @@ test("the project's secrets reach the local model's commands, and the hand-off n
   deleteSecret('helper-secrets-project', 'ANTHROPIC_API_KEY')
   assert.equal(helperSecretsNote('helper-secrets-project'), '', 'no secrets, no note')
 })
+
+test('a command outside the project goes to the user, as for Claude: Allow runs it, Deny refuses it', async () => {
+  const cwd = project({ 'a.txt': 'hello\n' })
+  const asked: string[] = []
+  script = [
+    { calls: [['run_command', { command: 'node -e "console.log(1)" > /tmp/out-allowed' }]] },
+    { calls: [['run_command', { command: 'node -e "console.log(2)" > /tmp/out-denied' }]] },
+    { calls: [['run_command', { command: 'rm -rf src' }]] },
+    { say: 'Done.' }
+  ]
+  requests.length = 0
+  const result = await runLocalAgent({
+    task: 'Write outside.',
+    cwd,
+    ask: async (command) => {
+      asked.push(command)
+      return command.includes('allowed')
+    }
+  })
+  assert.deepEqual(asked, ['node -e "console.log(1)" > /tmp/out-allowed', 'node -e "console.log(2)" > /tmp/out-denied'], 'destructive commands are refused without asking')
+  assert.deepEqual(result.blocked, ['working outside the project folder', 'deleting folders with rm -r'])
+  const toolResults = requests.at(-1)!.messages.filter((m) => m.role === 'tool').map((m) => m.content)
+  assert.match(toolResults[0], /^Exit code 0\./)
+  assert.match(toolResults[1], /^BLOCKED by Starwright/)
+})

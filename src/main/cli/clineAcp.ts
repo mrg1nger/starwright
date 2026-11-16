@@ -68,6 +68,8 @@ interface Agent {
   stderr: string
   /** Said with each prompt when the memory tools couldn't be set up. */
   memoryNote: string
+  /** Asks the user about a command the folder check flagged (set for each prompt; none: refused). */
+  ask?: (command: string) => Promise<boolean>
   idle?: NodeJS.Timeout
 }
 
@@ -89,10 +91,10 @@ export function acpToolName(title: string | undefined): string {
   return (title ?? '').split(':')[0].trim()
 }
 
-/** How VibeApp answers a permission request: the same rules as the hook. */
-export function permissionAnswer(policy: ClinePolicy, title: string | undefined, rawInput: unknown): { allow: boolean; reason?: string } {
+/** How VibeApp answers a permission request: the same rules as the hook. ask: the user decides. */
+export function permissionAnswer(policy: ClinePolicy, title: string | undefined, rawInput: unknown): { allow: boolean; reason?: string; ask?: boolean } {
   const decision = decideToolCall(policy, { name: acpToolName(title), input: rawInput })
-  if (decision.allow) return { allow: true }
+  if (decision.allow) return decision.ask ? { allow: false, reason: decision.ask, ask: true } : { allow: true }
   // The hook swaps a refused command for an echo saying why (it runs first, so this is
   // normally already the echo); letting the swapped call through keeps Cline informed.
   if ('overrideInput' in decision) return { allow: true }
@@ -154,11 +156,23 @@ export function stopHostedCline(): void {
   for (const agent of [...agents.values()]) shutDown(agent)
 }
 
-function onAgentRequest(agent: Agent, message: { id: number; method: string; params: Record<string, unknown> }): void {
+async function onAgentRequest(agent: Agent, message: { id: number; method: string; params: Record<string, unknown> }): Promise<void> {
   if (message.method === 'session/request_permission') {
     const toolCall = (message.params.toolCall ?? {}) as { title?: string; rawInput?: unknown }
     const options = (message.params.options ?? []) as { optionId: string; kind: string }[]
-    const answer = permissionAnswer(agent.policy, toolCall.title, toolCall.rawInput)
+    let answer = permissionAnswer(agent.policy, toolCall.title, toolCall.rawInput)
+    if (answer.ask) {
+      // Only the folder check failed: the user decides (Allow/Deny), as for Claude's commands.
+      const input = (toolCall.rawInput ?? {}) as { commands?: unknown }
+      const commands = (Array.isArray(input.commands) ? input.commands : [input.commands]).map((c) =>
+        typeof c === 'string' ? c : JSON.stringify(c ?? '')
+      )
+      const ask = agent.ask
+      const allowed = ask ? await ask(commands.join('\n')).catch(() => false) : false
+      answer = allowed
+        ? { allow: true }
+        : { allow: false, reason: `${answer.reason} (${ask ? "the user said no, or didn't answer" : 'no one to ask'})` }
+    }
     if (!answer.allow && answer.reason) agent.refused.push(answer.reason)
     const wanted = answer.allow ? ['allow_once', 'allow_always'] : ['reject_once', 'reject_always']
     const option = options.find((o) => o.kind === wanted[0]) ?? options.find((o) => wanted.includes(o.kind))
@@ -178,7 +192,15 @@ async function startAgent(key: string, args: ClineRunArgs): Promise<Agent> {
   const home = await prepareClineHome()
   const temp = mkdtempSync(join(tmpdir(), 'vibeapp-cline-acp-'))
   const hookLog = join(temp, 'blocked.jsonl')
-  const policy: ClinePolicy = { mode: args.mode, projectPath: args.cwd, goNutz: !!args.goNutz, blockedNote: home.blockedNote, readFiles: [home.blockedNote] }
+  // Hosted Cline asks Starwright before each step, so a command that only fails the folder check can go to the user.
+  const policy: ClinePolicy = {
+    mode: args.mode,
+    projectPath: args.cwd,
+    goNutz: !!args.goNutz,
+    blockedNote: home.blockedNote,
+    readFiles: [home.blockedNote],
+    askOutside: true
+  }
   const mcpPath = join(temp, 'mcp.json')
   const memoryNote = writeMcpSettings(mcpPath, home, args.memory)
   if (decideToolCall(policy, { name: 'composio_search_tools' }).allow) throw new Error("Starwright's Cline policy check failed.")
@@ -222,7 +244,7 @@ async function startAgent(key: string, args: ClineRunArgs): Promise<Agent> {
         continue
       }
       if (message.method && message.id !== undefined) {
-        onAgentRequest(agent, message as { id: number; method: string; params: Record<string, unknown> })
+        void onAgentRequest(agent, message as { id: number; method: string; params: Record<string, unknown> })
       } else if (message.id !== undefined) {
         const waiting = agent.pending.get(message.id)
         agent.pending.delete(message.id)
@@ -298,6 +320,7 @@ export async function runClineHosted(args: ClineRunArgs, onActivity?: (activity:
   if (agent.idle) clearTimeout(agent.idle)
   agent.busy = true
   agent.refused = []
+  agent.ask = args.ask
   const running = agent
 
   try {
@@ -410,6 +433,7 @@ export async function runClineHosted(args: ClineRunArgs, onActivity?: (activity:
     return null
   } finally {
     running.busy = false
+    running.ask = undefined
     if (!running.dead) {
       running.idle = setTimeout(() => shutDown(running), IDLE_MS)
       running.idle.unref()

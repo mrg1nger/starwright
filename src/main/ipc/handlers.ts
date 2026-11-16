@@ -2033,6 +2033,10 @@ function wireSessionEvents(
   session.on('confirmation_request', (request: ConfirmationRequest) => {
     getSender()?.send('vibe:chat:confirmationRequest', projectId, request)
   })
+  // A helper's Allow/Deny that timed out: take it off the screen.
+  session.on('confirmation_closed', (id: string) => {
+    getSender()?.send('vibe:chat:confirmationClosed', projectId, id)
+  })
   session.on('session_id', (sdkSessionId: string) => {
     setSdkSessionId(projectId, sdkSessionId)
   })
