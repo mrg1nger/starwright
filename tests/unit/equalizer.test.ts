@@ -9,10 +9,11 @@ import {
   fadersOf,
   leanFromFaders,
   orderByFaders,
+  likelyHelper,
   presetOf,
   workModeOf
 } from '@shared/balance'
-import { chooseRoutes, routeMessage } from '../../src/main/orchestrator/routing'
+import { chooseRoutes, planHandoffNote, routeMessage } from '../../src/main/orchestrator/routing'
 
 const all = { codex: true, cline: true, local: true }
 
@@ -72,4 +73,25 @@ test("routing follows the faders on Manual: who's named, and how hard Claude lea
   const clineOnly = await routeMessage('Build a settings page with a dark mode toggle', { ...base, workFaders: { claude: 1, codex: 0, cline: 4, local: 0 } }, ready)
   assert.match(clineOnly.note ?? '', /Cline/)
   assert.doesNotMatch(clineOnly.note ?? '', /Codex,|or Codex|the local model \(free/, 'Codex and the local model are off')
+})
+
+test('plan steps say who they would likely go to, and planning is told how much to hand off', async () => {
+  const freeFirst = { workMode: 'manual' as const, workFaders: { claude: 2, codex: 2, cline: 3, local: 4 } }
+  assert.equal(likelyHelper('simple', freeFirst, all), 'local')
+  assert.equal(likelyHelper('moderate', freeFirst, all), 'cline')
+  assert.equal(likelyHelper('hard', freeFirst, all), 'cline')
+  assert.equal(likelyHelper('simple', freeFirst, { codex: true, cline: false, local: false }), 'codex')
+  assert.equal(likelyHelper('moderate', { workMode: 'auto' }, all), 'codex', 'Auto: the usual order')
+
+  const lots = planHandoffNote(1, all, freeFirst.workFaders)
+  assert.match(lots, /scaffolding, boilerplate, tests and docs included/)
+  assert.match(lots, /favour the free local model and Cline for simple work/)
+  assert.match(planHandoffNote(-1, all), /only clearly separate/)
+  assert.match(planHandoffNote(0, { codex: false, cline: false, local: false }), /mark every step \(Claude\)/)
+
+  const base = { smartRouting: false, aiRouting: false, agentBalance: 'auto', claudeModel: null, ...freeFirst } as unknown as AppSettings
+  const planned = await routeMessage('Plan a Hyper-V MCP server', base, { clineReady: true, localReady: true, notQuick: true, planning: true })
+  assert.match(planned.note ?? '', /For the plan:/)
+  const built = await routeMessage('Plan a Hyper-V MCP server', base, { clineReady: true, localReady: true, notQuick: true })
+  assert.doesNotMatch(built.note ?? '', /For the plan:/, 'only while planning')
 })

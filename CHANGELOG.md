@@ -2,6 +2,15 @@
 
 The version goes up with each improvement that ships: the middle number for new features, the last for fixes only. Settings shows the version a computer is running. (Starwright was called VibeApp up to 0.10.0.)
 
+## 0.15.1 (2026-11-16)
+
+**Plans follow the equalizer.** Plan steps only knew "Claude" or "Codex", so a plan made under "Free first" still showed Codex everywhere and kept plain steps like scaffolding with Claude.
+- **Steps are marked "Claude" or "Hand off" with how hard they are** (simple, moderate, hard), not with an agent: Starwright picks the agent when the step is built, from your faders. Each hand-off step shows who it would likely go to ("Hand off · simple → Local model"), and once built, who actually did it.
+- **Planning is told your settings:** with the faders favouring the helpers (Free first, Save Claude), every self-contained step is marked for hand-off, scaffolding, boilerplate, tests and docs included, and simple pieces get their own steps so they can go to the free local model or Cline. Claude keeps design decisions, wiring the pieces together and the review.
+- Plans written before this update, with "(Codex)" steps, are read as hand-offs.
+
+**Backslashes in paths show as backslashes in every theme.** A theme with a Japanese font (Yu Gothic, Meiryo, MS Gothic...) drew them as ¥, so project paths read D:¥Vibe¥WebNotes. The backslash now always comes from Segoe UI, whatever the theme's font, and the theme generator is told not to pick those fonts.
+
 ## 0.15.0 (2026-11-16)
 
 **The work equalizer** (step 3): the Claude/Codex slider in the top bar is replaced by a fader each for Claude, Codex, Cline and the local model, from Off to First choice. Click the equalizer button beside the usage meters to open it.

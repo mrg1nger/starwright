@@ -1,11 +1,17 @@
 import { useState } from 'react'
 import Markdown from './Markdown'
+import type { PlanStep } from '@shared/plan'
+import type { TaskDifficulty } from '@shared/types'
 
 interface PlanCardProps {
   plan: string
-  steps: { text: string; who?: 'claude' | 'codex' }[]
+  steps: PlanStep[]
   status: 'pending' | 'approved' | 'revised' | 'cancelled'
   progress: Record<number, 'doing' | 'done'>
+  /** Who each hand-off step went to, once it has (by step number). */
+  agents?: Record<number, string>
+  /** Who a hand-off of this difficulty would likely go to under the user's equalizer. */
+  likely?: (difficulty: TaskDifficulty) => string | null
   /** Codex made it (Claude was out). */
   by?: 'claude' | 'codex'
   finished?: { total: number; tracked: number; stopped: boolean }
@@ -13,6 +19,20 @@ interface PlanCardProps {
   onApprove: () => void
   onRevise: (feedback: string) => void
   onCancel: () => void
+}
+
+/** "Claude", or for a hand-off "Hand off · simple → Local model" (who got it, or who likely will). */
+function whoLabel(step: PlanStep, gotIt: string | undefined, likely?: (d: TaskDifficulty) => string | null): string {
+  if (step.who === 'claude') return 'Claude'
+  const to = gotIt ?? likely?.(step.difficulty ?? 'moderate')
+  return `Hand off${step.difficulty ? ` · ${step.difficulty}` : ''}${to ? ` → ${to}` : ''}`
+}
+
+function whoTitle(step: PlanStep, gotIt: string | undefined): string {
+  if (step.who === 'claude') return 'Claude does this step itself.'
+  return gotIt
+    ? `Starwright gave this step to ${gotIt}.`
+    : 'Starwright picks who does this step when it is built, from your equalizer settings and how hard it is. The name shown is its likely pick.'
 }
 
 const STATUS_LABEL: Record<PlanCardProps['status'], string> = {
@@ -23,7 +43,7 @@ const STATUS_LABEL: Record<PlanCardProps['status'], string> = {
 }
 
 /** A plan Claude proposed in Plan mode: approve it to build, ask for changes, or cancel. */
-function PlanCard({ plan, steps, status, progress, by, finished, busy, onApprove, onRevise, onCancel }: PlanCardProps) {
+function PlanCard({ plan, steps, status, progress, agents, likely, by, finished, busy, onApprove, onRevise, onCancel }: PlanCardProps) {
   const [changing, setChanging] = useState(false)
   const [feedback, setFeedback] = useState('')
   // The steps are listed above; the full text is there for anyone who wants it.
@@ -58,7 +78,7 @@ function PlanCard({ plan, steps, status, progress, by, finished, busy, onApprove
                   {state === 'done' ? '✓' : state === 'doing' ? '▶' : '○'}
                 </span>
                 <span className="plan-step-text">
-                  {s.who && <span className={`plan-who plan-who-${s.who}`}>{s.who === 'codex' ? 'Codex' : 'Claude'}</span>}
+                  {s.who && <span className={`plan-who plan-who-${s.who}`} title={whoTitle(s, agents?.[i + 1])}>{whoLabel(s, agents?.[i + 1], likely)}</span>}
                   {s.text}
                 </span>
               </li>

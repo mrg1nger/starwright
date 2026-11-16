@@ -1,4 +1,4 @@
-import type { TaskDifficulty, WorkRoute } from './types'
+import type { TaskDifficulty, TaskKind, WorkRoute } from './types'
 
 // How work is split between Claude (leads, plans, reviews) and the helpers (Codex, Cline, the
 // local model). The old Claude/Codex slider's steps live on as the lean under the equalizer's
@@ -182,4 +182,41 @@ export function claudeAtZero(settings: { workMode?: WorkMode | null; workFaders?
 /** Short form for the request log and the route tag, e.g. "Claude 1 · Codex 3 · Cline 3 · local 3". */
 export function fadersText(f: WorkFaders): string {
   return `Claude ${f.claude} · Codex ${f.codex} · Cline ${f.cline} · local ${f.local}`
+}
+
+/**
+ * Who a hand-off goes to, in order of trying (the next one gets it if one fails without changing
+ * anything). Simple work goes to the free local model first, then Cline, then Codex; moderate work
+ * to Codex first; hard work to Codex, else Cline, never the local model. Tests, boilerplate and docs
+ * count as simple unless Claude says they're hard. A nearly used-up Codex plan moves Codex last; an
+ * agent the user asked for goes first. Only agents that can take work right now are included.
+ * With the equalizer on Manual, the faders reorder that (higher first, off dropped; see orderByFaders).
+ */
+export function chooseRoutes(input: {
+  difficulty: TaskDifficulty
+  kind: TaskKind
+  available: Record<HelperRoute, boolean>
+  codexLow: boolean
+  asked?: HelperRoute
+  /** The user's faders, when the equalizer is on Manual. */
+  faders?: WorkFaders
+}): HelperRoute[] {
+  const plain = input.kind === 'tests' || input.kind === 'boilerplate' || input.kind === 'docs'
+  const level = input.difficulty === 'moderate' && plain ? 'simple' : input.difficulty
+  let order: HelperRoute[] = level === 'simple' ? ['local', 'cline', 'codex'] : level === 'moderate' ? ['codex', 'cline', 'local'] : ['codex', 'cline']
+  if (input.faders) order = orderByFaders(order, input.faders, level)
+  if (input.codexLow && order.includes('codex')) order = [...order.filter((r) => r !== 'codex'), 'codex']
+  // An agent asked for by name goes first, unless the user switched it off on the faders.
+  if (input.asked && (!input.faders || input.faders[input.asked] > 0)) order = [input.asked, ...order.filter((r) => r !== input.asked)]
+  return order.filter((r) => input.available[r])
+}
+
+/** The helper a hand-off of this difficulty would most likely go to now (the plan card's "→ Cline"), or null. */
+export function likelyHelper(
+  difficulty: TaskDifficulty,
+  settings: { workMode?: WorkMode | null; workFaders?: Partial<WorkFaders> | null; agentBalance?: AgentBalance },
+  available: Record<HelperRoute, boolean>
+): HelperRoute | null {
+  const faders = workModeOf(settings) === 'manual' ? fadersOf(settings) : undefined
+  return chooseRoutes({ difficulty, kind: 'feature', available, codexLow: false, faders })[0] ?? null
 }

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { approvedPlanFact, approvedPlanNote, looksBig, matchTodosToSteps, parsePlanSteps, planTitle, progressMarkers } from '@shared/plan'
+import { PLAN_INSTRUCTIONS, approvedPlanFact, approvedPlanNote, looksBig, matchTodosToSteps, parsePlanSteps, planTitle, progressMarkers } from '@shared/plan'
 
 test("a plan is named after its heading or its first sentence, and its fact is one line pointing at it", () => {
   assert.equal(planTitle('# Security review of FNotes\n\nThis was a read-only review.'), 'Security review of FNotes')
@@ -27,9 +27,27 @@ test("a plan's steps are read from its Steps section, with who does each", () =>
   const steps = parsePlanSteps(plan)
   assert.equal(steps.length, 3, 'only the Steps section, not Risks')
   assert.deepEqual(steps[0], { text: 'Add sellPrice(item) to shop.js, returning half the price rounded down.', who: 'claude' })
-  assert.equal(steps[1].who, 'codex')
+  assert.equal(steps[1].who, 'handoff', 'older plans said Codex: a hand-off')
   assert.equal(steps[1].text, 'Write tests in shop.test.js for every item.')
-  assert.equal(steps[2].who, 'codex')
+  assert.equal(steps[2].who, 'handoff')
+})
+
+test('hand-off steps carry how hard they are, and name no agent', () => {
+  const steps = parsePlanSteps(`## Steps
+1. (Hand off: simple) Scaffold package.json and tsconfig.json.
+2. **(Hand off, hard)** Write the PowerShell remoting runner in src/ps.ts.
+3. (Handoff - moderate) Checkpoint tools in src/tools/checkpoints.ts.
+4. (Hand off) Write the README.
+5. (Claude) Review all the tools.`)
+  assert.deepEqual(steps[0], { text: 'Scaffold package.json and tsconfig.json.', who: 'handoff', difficulty: 'simple' })
+  assert.equal(steps[1].difficulty, 'hard')
+  assert.equal(steps[1].text, 'Write the PowerShell remoting runner in src/ps.ts.')
+  assert.equal(steps[2].difficulty, 'moderate')
+  assert.deepEqual(steps[3], { text: 'Write the README.', who: 'handoff' })
+  assert.equal(steps[4].who, 'claude')
+  assert.match(PLAN_INSTRUCTIONS, /Hand off: simple/)
+  assert.doesNotMatch(PLAN_INSTRUCTIONS, /"\(Codex\)"/, 'the plan no longer names Codex')
+  assert.equal(planTitle('1. (Hand off: simple) Scaffold the project'), 'Scaffold the project')
 })
 
 test('without a Steps heading, the first numbered list is used; no list means no steps', () => {
@@ -41,6 +59,8 @@ test('the build note tells Claude to report progress and hand Codex steps to Cod
   const note = approvedPlanNote('## Steps\n1. (Codex) Build it')
   assert.match(note, /plan_progress/)
   assert.match(note, /run_subtask/)
+  assert.match(note, /"Hand off" \(or "Codex", in older plans\)/)
+  assert.match(note, /giving the difficulty the step is marked with/)
   assert.match(note, /1\. \(Codex\) Build it/)
 })
 

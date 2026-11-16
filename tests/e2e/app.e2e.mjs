@@ -426,6 +426,27 @@ try {
     if (card.done < 1) throw new Error('no steps were ticked off while building')
   })
 
+  await step('with "Free first", plan steps are marked for hand-off with how hard they are and who would likely get them', async () => {
+    const before = await evaluate(`window.vibe.settings.get()`)
+    await evaluate(`window.vibe.settings.update({ workMode: 'manual', workFaders: { claude: 2, codex: 2, cline: 3, local: 4 } })`)
+    try {
+      await click('Plan', '.chat-mode-switch button')
+      await send('Add three things to the shop: a function discountPrice(item) in shop.js returning 80% of the price rounded down, unit tests for it in shop.test.js, and a short section about prices in README.md.')
+      await waitFor(`!!document.querySelector('.plan-card-pending')`, 'a proposed plan', 300_000)
+      await idle(120_000)
+      const labels = await evaluate(`[...document.querySelectorAll('.plan-card-pending .plan-who')].map((e) => e.textContent)`)
+      console.log(`  (steps: ${labels.join(' | ')})`)
+      await shot('plan-handoff-labels')
+      if (labels.some((l) => /^Codex$/.test(l))) throw new Error('a step still names Codex')
+      if (!labels.some((l) => /^Hand off/.test(l))) throw new Error('no step is marked for hand-off under Free first')
+      if (!labels.some((l) => /→ (Local model|Cline|Codex)/.test(l))) throw new Error('no hand-off step says who would likely get it')
+      await click('Cancel', '.plan-card-pending button')
+    } finally {
+      await evaluate(`window.vibe.settings.update(${JSON.stringify({ workMode: before.workMode ?? 'auto', workFaders: before.workFaders ?? { claude: 3, codex: 3, cline: 3, local: 3 } })})`).catch(() => undefined)
+      await click('Build', '.chat-mode-switch button').catch(() => undefined)
+    }
+  })
+
   await step('a cancelled plan changes nothing', async () => {
     const before = readFileSync(join(project, 'shop.js'), 'utf-8')
     await send('Rename the potion to elixir everywhere in shop.js.')

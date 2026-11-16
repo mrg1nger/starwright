@@ -485,7 +485,7 @@ export function registerIpcHandlers(getSender: () => WebContents | undefined): v
             .filter(Boolean)
             .join('\n'),
           getSettings(),
-          { images: prepared.length, pointedAt: !!picked, projectId, notQuick: planning || !!extra?.approvedPlan }
+          { images: prepared.length, pointedAt: !!picked, projectId, notQuick: planning || !!extra?.approvedPlan, planning }
         )
       ])
 

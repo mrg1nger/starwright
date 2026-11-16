@@ -1,3 +1,11 @@
+/* Only the backslash: Japanese fonts in a theme draw it as ¥ (and Korean ones as ₩), which garbles
+   Windows paths. Listed first in every theme's font stack (lib/theme.ts). */
+@font-face {
+  font-family: 'Starwright Backslash';
+  src: local('Segoe UI'), local('SegoeUI'), local('Arial');
+  unicode-range: U+005C;
+}
+
 /* Theme variables. These defaults are the built-in "Midnight" theme; the
    active theme overrides them on :root (see src/renderer/src/lib/theme.ts). */
 :root {
@@ -3271,6 +3279,7 @@ textarea {
   border: 1px solid var(--border);
 }
 
+.plan-who-handoff,
 .plan-who-codex {
   color: var(--delegation-text, #b48cff);
   border-color: currentColor;

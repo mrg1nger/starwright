@@ -36,7 +36,7 @@ The user wants: ${description}
 
 A theme is a set of CSS custom property values. Rules:
 - Every value must be a plain CSS value: colors (hex, rgb/rgba, hsl), gradients (linear-/radial-/repeating-*-gradient), lengths, font stacks, box-shadows, or "none".
-- Never use url(), image-set(), @import, semicolons, braces, angle brackets or backslashes. No external images or fonts; only fonts likely installed on Windows.
+- Never use url(), image-set(), @import, semicolons, braces, angle brackets or backslashes. No external images or fonts; only fonts likely installed on Windows. No Japanese, Chinese or Korean fonts (Yu Gothic, Meiryo, MS Gothic, Noto Sans JP...): they draw the backslash in Windows paths as a yen or won sign.
 - font: a font-family stack. radius: a length like 8px.
 - bg: solid page color. bg-image: decorative layered gradients drawn over bg, or "none".
 - surface / surface-raised / surface-sunken: panel, button and input backgrounds (surface may be semi-transparent so bg-image shows through).

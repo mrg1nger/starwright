@@ -1,4 +1,5 @@
 import type { AgentBalance, WorkFaders, WorkMode } from './balance'
+import type { PlanStep } from './plan'
 
 export type CliName = 'claude' | 'codex'
 
@@ -79,7 +80,7 @@ export type VibeEvent =
   /** The conversation was moved into a fresh Claude session to keep it fast. */
   /** The conversation is being compacted (shrunk in place) to keep it fast. */
   /** Plan mode: Claude proposed a plan, waiting for the user to approve, change or cancel it. */
-  | { type: 'plan_proposed'; toolUseId: string; plan: string; steps: { text: string; who?: 'claude' | 'codex' }[]; by?: 'claude' | 'codex' }
+  | { type: 'plan_proposed'; toolUseId: string; plan: string; steps: PlanStep[]; by?: 'claude' | 'codex' }
   /** Building an approved plan ended: how many of its steps were reported, and whether it was stopped. */
   | { type: 'plan_finished'; total: number; tracked: number; stopped: boolean }
   /** A big request was sent in Build: VibeApp asks whether to plan it first. */

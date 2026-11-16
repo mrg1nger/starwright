@@ -1,7 +1,7 @@
-import type { AppSettings, TaskDifficulty, TaskKind } from '@shared/types'
+import type { AppSettings } from '@shared/types'
 import { claudeHelpersAllowed, peekUsage, percentLeft } from '../usage/usage'
 import { requestClassifier, type Classification } from './classifier'
-import { BALANCE_LABELS, applyBalance, fadersOf, fadersText, leanFor, leanFromFaders, orderByFaders, stepOfLean, workModeOf, type HelperRoute, type WorkFaders } from '@shared/balance'
+import { BALANCE_LABELS, applyBalance, chooseRoutes, fadersOf, fadersText, leanFor, leanFromFaders, stepOfLean, workModeOf, type HelperRoute, type WorkFaders } from '@shared/balance'
 import { clineUnavailable, resolveClineLaunch } from '../cli/clineExec'
 import { localHandoffsReady } from '../cli/lmStudio'
 
@@ -86,39 +86,31 @@ export function handoffNote(helpers: { codex: boolean; cline: boolean; local: bo
   return `To hand work off, use run_subtask with the task (what to do, which files, what "done" looks like, how to check it), its kind and how hard it is: Starwright picks who does it, ${list}, from the user's settings and what each plan has left, and passes it on if one fails. Split bigger jobs: hand each simple, well-specified part off on its own marked "simple", so it can go to the cheaper agents; mark a part "hard" only if it truly is.`
 }
 
+/**
+ * For Plan mode: how much of the plan to mark "Hand off", from the equalizer (or Auto's lean), so a
+ * plan made under "Free first" or "Save Claude" hands off the plain steps too, not just big ones.
+ */
+export function planHandoffNote(lean: number, helpers: Record<HelperRoute, boolean>, faders?: WorkFaders): string {
+  if (!helpers.codex && !helpers.cline && !helpers.local) return 'No other agent can take work right now: mark every step (Claude).'
+  const cheap = [
+    helpers.local && (!faders || faders.local >= 3) ? 'the free local model' : '',
+    helpers.cline && (!faders || faders.cline >= 3) ? 'Cline' : ''
+  ].filter(Boolean)
+  const where = cheap.length ? ` The user's settings favour ${cheap.join(' and ')} for simple work, so give each simple, well-specified piece its own step marked "Hand off: simple".` : ''
+  if (lean >= 1) {
+    return `For the plan: the user wants the helper agents to do most of the building. Mark every self-contained step "Hand off" (scaffolding, boilerplate, tests and docs included), and keep for Claude only design decisions, wiring the pieces together and the final review.${where}`
+  }
+  if (lean <= -1) return 'For the plan: the user prefers Claude to do most of the work. Mark "Hand off" only clearly separate, well-specified steps.'
+  return `For the plan: mark the self-contained building steps "Hand off"; keep design, integration and review for Claude.${where}`
+}
+
 const CODEX_NOTES = {
   most: 'This request is mostly straightforward implementation, so a helper agent should build it: plan the work, then hand it off with run_subtask (a clear spec and acceptance criteria) before writing the code yourself. Afterwards, review the result and fix anything off.',
   some: 'Part of this request is independent and well-scoped. Consider handing that part off with run_subtask while you do the rest; skip it if doing it yourself is clearly quicker.'
 }
 
 export type { HelperRoute }
-
-/**
- * Who a hand-off goes to, in order of trying (the next one gets it if one fails without changing
- * anything). Simple work goes to the free local model first, then Cline, then Codex; moderate work
- * to Codex first; hard work to Codex, else Cline, never the local model. Tests, boilerplate and docs
- * count as simple unless Claude says they're hard. A nearly used-up Codex plan moves Codex last; an
- * agent the user asked for goes first. Only agents that can take work right now are included.
- * With the equalizer on Manual, the faders reorder that (higher first, off dropped; see orderByFaders).
- */
-export function chooseRoutes(input: {
-  difficulty: TaskDifficulty
-  kind: TaskKind
-  available: Record<HelperRoute, boolean>
-  codexLow: boolean
-  asked?: HelperRoute
-  /** The user's faders, when the equalizer is on Manual. */
-  faders?: WorkFaders
-}): HelperRoute[] {
-  const plain = input.kind === 'tests' || input.kind === 'boilerplate' || input.kind === 'docs'
-  const level = input.difficulty === 'moderate' && plain ? 'simple' : input.difficulty
-  let order: HelperRoute[] = level === 'simple' ? ['local', 'cline', 'codex'] : level === 'moderate' ? ['codex', 'cline', 'local'] : ['codex', 'cline']
-  if (input.faders) order = orderByFaders(order, input.faders, level)
-  if (input.codexLow && order.includes('codex')) order = [...order.filter((r) => r !== 'codex'), 'codex']
-  // An agent asked for by name goes first, unless the user switched it off on the faders.
-  if (input.asked && (!input.faders || input.faders[input.asked] > 0)) order = [input.asked, ...order.filter((r) => r !== input.asked)]
-  return order.filter((r) => input.available[r])
-}
+export { chooseRoutes }
 
 /** Which helper agents can take work right now, and whether Codex's plan is nearly used up. */
 export async function helperAvailability(settings: AppSettings): Promise<{ available: Record<HelperRoute, boolean>; codexLow: boolean }> {
@@ -144,6 +136,8 @@ export async function routeMessage(
     projectId?: string
     /** Planning, or building an approved plan: never a quick edit, however short the words typed. */
     notQuick?: boolean
+    /** Plan mode: the note says how much of the plan to mark for hand-off. */
+    planning?: boolean
     /** Whether Cline can take hand-offs (looked up when not given). */
     clineReady?: boolean
     /** Whether the local model can take hand-offs (looked up when not given). */
@@ -217,6 +211,7 @@ export async function routeMessage(
     // Nothing big enough for Codex, but simple, well-specified parts can still go to the cheaper agents.
     notes.push(helperNote)
   }
+  if (context.planning) notes.push(planHandoffNote(lean, { codex: codexOn && !codexLow, cline, local }, manual ? faders : undefined))
   // Checking and saving memory would cost more than a quick edit itself.
   if (request.size === 'quick') {
     notes.push(

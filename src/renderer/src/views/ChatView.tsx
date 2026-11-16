@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import type { PlanStep } from '@shared/plan'
+import { likelyHelper } from '@shared/balance'
 import { SUBTASK_TOOL_NAME, agentOfRoutedNote } from '@shared/handoff'
 import type {
   ConfirmationRequest,
@@ -10,7 +12,9 @@ import type {
   QuestionAnswers,
   ReviewFinding,
   SecretLeak,
-  VibeEvent
+  VibeEvent,
+  AppSettings,
+  TaskDifficulty
 } from '@shared/types'
 import CheckpointButton from '../components/CheckpointButton'
 import GoNutzToggle from '../components/GoNutzToggle'
@@ -69,8 +73,10 @@ type ChatItem =
       kind: 'plan'
       toolUseId: string
       plan: string
-      steps: { text: string; who?: 'claude' | 'codex' }[]
+      steps: PlanStep[]
       status: 'pending' | 'approved' | 'revised' | 'cancelled'
+      /** While it's being built: who Starwright gave each step's hand-off to (by step number). */
+      agents?: Record<number, string>
       /** While it's being built: each step's progress (by step number). */
       progress: Record<number, 'doing' | 'done'>
       by?: 'claude' | 'codex'
@@ -421,10 +427,19 @@ function ChatView({ project, onBack, onOpenHistory, onOpenMemory, onError, think
             if (lastRunningIndex === undefined) return prev
             // A routed hand-off names its agent when Starwright picks it (or passes it on).
             const routedTo = agentOfRoutedNote(event.note)
+            // Building a plan: the step under way gets the agent too, for the plan card.
+            const planAt = routedTo ? prev.findLastIndex((item) => item.kind === 'plan' && item.status === 'approved') : -1
+            const planItem = planAt === -1 ? undefined : prev[planAt]
+            const doing =
+              planItem?.kind === 'plan' && !planItem.finished
+                ? Math.max(0, ...Object.entries(planItem.progress).filter(([, s]) => s === 'doing').map(([n]) => Number(n)))
+                : 0
             return prev.map((item, idx) =>
               idx === lastRunningIndex && item.kind === 'tool'
                 ? { ...item, progressNote: event.note, ...(routedTo ? { agent: routedTo } : {}) }
-                : item
+                : idx === planAt && item.kind === 'plan' && doing && routedTo
+                  ? { ...item, agents: { ...item.agents, [doing]: routedTo } }
+                  : item
             )
           }
           case 'error':
@@ -608,9 +623,22 @@ function ChatView({ project, onBack, onOpenHistory, onOpenMemory, onError, think
     setNoteHiddenAt(readNoteHidden(project.id))
   }, [project.id])
 
+  // The equalizer settings, so a plan's hand-off steps can say who they'd likely go to.
+  const [settings, setSettings] = useState<AppSettings | null>(null)
+  const likely = useCallback(
+    (difficulty: TaskDifficulty): string | null => {
+      if (!settings) return null
+      const route = likelyHelper(difficulty, settings, { codex: true, cline: settings.clineHandoffs, local: settings.localHandoffs })
+      return route ? ({ codex: 'Codex', cline: 'Cline', local: 'Local model' } as const)[route] : null
+    },
+    [settings]
+  )
+
   useEffect(() => {
-    const apply = (s: { autoCompact: boolean; rotateAtTokens: number }): void =>
+    const apply = (s: AppSettings): void => {
       setCompactAt({ auto: s.autoCompact, tokens: s.rotateAtTokens || 120_000 })
+      setSettings(s)
+    }
     window.vibe.settings.get().then(apply).catch(() => undefined)
     return window.vibe.settings.onChanged(apply)
   }, [])
@@ -1105,6 +1133,8 @@ function ChatView({ project, onBack, onOpenHistory, onOpenMemory, onError, think
                     steps={item.steps}
                     status={item.status}
                     progress={item.progress}
+                    agents={item.agents}
+                    likely={likely}
                     by={item.by}
                     finished={item.finished}
                     busy={busy}

@@ -1,16 +1,20 @@
 // Plan mode: Claude explores read-only and proposes a plan; the user approves
 // it (then it's built step by step), asks for changes, or cancels.
 
+import type { TaskDifficulty } from './types'
+
 export interface PlanStep {
   text: string
-  /** Who should do it, when the plan says. */
-  who?: 'claude' | 'codex'
+  /** Who should do it, when the plan says: Claude, or handed off (Starwright picks the agent). */
+  who?: 'claude' | 'handoff'
+  /** How hard a hand-off step is, as the plan says (what Starwright picks the agent by). */
+  difficulty?: TaskDifficulty
 }
 
 /** What Claude is told about writing a plan (Claude Code adds its own read-only rules around it). */
 export const PLAN_INSTRUCTIONS = `The user is planning this change before anything is built, and may not be technical. Explore the project read-only to understand what is there: keep it cheap (use the explorer helper and the memory tools mcp__vibe_memory__where / recall before reading many files yourself). Then write the plan in this shape:
 - One short paragraph saying, in plain words, what will be done and how.
-- A section "## Steps" with at most 8 numbered steps. Start each step with "(Claude)" or "(Codex)" for who should do it, following any note about the Claude/Codex balance: give Codex self-contained building steps, and keep design, integration and review with Claude. Say which files each step touches. Checking the work (tests, a look in the browser) belongs in the step that builds it, so whoever builds it checks it; don't make it a separate step for Claude. A deploy is its own last step, "(Claude) Deploy with the saved Deploy", when the user wants it live.
+- A section "## Steps" with at most 8 numbered steps. Start each step with who does it: "(Claude)", or "(Hand off: simple)", "(Hand off: moderate)" or "(Hand off: hard)" for a self-contained building step that another agent can do from a clear spec. Don't name the agent: Starwright picks it from the user's equalizer settings and how hard the step is (simple steps can go to the free local model or Cline). Follow any note about how much to hand off; keep design decisions, integration and review with Claude, and mark a step hard only if it truly is. Say which files each step touches. Checking the work (tests, a look in the browser) belongs in the step that builds it, so whoever builds it checks it; don't make it a separate step for Claude. A deploy is its own last step, "(Claude) Deploy with the saved Deploy", when the user wants it live.
 - A section "## Risks" only if there is something the user should know before saying yes.
 Do not write the code itself in the plan.`
 
@@ -24,7 +28,7 @@ export function planTitle(plan: string): string {
     .trim()
     .replace(/^#{1,6}\s*/, '')
     .replace(/^\d+[.)]\s+/, '')
-    .replace(/^[(*[\s]*(claude|codex)[)\]*:\s-]+/i, '')
+    .replace(STEP_TAG, '')
     .replace(/[*`]/g, '')
     .trim()
   const title = (/^(.{12,}?)[.!?](\s|$)/.exec(line)?.[1] ?? line).replace(/[.:]$/, '')
@@ -50,19 +54,26 @@ export function parsePlanSteps(plan: string): PlanStep[] {
     if (!m) continue
     let text = m[2].replace(/^\*\*(.+?)\*\*/, '$1')
     let who: PlanStep['who']
-    const tag = /^[(*[\s]*(claude|codex)[)\]*:\s-]+/i.exec(text)
+    let difficulty: PlanStep['difficulty']
+    const tag = STEP_TAG.exec(text)
     if (tag) {
-      who = tag[1].toLowerCase() as PlanStep['who']
+      who = /claude/i.test(tag[1]) ? 'claude' : 'handoff'
+      const level = /simple|moderate|hard/i.exec(tag[2] ?? '')?.[0].toLowerCase() as PlanStep['difficulty']
+      // Plans from before 0.15.1 said "(Codex)": a hand-off, difficulty not given.
+      if (level) difficulty = level
       text = text.slice(tag[0].length).trim()
     }
-    steps.push({ text: text.slice(0, 300), who })
+    steps.push({ text: text.slice(0, 300), who, ...(difficulty ? { difficulty } : {}) })
   }
   return steps.slice(0, 20)
 }
 
+/** "(Claude)", "(Hand off: simple)", "**(Codex)**", "Codex:" ... at the start of a step. */
+const STEP_TAG = /^[(*[\s]*(claude|codex|hand[\s-]?off)(?:\s*[:,\-–]\s*(simple|moderate|hard))?[)\]*:\s\-–]+/i
+
 /** The note that goes with "build it" after the user approves a plan. */
 export function approvedPlanNote(plan: string): string {
-  return `[VibeApp note: the user approved the plan below. Build it now, following its steps in order. Report progress with mcp__vibe_tools__plan_progress, one call per step: status "doing" for the first step, then, as each step finishes, status "done" with next set to the step you start next (leave next out after the last one). Hand the steps marked (Codex), and any other simple, well-specified step, off with run_subtask (saying how hard each is, so Starwright can give the simple ones to the cheaper agents), including how to check them, and judge them from the agent's report rather than testing again yourself. For a deploy step, call mcp__vibe_tools__run_deploy. If something in the plan turns out to be wrong, say so briefly and adapt.]
+  return `[VibeApp note: the user approved the plan below. Build it now, following its steps in order. Report progress with mcp__vibe_tools__plan_progress, one call per step: status "doing" for the first step, then, as each step finishes, status "done" with next set to the step you start next (leave next out after the last one). Hand the steps marked "Hand off" (or "Codex", in older plans), and any other simple, well-specified step, off with run_subtask, giving the difficulty the step is marked with (so Starwright can give the simple ones to the cheaper agents) and how to check it, and judge them from the agent's report rather than testing again yourself. For a deploy step, call mcp__vibe_tools__run_deploy. If something in the plan turns out to be wrong, say so briefly and adapt.]
 
 Approved plan:
 ${plan}`
