@@ -45,6 +45,14 @@ if (existsSync(runtime)) {
   if (unwanted.length) problems.push(`graphics-card files are included: ${unwanted.join(', ')}`)
 }
 
+// Each module once. 0.15.1 shipped with the files src/main/index.ts imports bundled twice
+// (getSettings and getSettings$1...): two settings stores, two Remote access servers, and an
+// update check whose Settings copy never learned it was installed, so it couldn't update itself.
+const main = asar.extractFile(asarFile, join('out', 'main', 'index.js')).toString('utf8')
+const SINGLETONS = ['getSettings', 'settingsPath', 'applyRemoteSettings', 'startUpdateChecks', 'updateState', 'checkForUpdate', 'backupNow', 'memoryDb']
+const twice = SINGLETONS.filter((name) => new RegExp(`function ${name}\\$\\d+\\(`).test(main))
+if (twice.length) problems.push(`parts of the app were bundled twice (rebuild from a C:\\ path): ${twice.join(', ')}`)
+
 if (problems.length) {
   console.error(`The packaged app is not right:\n- ${problems.join('\n- ')}`)
   process.exit(1)

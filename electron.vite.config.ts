@@ -4,6 +4,14 @@ import { buildSync } from 'esbuild'
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 
+// Windows: started from a folder spelled with a lower-case drive letter (c:\...), the build
+// loaded the files src/main/index.ts imports twice, once as C:\ and once as c:\, so they had
+// two copies of their state. 0.15.1 shipped like that: two settings stores, two Remote access
+// servers, and an update check that thought it was running from source. Always build from C:\.
+const UPPER_DRIVE = (path: string): string => path.replace(/^[a-z]:/, (drive) => drive.toUpperCase())
+const root = UPPER_DRIVE(process.cwd())
+if (root !== process.cwd()) process.chdir(root)
+
 // The memory server runs as a separate process, loaded by path from inside
 // app.asar. ES-module package resolution from inside the archive breaks when
 // the install path contains a space (e.g. "C:\Program Files"), so bundle its
