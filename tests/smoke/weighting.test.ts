@@ -32,7 +32,7 @@ async function runWith(balance: AgentBalance): Promise<{ handoffs: number; note:
   try {
     // As the app does: the routing note goes in front of the user's words.
     const events: VibeEvent[] = await turn(s, [route.note, REQUEST].filter(Boolean).join('\n\n'), 600_000)
-    const handoffs = events.filter((e) => e.type === 'tool_call' && e.name === 'mcp__vibe_tools__run_codex_subtask').length
+    const handoffs = events.filter((e) => e.type === 'tool_call' && e.name === 'mcp__vibe_tools__run_subtask').length
     console.log(`  ${balance}: ${route.label ?? '-'} · ${route.reason ?? ''} -> ${handoffs} hand-off(s)`)
     for (const p of prompts) console.log(`  prompt answered: ${p}`)
     return { handoffs, note: route.note ?? '', dir, prompts }

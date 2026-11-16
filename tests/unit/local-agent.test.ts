@@ -162,7 +162,8 @@ test('routing offers the local model only when it can take work, and as a way ro
   const { routeMessage } = await import('../../src/main/orchestrator/routing')
   const settings = { smartRouting: true, aiRouting: false, agentBalance: 'codex', claudeModel: 'sonnet' } as unknown as Parameters<typeof routeMessage>[1]
   const withLocal = await routeMessage('Add a shop screen with a sell button', settings, { clineReady: false, localReady: true })
-  assert.match(withLocal.note ?? '', /run_local_subtask/)
+  assert.match(withLocal.note ?? '', /run_subtask/)
+  assert.match(withLocal.note ?? '', /the local model/)
   const without = await routeMessage('Add a shop screen with a sell button', settings, { clineReady: false, localReady: false })
   assert.doesNotMatch(without.note ?? '', /local model/)
   const quick = await routeMessage('Make the title blue', { ...settings, agentBalance: 'balanced' }, { clineReady: false, localReady: true })

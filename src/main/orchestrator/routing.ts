@@ -1,4 +1,4 @@
-import type { AppSettings } from '@shared/types'
+import type { AppSettings, TaskDifficulty, TaskKind } from '@shared/types'
 import { claudeHelpersAllowed, peekUsage, percentLeft } from '../usage/usage'
 import { requestClassifier, type Classification } from './classifier'
 import { BALANCE_LABELS, applyBalance, leanFor, stepOfLean } from '@shared/balance'
@@ -19,6 +19,8 @@ export interface RouteDecision {
   skipReview: boolean
   /** How big Haiku (or the keyword rules) judged the request to be. */
   size: 'quick' | 'normal' | 'complex'
+  /** The message says the previous result was wrong or broken (charged to whoever built it). */
+  fixesLast: boolean
 }
 
 /** Below this share of a plan window left, start saving Claude usage. */
@@ -33,6 +35,14 @@ const QUICK_EDIT =
 const NOT_QUICK =
   /\b(build|create|make an?|implement|add(ing)? (an?|new|support)|feature|refactor|debug|why|crash(es|ing)?|broken|break|doesn'?t|isn'?t|won'?t|error|bug|database|auth|log ?in|sign ?up|api|deploy|test|install|set ?up|integrat\w*|migrat\w*|performance|security|every|all (the )?pages|whole|entire)\b/i
 
+/** Plain words saying the last change didn't work, for when Haiku doesn't judge the message. */
+const FIXES_LAST =
+  /\b(still (not|doesn'?t|isn'?t|broken|wrong|failing|the same)|(it|that|this|you) (broke|broken|didn'?t work|doesn'?t work|isn'?t working|is wrong|missed)|not fixed|didn'?t fix|same (error|problem|bug|issue))\b/i
+
+export function saysLastFailed(text: string): boolean {
+  return FIXES_LAST.test(text)
+}
+
 export function isQuickEdit(text: string): boolean {
   return text.length <= 160 && !text.includes('\n') && QUICK_EDIT.test(text) && !NOT_QUICK.test(text)
 }
@@ -45,20 +55,14 @@ function keywordClassification(text: string, images: number): Classification {
 const CHEAP_MODELS = /haiku|sonnet/i
 
 /**
- * Codex checks its own work: found on a real install that after a one-step
+ * Helpers check their own work: found on a real install that after a one-step
  * hand-off Claude spent 50 steps testing in a browser and 15 deploying by
  * hand, each step re-reading the whole conversation.
  */
 export const CODEX_CHECKS_NOTE =
-  "Put how to check the work in the task too (which tests to run, and for anything visible a check in the browser with the Playwright tools if you have them, since Codex gets the same extensions, naming the address and what to try), so Codex tests what it built and reports the results. Judge the result from Codex's report, the files changed, the diff and the automatic checks it comes back with: don't re-read the diff with git or repeat the testing yourself. If something failed or a specific doubt is left, hand the fix or the check back to Codex in another run_codex_subtask rather than doing it yourself. To deploy, use mcp__vibe_tools__run_deploy."
+  "Put how to check the work in the hand-off too (which tests to run, and for anything visible a check in the browser with the Playwright tools if you have them, naming the address and what to try), so the agent tests what it built and reports the results. Judge the result from its report, the files changed, the diff and the automatic checks it comes back with: don't re-read the diff with git or repeat the testing yourself. If something failed or a specific doubt is left, hand the fix or the check back with another run_subtask rather than doing it yourself. To deploy, use mcp__vibe_tools__run_deploy."
 
-const CODEX_LED_NOTE = `The user has set Starwright to Codex-led: you plan and review, Codex builds and tests. Work out what's needed, then call run_codex_subtask with a clear spec and acceptance criteria and let Codex write the code; don't write it yourself except small fixes after you've reviewed Codex's result. ${CODEX_CHECKS_NOTE}`
-
-const CLINE_OPTION_NOTE =
-  "Cline (run_cline_subtask) is also available, on the user's separate ClinePass plan: hand it the simple, well-specified parts (a clear change in named files, boilerplate, tests for existing code) and keep tricky or wide-reaching work with Codex."
-
-const LOCAL_OPTION_NOTE =
-  "The local model (run_local_subtask) is also available: Starwright's own agent on the model in LM Studio on the user's computer, free and private but slower and less capable. Hand it simple, well-specified parts (a clear change in named files, a bug with a failing test, boilerplate, tests for existing code), with the tests to run."
+const CODEX_LED_NOTE = `The user has set Starwright to Codex-led: you plan and review, the helper agents build and test. Work out what's needed, then hand the building off with run_subtask (a clear spec and acceptance criteria each) and let them write the code; don't write it yourself except small fixes after you've reviewed the result. ${CODEX_CHECKS_NOTE}`
 
 /** Whether Claude may hand work to Cline right now: switched on, installed, and not out of plan. */
 export async function clineReadyForHandoffs(settings: AppSettings): Promise<boolean> {
@@ -66,9 +70,63 @@ export async function clineReadyForHandoffs(settings: AppSettings): Promise<bool
   return !!(await resolveClineLaunch())
 }
 
+/**
+ * How hand-offs work now: Claude describes the task and Starwright picks the agent. Names only the
+ * agents that can take work right now. Asks Claude to split bigger jobs, so the simple parts can go
+ * to the free local model or to Cline instead of all of it going to Codex.
+ */
+export function handoffNote(helpers: { codex: boolean; cline: boolean; local: boolean }): string {
+  const who = [
+    helpers.local ? 'the local model (free, on this computer)' : '',
+    helpers.cline ? "Cline (on the user's separate ClinePass plan)" : '',
+    helpers.codex ? 'Codex' : ''
+  ].filter(Boolean)
+  const list = who.length > 1 ? `${who.slice(0, -1).join(', ')} or ${who.at(-1)}` : who[0]
+  return `To hand work off, use run_subtask with the task (what to do, which files, what "done" looks like, how to check it), its kind and how hard it is: Starwright picks who does it, ${list}, from the user's settings and what each plan has left, and passes it on if one fails. Split bigger jobs: hand each simple, well-specified part off on its own marked "simple", so it can go to the cheaper agents; mark a part "hard" only if it truly is.`
+}
+
 const CODEX_NOTES = {
-  most: 'This request is mostly straightforward implementation, so Codex should build it: plan the work, then call run_codex_subtask with a clear spec and acceptance criteria before writing the code yourself. Afterwards, review what Codex did and fix anything off.',
-  some: 'Part of this request is independent and well-scoped. Consider handing that part to Codex with run_codex_subtask while you do the rest; skip it if doing it yourself is clearly quicker.'
+  most: 'This request is mostly straightforward implementation, so a helper agent should build it: plan the work, then hand it off with run_subtask (a clear spec and acceptance criteria) before writing the code yourself. Afterwards, review the result and fix anything off.',
+  some: 'Part of this request is independent and well-scoped. Consider handing that part off with run_subtask while you do the rest; skip it if doing it yourself is clearly quicker.'
+}
+
+export type HelperRoute = 'codex' | 'cline' | 'local'
+
+/**
+ * Who a hand-off goes to, in order of trying (the next one gets it if one fails without changing
+ * anything). Simple work goes to the free local model first, then Cline, then Codex; moderate work
+ * to Codex first; hard work to Codex, else Cline, never the local model. Tests, boilerplate and docs
+ * count as simple unless Claude says they're hard. A nearly used-up Codex plan moves Codex last; an
+ * agent the user asked for goes first. Only agents that can take work right now are included.
+ */
+export function chooseRoutes(input: {
+  difficulty: TaskDifficulty
+  kind: TaskKind
+  available: Record<HelperRoute, boolean>
+  codexLow: boolean
+  asked?: HelperRoute
+}): HelperRoute[] {
+  const plain = input.kind === 'tests' || input.kind === 'boilerplate' || input.kind === 'docs'
+  const level = input.difficulty === 'moderate' && plain ? 'simple' : input.difficulty
+  let order: HelperRoute[] = level === 'simple' ? ['local', 'cline', 'codex'] : level === 'moderate' ? ['codex', 'cline', 'local'] : ['codex', 'cline']
+  if (input.codexLow && order.includes('codex')) order = [...order.filter((r) => r !== 'codex'), 'codex']
+  if (input.asked) order = [input.asked, ...order.filter((r) => r !== input.asked)]
+  return order.filter((r) => input.available[r])
+}
+
+/** Which helper agents can take work right now, and whether Codex's plan is nearly used up. */
+export async function helperAvailability(settings: AppSettings): Promise<{ available: Record<HelperRoute, boolean>; codexLow: boolean }> {
+  const codex = peekUsage('codex')
+  const codexLeft = percentLeft(codex)
+  return {
+    available: {
+      // Not installed or not signed in shows as an error; unknown (not checked yet) counts as there.
+      codex: codex?.status !== 'error',
+      cline: await clineReadyForHandoffs(settings).catch(() => false),
+      local: await localHandoffsReady().catch(() => false)
+    },
+    codexLow: codexLeft !== undefined && codexLeft < CODEX_LOW
+  }
 }
 
 export async function routeMessage(
@@ -119,29 +177,33 @@ export async function routeMessage(
   const cline = request.size !== 'quick' && (context.clineReady ?? (await clineReadyForHandoffs(settings)))
   // The local model (VibeApp's own agent on LM Studio), when it's switched on and LM Studio is up.
   const local = request.size !== 'quick' && (context.localReady ?? (await localHandoffsReady()))
-  const helperNotes = (): string[] => [...(cline ? [CLINE_OPTION_NOTE] : []), ...(local ? [LOCAL_OPTION_NOTE] : [])]
+  const helperNote = handoffNote({ codex: !codexLow, cline, local })
 
   const notes: string[] = []
   if (codexLow) {
     notes.push(
       cline || local
-        ? `Codex plan usage is nearly used up (${Math.round(codexLeft)}% left). Don't delegate to Codex for this request: hand straightforward, well-specified implementation to ${[cline ? 'Cline with run_cline_subtask (its own plan)' : '', local ? 'the local model with run_local_subtask (free)' : ''].filter(Boolean).join(' or ')}, and do the tricky parts yourself.`
-        : `Codex plan usage is nearly used up (${Math.round(codexLeft)}% left). Don't delegate to Codex for this request; do the work yourself.`
+        ? `Codex plan usage is nearly used up (${Math.round(codexLeft)}% left), so Starwright sends hand-offs to ${[cline ? 'Cline' : '', local ? 'the local model' : ''].filter(Boolean).join(' or ')} first: hand off the straightforward, well-specified parts and do the tricky parts yourself.`
+        : `Codex plan usage is nearly used up (${Math.round(codexLeft)}% left). Don't hand work off for this request; do the work yourself.`
     )
+    if (cline || local) notes.push(helperNote)
   } else if (codex === 'most' && lean >= 2) {
     notes.push(CODEX_LED_NOTE)
-    notes.push(...helperNotes())
+    notes.push(helperNote)
   } else if (codex !== 'none') {
     notes.push(CODEX_NOTES[codex])
     if (lean >= 1) notes.push(CODEX_CHECKS_NOTE)
-    if (lean >= 1 && codex === 'some') notes.push('The user prefers that you lean on Codex, so hand that part over.')
-    if (claudeLow) notes.push(`Claude plan usage is also low (${Math.round(claudeLeft)}% left), so lean on Codex.`)
-    notes.push(...helperNotes())
+    if (lean >= 1 && codex === 'some') notes.push('The user prefers that you lean on the helper agents, so hand that part over.')
+    if (claudeLow) notes.push(`Claude plan usage is also low (${Math.round(claudeLeft)}% left), so lean on the helper agents.`)
+    notes.push(helperNote)
   } else if (lean <= -1 && request.size !== 'quick') {
-    notes.push('The user prefers that you do the work yourself rather than hand it to Codex.')
+    notes.push('The user prefers that you do the work yourself rather than hand it off.')
   } else if (claudeLow && codexLeft !== undefined && request.size !== 'quick') {
-    notes.push(`Claude plan usage is low (${Math.round(claudeLeft)}% left). Delegate implementation work to Codex with run_codex_subtask wherever it's reasonable, and keep your own work to planning, coordination and review.`)
-    notes.push(...helperNotes())
+    notes.push(`Claude plan usage is low (${Math.round(claudeLeft)}% left). Hand implementation work off with run_subtask wherever it's reasonable, and keep your own work to planning, coordination and review.`)
+    notes.push(helperNote)
+  } else if (request.size !== 'quick' && (cline || local)) {
+    // Nothing big enough for Codex, but simple, well-specified parts can still go to the cheaper agents.
+    notes.push(helperNote)
   }
   // Checking and saving memory would cost more than a quick edit itself.
   if (request.size === 'quick') {
@@ -209,6 +271,7 @@ export async function routeMessage(
     }${lean !== 0 ? ` · balance: ${BALANCE_LABELS[stepOfLean(lean)]}${balance === 'auto' ? ' (auto)' : ''}` : ''}`,
     note,
     skipReview: request.size === 'quick',
-    size: request.size
+    size: request.size,
+    fixesLast: labelled ? !!labelled.fixesLast || saysLastFailed(text) : saysLastFailed(text)
   }
 }

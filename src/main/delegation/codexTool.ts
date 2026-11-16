@@ -10,7 +10,7 @@ import { runLocalAgent } from '../local/localAgent'
 import { progressNote } from '../cli/codexActivity'
 import { getSettings } from '../settings/store'
 import { memoryDb } from '../memory/paths'
-import { codeSummariesFor, finishHandoff, keyFactsBlock, startHandoff } from '../memory/store'
+import { codeSummariesFor, finishHandoff, keyFactsBlock, markReworked, startHandoff } from '../memory/store'
 import { conventionsFor } from '../memory/meaning'
 import { digestDiff } from './diffDigest'
 import { briefBlock } from '../memory/brief'
@@ -18,7 +18,9 @@ import { handoffContext } from '../memory/context'
 import { changeStats, diffSnapshots, takeSnapshot, type FileChange } from '../git/snapshots'
 import { verifyChanges } from '../review/checks'
 import { countsFromCodexEvents, recordUsage } from '../usage/tokens'
-import type { DelegationActivity } from '@shared/types'
+import type { DelegationActivity, TaskDifficulty, TaskKind } from '@shared/types'
+import { agentName, routedNote, type HandoffAgent } from '@shared/handoff'
+import { chooseRoutes, helperAvailability, type HelperRoute } from '../orchestrator/routing'
 import type { AgentInstallRequest } from '../extensions/install'
 import { saveRecipe } from '../deploy/deploy'
 import { listSchedules, saveSchedule, summarize as summarizeSchedule } from '../schedule/scheduler'
@@ -28,6 +30,8 @@ export type DelegationProgressListener = (note: string) => void
 /** What the user asked for in this turn, in their own words, to pass along with a hand-off. */
 export interface RequestContext {
   text: string
+  /** When the request started (ISO), so hand-offs redone later in it can be marked. */
+  startedAt?: string
   /** Description of an element they pointed at in the preview. */
   element?: string
   /** Paths of images they attached (the originals). */
@@ -43,6 +47,9 @@ export interface CodexThread {
 
 /** How long a hand-off may run before it is stopped (real tasks on a big project take a while). */
 const HANDOFF_TIMEOUT_MS = 15 * 60_000
+/** A routed hand-off to Cline or the local model with another agent behind it gets this long before it's passed on. */
+const FALLBACK_TIMEOUT_MS = 10 * 60_000
+const ROUTE_AGENT: Record<HelperRoute, HandoffAgent> = { codex: 'Codex', cline: 'Cline', local: 'Local model' }
 
 /** Ahead of every Cline hand-off: what VibeApp expects of it. */
 const CLINE_INSTRUCTIONS = `You are working for Claude inside Starwright, on the user's project in the current folder. Do the task below completely, then check it the way the task says (run the tests it names), and finish with a short report: what you changed, file by file, and how the checks went. Stay inside the project folder. Some things are refused by Starwright (deleting folders, pushing, anything outside the project): if a command comes back "BLOCKED by Starwright", don't try another way, just say in your report what was needed. You share a memory with Claude through the vibe_memory tools: recall searches it, where finds which file holds something, handoffs shows earlier hand-offs. Don't save facts unless the task asks you to.`
@@ -102,6 +109,37 @@ function describeChanges(changes: FileChange[]): string {
   return `${shown.join(', ')}${changes.length > 12 ? ` and ${changes.length - 12} more` : ''}`
 }
 
+type HandOffResult = {
+  content: { type: 'text'; text: string }[]
+  isError: boolean
+  outcome: { ok: boolean; stopped: boolean; changed: number }
+}
+
+/**
+ * Tries the routes in order: the next one gets the task when one fails without changing anything
+ * (a half-done change, a Stop, or the last route ends it). The result says who did it, and who
+ * passed it on and why.
+ */
+export async function tryInOrder(
+  routes: HelperRoute[],
+  attempt: (route: HelperRoute, last: boolean) => Promise<HandOffResult>,
+  task: string
+): Promise<{ content: { type: 'text'; text: string }[]; isError: boolean }> {
+  const passedOn: string[] = []
+  for (let i = 0; i < routes.length; i++) {
+    const last = i === routes.length - 1
+    const agent = ROUTE_AGENT[routes[i]]
+    const result = await attempt(routes[i], last)
+    const { ok, stopped, changed } = result.outcome
+    if (ok || stopped || changed > 0 || last) {
+      const header = `[Starwright gave this ${task} task to ${agentName(agent)}${passedOn.length ? ` after ${passedOn.join('; ')}` : ''}.]`
+      return { content: [{ type: 'text' as const, text: `${header}\n${result.content[0]?.text ?? ''}` }], isError: result.isError }
+    }
+    passedOn.push(`${agentName(agent)} couldn't do it (${(result.content[0]?.text ?? '').split('\n')[0].slice(0, 160)})`)
+  }
+  return { content: [{ type: 'text' as const, text: 'No agent could take the task.' }], isError: true }
+}
+
 export function createCodexDelegationServer(
   projectPath: string,
   onProgress: DelegationProgressListener,
@@ -130,6 +168,190 @@ export function createCodexDelegationServer(
     const run = queue.then(work)
     queue = run.catch(() => undefined)
     return run
+  }
+
+  // What each agent does with a hand-off; handOff() wraps it with snapshots, the record and the checks.
+  const codexWork =
+    (prompt: string, timeoutMs?: number) =>
+    async (): Promise<{ report: string; ok: boolean }> => {
+      const unsandboxed = isGoNutzMode()
+      const signal = getStopSignal?.()
+      const request = getRequestContext?.()
+    const images = (request?.images ?? []).filter((p) => existsSync(p))
+    const context = memory ? await attemptLater(() => handoffContext(memory.projectId, prompt, request)) : undefined
+    const run = (resumeThreadId?: string): Promise<CodexExecResult> =>
+      runCodexExec(
+        {
+          prompt,
+          cwd: projectPath,
+          timeoutMs: timeoutMs ?? HANDOFF_TIMEOUT_MS,
+          unsandboxed,
+          model: getSettings().codexModel ?? undefined,
+          effort: getSettings().codexEffort ?? undefined,
+          images,
+          resumeThreadId,
+          // Read fresh at hand-off time: Claude may have just saved some.
+          memory: memory
+            ? {
+                ...memory,
+                keyFacts: currentKeyFacts(memory.projectId),
+                brief: attempt(() => briefBlock(memory.projectId)),
+                context,
+                autoMemory: getSettings().autoMemory
+              }
+            : undefined,
+          signal
+        },
+        onProgress,
+        onActivity
+      )
+
+    // Pick up this request's earlier Codex session, if it's still valid.
+    const thread = codexThread?.get()
+    const resumeId = thread && thread.unsandboxed === unsandboxed ? thread.id : undefined
+    let result = await run(resumeId)
+    let continued = !!resumeId
+    if (resumeId && result.exitCode !== 0 && !result.finalMessage) {
+      // The old session couldn't be resumed: start a new one instead.
+      codexThread?.set(undefined)
+      recordUsage(memory?.projectId, 'handoff', 'codex', countsFromCodexEvents(result.events))
+      result = await run(undefined)
+      continued = false
+    }
+    if (result.threadId && result.exitCode === 0) codexThread?.set({ id: result.threadId, unsandboxed })
+    recordUsage(memory?.projectId, 'handoff', 'codex', countsFromCodexEvents(result.events))
+    return {
+      report: `${continued ? '(Continued the earlier Codex session from this request.)\n' : ''}${codexReport(result)}`,
+      ok: result.exitCode === 0
+    }
+    }
+
+  const clineWork =
+    (prompt: string, timeoutMs?: number) =>
+    async (): Promise<{ report: string; ok: boolean }> => {
+      const signal = getStopSignal?.()
+      const request = getRequestContext?.()
+    const settings = getSettings()
+    if (!settings.clineHandoffs) {
+      return { report: 'Hand-offs to Cline are switched off in Starwright\'s Settings. Do the work yourself or hand it to Codex.', ok: false }
+    }
+    const context = memory ? await attemptLater(() => handoffContext(memory.projectId, prompt, request)) : undefined
+    const fullPrompt = [
+      CLINE_INSTRUCTIONS,
+      memory ? `Key facts:\n${currentKeyFacts(memory.projectId) ?? '(none yet)'}` : undefined,
+      memory ? attempt(() => briefBlock(memory.projectId)) : undefined,
+      context,
+      `Task from Claude:\n${prompt}`
+    ]
+      .filter(Boolean)
+      .join('\n\n')
+    const result = await runCline(
+      {
+        prompt: fullPrompt,
+        mode: 'build',
+        cwd: projectPath,
+        model: await clineModelFor('handoff'),
+        goNutz: isGoNutzMode(),
+        timeoutMs: timeoutMs ?? HANDOFF_TIMEOUT_MS,
+        signal,
+        memory: memory ? { scriptPath: memory.scriptPath, dbPath: memory.dbPath, projectId: memory.projectId, projectPath: memory.projectPath } : undefined,
+        // Later hand-offs in the same request carry on Cline's conversation.
+        session: request ? clineSessionFor(request) : undefined
+      },
+      (activity) => {
+        onActivity?.(activity)
+        const note = progressNote(activity)
+        if (note) onProgress(note)
+      }
+    )
+    recordUsage(memory?.projectId, 'handoff', 'cline', result.usage)
+    if (signal?.aborted) throw new Error('Cline run was cancelled')
+    const blocked = result.blocked.length
+      ? `\n[Starwright refused ${result.blocked.length === 1 ? 'one thing' : `${result.blocked.length} things`} Cline tried: ${[...new Set(result.blocked)].join('; ')}. If it's needed, ask the user or do it yourself.]`
+      : ''
+    return {
+      report: `${result.text || result.error || '(Cline finished with no final message.)'}${result.ok || !result.text || !result.error ? '' : `\n[${result.error}]`}${blocked}`,
+      ok: result.ok
+    }
+    }
+
+  const localWork =
+    (prompt: string, timeoutMs?: number) =>
+    async (): Promise<{ report: string; ok: boolean }> => {
+      const signal = getStopSignal?.()
+      const request = getRequestContext?.()
+    if (!getSettings().localHandoffs) {
+      return { report: "Hand-offs to the local model are switched off in Starwright's Settings. Do the work yourself or hand it to Codex.", ok: false }
+    }
+    const context = memory ? await attemptLater(() => handoffContext(memory.projectId, prompt, request)) : undefined
+    // Kept short: the local model's room is limited, and the task matters most.
+    const background = [
+      memory ? `Key facts:\n${currentKeyFacts(memory.projectId) ?? '(none yet)'}` : undefined,
+      memory ? attempt(() => briefBlock(memory.projectId)) : undefined,
+      context
+    ]
+      .filter(Boolean)
+      .join('\n\n')
+      .slice(0, LOCAL_CONTEXT_CHARS)
+    const task = [background ? `Background on the project (from Starwright's memory):\n${background}` : undefined, `Task from Claude:\n${prompt}`]
+      .filter(Boolean)
+      .join('\n\n')
+    const result = await runLocalAgent({
+      task,
+      cwd: projectPath,
+      goNutz: isGoNutzMode(),
+      signal,
+      timeoutMs: timeoutMs ?? HANDOFF_TIMEOUT_MS,
+      onActivity: (activity) => {
+        onActivity?.(activity)
+        const note = progressNote(activity)
+        if (note) onProgress(note)
+      }
+    })
+    recordUsage(memory?.projectId, 'handoff', 'lmstudio', result.usage)
+    if (signal?.aborted) throw new Error('The local model run was cancelled')
+    const blocked = result.blocked.length
+      ? `\n[Starwright refused ${result.blocked.length === 1 ? 'one thing' : `${result.blocked.length} things`} the local model tried: ${[...new Set(result.blocked)].join('; ')}. If it's needed, ask the user or do it yourself.]`
+      : ''
+    const failed = result.ok || !result.text || !result.error ? '' : `\n[${result.error}]`
+    return {
+      report: `${result.text || result.error || '(The local model finished with no report.)'}${failed}\n[${result.model ?? 'local model'}, ${result.steps} steps]${blocked}`,
+      ok: result.ok
+    }
+    }
+
+  /**
+   * A hand-off Starwright routes: Claude says what the task is and how hard; the agents are tried
+   * in the order chooseRoutes gives, the next one taking over when one fails without changing anything.
+   */
+  async function routedHandOff(args: {
+    prompt: string
+    kind: TaskKind
+    difficulty: TaskDifficulty
+    agent?: HelperRoute
+    timeoutMs?: number
+  }): Promise<{ content: { type: 'text'; text: string }[]; isError: boolean }> {
+    const { available, codexLow } = await helperAvailability(getSettings())
+    const routes = chooseRoutes({ difficulty: args.difficulty, kind: args.kind, available, codexLow, asked: args.agent })
+    if (!routes.length) {
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: "No other agent can take work right now (Codex isn't signed in, and Cline and the local model are switched off or not running). Do it yourself."
+          }
+        ],
+        isError: true
+      }
+    }
+    return tryInOrder(routes, (route, last) => {
+      const agent = ROUTE_AGENT[route]
+      onProgress(routedNote(agent, args.difficulty, args.kind))
+      // A cheaper agent with another behind it gets less time: a stall shouldn't hold the request up.
+      const timeoutMs = !last && route !== 'codex' ? Math.min(args.timeoutMs ?? HANDOFF_TIMEOUT_MS, FALLBACK_TIMEOUT_MS) : args.timeoutMs
+      const work = route === 'codex' ? codexWork(args.prompt, timeoutMs) : route === 'cline' ? clineWork(args.prompt, timeoutMs) : localWork(args.prompt, timeoutMs)
+      return handOff(agent, args.prompt, work, { kind: args.kind, difficulty: args.difficulty })
+    }, `${args.difficulty} ${args.kind}`)
   }
 
   return createSdkMcpServer({
@@ -307,180 +529,20 @@ export function createCodexDelegationServer(
         }
       ),
       tool(
-        'run_codex_subtask',
-        "Delegate a scoped coding subtask to the Codex CLI (a separate AI coding agent) and return its result. Useful for getting a second implementation, a second opinion, or offloading an independent chunk of work. Codex is automatically given the user's original request, the key facts, relevant memories and recent hand-offs, and several hand-offs in one request continue the same Codex session, so a task only needs to say what to do, which files are involved, what \"done\" looks like, and how to check it (tests to run; for visible changes, what to try in the browser, where Codex has the same Playwright tools). Codex runs those checks and reports them. The result is a short summary, the files changed (with a small diff) and the outcome of automatic checks (script syntax, JSON, the project's npm test); the full report is available from the handoffs tool. Hand-offs run one at a time (they share the project folder), so asking for several at once doesn't make them faster.",
+        'run_subtask',
+        "Hand a scoped coding subtask to another agent and get its result. Starwright picks the agent from the user's settings, what each plan has left and how hard you say the task is: the local model (free, on this computer) or Cline (on its own plan) for simple, well-specified work, Codex for harder work; if one fails without changing anything, the next one gets it. Each is given the user's request, the key facts and relevant memories, and several Codex hand-offs in one request continue the same Codex session, so say what to do, which files are involved, what \"done\" looks like and how to check it (tests to run; for visible changes, what to try in the browser, where the agents have the same Playwright tools). Split bigger jobs and hand the simple parts off separately. The result says who did it, with its report, the files changed (with a small diff) and the automatic checks (script syntax, JSON, the project's npm test); the full report is available from the handoffs tool. Hand-offs run one at a time (they share the project folder), so asking for several at once doesn't make them faster.",
         {
-          prompt: z.string().describe('The subtask instructions for Codex to carry out.'),
-          timeoutMs: z
-            .number()
-            .optional()
-            .describe('Optional timeout in milliseconds. Defaults to 15 minutes.')
-        },
-        (args) =>
-          oneAtATime(() => {
-            const unsandboxed = isGoNutzMode()
-            const signal = getStopSignal?.()
-            const request = getRequestContext?.()
-            return handOff('Codex', args.prompt, async () => {
-              const images = (request?.images ?? []).filter((p) => existsSync(p))
-              const context = memory ? await attemptLater(() => handoffContext(memory.projectId, args.prompt, request)) : undefined
-              const run = (resumeThreadId?: string): Promise<CodexExecResult> =>
-                runCodexExec(
-                  {
-                    prompt: args.prompt,
-                    cwd: projectPath,
-                    timeoutMs: args.timeoutMs ?? HANDOFF_TIMEOUT_MS,
-                    unsandboxed,
-                    model: getSettings().codexModel ?? undefined,
-                    effort: getSettings().codexEffort ?? undefined,
-                    images,
-                    resumeThreadId,
-                    // Read fresh at hand-off time: Claude may have just saved some.
-                    memory: memory
-                      ? {
-                          ...memory,
-                          keyFacts: currentKeyFacts(memory.projectId),
-                          brief: attempt(() => briefBlock(memory.projectId)),
-                          context,
-                          autoMemory: getSettings().autoMemory
-                        }
-                      : undefined,
-                    signal
-                  },
-                  onProgress,
-                  onActivity
-                )
-
-              // Pick up this request's earlier Codex session, if it's still valid.
-              const thread = codexThread?.get()
-              const resumeId = thread && thread.unsandboxed === unsandboxed ? thread.id : undefined
-              let result = await run(resumeId)
-              let continued = !!resumeId
-              if (resumeId && result.exitCode !== 0 && !result.finalMessage) {
-                // The old session couldn't be resumed: start a new one instead.
-                codexThread?.set(undefined)
-                recordUsage(memory?.projectId, 'handoff', 'codex', countsFromCodexEvents(result.events))
-                result = await run(undefined)
-                continued = false
-              }
-              if (result.threadId && result.exitCode === 0) codexThread?.set({ id: result.threadId, unsandboxed })
-              recordUsage(memory?.projectId, 'handoff', 'codex', countsFromCodexEvents(result.events))
-              return {
-                report: `${continued ? '(Continued the earlier Codex session from this request.)\n' : ''}${codexReport(result)}`,
-                ok: result.exitCode === 0
-              }
-            })
-          })
-      ),
-      tool(
-        'run_cline_subtask',
-        "Delegate a scoped coding subtask to Cline (a third AI coding agent, running open-weight models on the user's separate ClinePass plan, so it spends neither Claude's nor Codex's plan) and return its result. Best for straightforward, well-specified work: a clear change in named files, boilerplate, tests for existing code, simple fixes. Prefer Codex for tricky or wide-reaching work. Like a Codex hand-off, it gets the user's request, the key facts and relevant memories, so say what to do, which files, what \"done\" looks like and how to check it. Cline works only inside the project: Starwright refuses commands that delete, push or reach outside it, and Cline reports anything it couldn't do. The result is its report, the files changed (with a small diff) and the automatic checks. Hand-offs run one at a time.",
-        {
-          prompt: z.string().describe('The subtask instructions for Cline to carry out.'),
+          prompt: z.string().describe('The subtask: what to do, which files, what "done" looks like, and how to check it.'),
+          kind: z.enum(['feature', 'bugfix', 'tests', 'refactor', 'boilerplate', 'docs', 'other']).describe('What kind of task it is.'),
+          difficulty: z
+            .enum(['simple', 'moderate', 'hard'])
+            .describe(
+              'simple: a clear change in named files, boilerplate, tests for existing code, a bug with a failing test. moderate: a typical feature or fix across a few files. hard: tricky, vague, or wide-reaching work.'
+            ),
+          agent: z.enum(['codex', 'cline', 'local']).optional().describe('Only when the user asked for a particular agent: that one is tried first.'),
           timeoutMs: z.number().optional().describe('Optional timeout in milliseconds. Defaults to 15 minutes.')
         },
-        (args) =>
-          oneAtATime(() => {
-            const signal = getStopSignal?.()
-            const request = getRequestContext?.()
-            return handOff('Cline', args.prompt, async () => {
-              const settings = getSettings()
-              if (!settings.clineHandoffs) {
-                return { report: 'Hand-offs to Cline are switched off in Starwright\'s Settings. Do the work yourself or hand it to Codex.', ok: false }
-              }
-              const context = memory ? await attemptLater(() => handoffContext(memory.projectId, args.prompt, request)) : undefined
-              const prompt = [
-                CLINE_INSTRUCTIONS,
-                memory ? `Key facts:\n${currentKeyFacts(memory.projectId) ?? '(none yet)'}` : undefined,
-                memory ? attempt(() => briefBlock(memory.projectId)) : undefined,
-                context,
-                `Task from Claude:\n${args.prompt}`
-              ]
-                .filter(Boolean)
-                .join('\n\n')
-              const result = await runCline(
-                {
-                  prompt,
-                  mode: 'build',
-                  cwd: projectPath,
-                  model: await clineModelFor('handoff'),
-                  goNutz: isGoNutzMode(),
-                  timeoutMs: args.timeoutMs ?? HANDOFF_TIMEOUT_MS,
-                  signal,
-                  memory: memory ? { scriptPath: memory.scriptPath, dbPath: memory.dbPath, projectId: memory.projectId, projectPath: memory.projectPath } : undefined,
-                  // Later hand-offs in the same request carry on Cline's conversation.
-                  session: request ? clineSessionFor(request) : undefined
-                },
-                (activity) => {
-                  onActivity?.(activity)
-                  const note = progressNote(activity)
-                  if (note) onProgress(note)
-                }
-              )
-              recordUsage(memory?.projectId, 'handoff', 'cline', result.usage)
-              if (signal?.aborted) throw new Error('Cline run was cancelled')
-              const blocked = result.blocked.length
-                ? `\n[Starwright refused ${result.blocked.length === 1 ? 'one thing' : `${result.blocked.length} things`} Cline tried: ${[...new Set(result.blocked)].join('; ')}. If it's needed, ask the user or do it yourself.]`
-                : ''
-              return {
-                report: `${result.text || result.error || '(Cline finished with no final message.)'}${result.ok || !result.text || !result.error ? '' : `\n[${result.error}]`}${blocked}`,
-                ok: result.ok
-              }
-            })
-          })
-      ),
-      tool(
-        'run_local_subtask',
-        "Delegate a scoped coding subtask to the local model: Starwright's own coding agent on the open-weight model the user runs in LM Studio on this computer. It's free (no plan is used) and nothing leaves the computer, but it's slower than Codex and less capable on hard work. Best for straightforward, well-specified work: a clear change in named files, a bug with a failing test, boilerplate, tests for existing code. Keep tricky or wide-reaching work with Codex or yourself. Say what to do, which files, what \"done\" looks like and how to check it (the tests to run). It can list, read, search, edit and write files and run commands, only inside the project (Starwright refuses deleting folders, pushing and anything outside). The result is its report, the files changed (with a small diff) and the automatic checks. Hand-offs run one at a time.",
-        {
-          prompt: z.string().describe('The subtask instructions for the local model to carry out.'),
-          timeoutMs: z.number().optional().describe('Optional timeout in milliseconds. Defaults to 15 minutes.')
-        },
-        (args) =>
-          oneAtATime(() => {
-            const signal = getStopSignal?.()
-            const request = getRequestContext?.()
-            return handOff('Local model', args.prompt, async () => {
-              if (!getSettings().localHandoffs) {
-                return { report: "Hand-offs to the local model are switched off in Starwright's Settings. Do the work yourself or hand it to Codex.", ok: false }
-              }
-              const context = memory ? await attemptLater(() => handoffContext(memory.projectId, args.prompt, request)) : undefined
-              // Kept short: the local model's room is limited, and the task matters most.
-              const background = [
-                memory ? `Key facts:\n${currentKeyFacts(memory.projectId) ?? '(none yet)'}` : undefined,
-                memory ? attempt(() => briefBlock(memory.projectId)) : undefined,
-                context
-              ]
-                .filter(Boolean)
-                .join('\n\n')
-                .slice(0, LOCAL_CONTEXT_CHARS)
-              const task = [background ? `Background on the project (from Starwright's memory):\n${background}` : undefined, `Task from Claude:\n${args.prompt}`]
-                .filter(Boolean)
-                .join('\n\n')
-              const result = await runLocalAgent({
-                task,
-                cwd: projectPath,
-                goNutz: isGoNutzMode(),
-                signal,
-                timeoutMs: args.timeoutMs ?? HANDOFF_TIMEOUT_MS,
-                onActivity: (activity) => {
-                  onActivity?.(activity)
-                  const note = progressNote(activity)
-                  if (note) onProgress(note)
-                }
-              })
-              recordUsage(memory?.projectId, 'handoff', 'lmstudio', result.usage)
-              if (signal?.aborted) throw new Error('The local model run was cancelled')
-              const blocked = result.blocked.length
-                ? `\n[Starwright refused ${result.blocked.length === 1 ? 'one thing' : `${result.blocked.length} things`} the local model tried: ${[...new Set(result.blocked)].join('; ')}. If it's needed, ask the user or do it yourself.]`
-                : ''
-              const failed = result.ok || !result.text || !result.error ? '' : `\n[${result.error}]`
-              return {
-                report: `${result.text || result.error || '(The local model finished with no report.)'}${failed}\n[${result.model ?? 'local model'}, ${result.steps} steps]${blocked}`,
-                ok: result.ok
-              }
-            })
-          })
+        (args) => oneAtATime(() => routedHandOff(args))
       )
     ]
   })
@@ -490,16 +552,17 @@ export function createCodexDelegationServer(
    * files changed (and a diff) come back to Claude, and the automatic checks.
    */
   async function handOff(
-    agent: 'Codex' | 'Cline' | 'Local model',
+    agent: HandoffAgent,
     prompt: string,
-    execute: () => Promise<{ report: string; ok: boolean }>
-  ): Promise<{ content: { type: 'text'; text: string }[]; isError: boolean }> {
+    execute: () => Promise<{ report: string; ok: boolean }>,
+    task?: { kind: TaskKind; difficulty: TaskDifficulty }
+  ): Promise<HandOffResult> {
     const signal = getStopSignal?.()
     const request = getRequestContext?.()
     const projectId = memory?.projectId
 
     const handoffId = projectId
-      ? attempt(() => startHandoff(memoryDb(), projectId, agent === 'Local model' ? 'local' : agent.toLowerCase(), prompt, request?.text ?? null))
+      ? attempt(() => startHandoff(memoryDb(), projectId, agent === 'Local model' ? 'local' : agent.toLowerCase(), prompt, request?.text ?? null, task))
       : undefined
     const before = await takeSnapshot(projectPath, 'before hand-off').catch(() => undefined)
 
@@ -541,6 +604,11 @@ export function createCodexDelegationServer(
             checksOk
           })
         )
+      }
+      // Earlier hand-offs in this request whose files this one changed again were redone.
+      if (projectId && changes?.length && request?.startedAt) {
+        const since = request.startedAt
+        attempt(() => markReworked(memoryDb(), projectId, changes!.map((c) => c.path), since, handoffId))
       }
       return { changes, diff, checks, checksOk }
     }
@@ -589,7 +657,8 @@ export function createCodexDelegationServer(
       }
       return {
         content: [{ type: 'text' as const, text: lines.join('\n\n') }],
-        isError: !ok || checksOk === false
+        isError: !ok || checksOk === false,
+        outcome: { ok, stopped: false, changed: changes?.length ?? 0 }
       }
     } catch (err) {
       const message = (err as Error).message
@@ -598,11 +667,12 @@ export function createCodexDelegationServer(
       // nobody assumes the project is as it was.
       const touched = partial?.changes?.length
         ? `
-[Files ${agent} changed before it stopped: ${describeChanges(partial.changes)}. Check them before continuing; they may be half-done.]`
+[Files ${agentName(agent)} changed before it stopped: ${describeChanges(partial.changes)}. Check them before continuing; they may be half-done.]`
         : ''
       return {
-        content: [{ type: 'text' as const, text: `${agent} delegation failed: ${message}${touched}` }],
-        isError: true
+        content: [{ type: 'text' as const, text: `${agentName(agent)} couldn't finish: ${message}${touched}` }],
+        isError: true,
+        outcome: { ok: false, stopped: !!signal?.aborted, changed: partial?.changes?.length ?? 0 }
       }
     }
   }

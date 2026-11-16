@@ -14,7 +14,7 @@ import { approvedPlanFact, planTitle } from '@shared/plan'
 /** Facts in the global scope apply to every project. */
 export const GLOBAL_SCOPE = 'global'
 
-const SCHEMA_VERSION = 7
+const SCHEMA_VERSION = 8
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS facts (
@@ -264,8 +264,30 @@ export function openMemory(dbPath: string, vectorExtension?: string): DatabaseSy
     if (!requestColumns.has(column)) db.exec(`ALTER TABLE request_log ADD COLUMN ${column} INTEGER NOT NULL DEFAULT 0`)
   }
   const handoffColumns = new Set((db.prepare('PRAGMA table_info(handoffs)').all() as { name: string }[]).map((c) => c.name))
-  // Whether the automatic checks passed after the hand-off (null: none ran).
-  if (!handoffColumns.has('checks_ok')) ignoreDuplicateColumn(() => db.exec('ALTER TABLE handoffs ADD COLUMN checks_ok INTEGER'))
+  // Whether the automatic checks passed after the hand-off (null: none ran); the kind of task and how
+  // hard Claude said it was (routed hand-offs); whether it was redone (Claude or another hand-off
+  // changed the same files later in the request).
+  for (const [column, type] of [
+    ['checks_ok', 'INTEGER'],
+    ['task_kind', 'TEXT'],
+    ['difficulty', 'TEXT'],
+    ['reworked', 'INTEGER NOT NULL DEFAULT 0']
+  ]) {
+    if (!handoffColumns.has(column)) ignoreDuplicateColumn(() => db.exec(`ALTER TABLE handoffs ADD COLUMN ${column} ${type}`))
+  }
+  // Who built a request's changes, the snapshot Undo goes back to, the user's reaction, why it was or wasn't reviewed.
+  for (const [column, type] of [
+    ['built_by', "TEXT NOT NULL DEFAULT '[]'"],
+    ['snapshot', 'TEXT'],
+    ['complaint', 'INTEGER NOT NULL DEFAULT 0'],
+    ['undone', 'INTEGER NOT NULL DEFAULT 0'],
+    ['review', 'TEXT']
+  ]) {
+    if (!requestColumns.has(column)) ignoreDuplicateColumn(() => db.exec(`ALTER TABLE request_log ADD COLUMN ${column} ${type}`))
+  }
+  const reviewColumns = new Set((db.prepare('PRAGMA table_info(review_log)').all() as { name: string }[]).map((c) => c.name))
+  // After a review-and-fix round: whether the automatic checks passed on the fixed code (null: not checked).
+  if (!reviewColumns.has('fix_ok')) ignoreDuplicateColumn(() => db.exec('ALTER TABLE review_log ADD COLUMN fix_ok INTEGER'))
   const factColumns = new Set((db.prepare('PRAGMA table_info(facts)').all() as { name: string }[]).map((c) => c.name))
   // Another process may add it between the look and the change.
   if (!factColumns.has('replaced_by')) ignoreDuplicateColumn(() => db.exec('ALTER TABLE facts ADD COLUMN replaced_by TEXT'))
@@ -1019,12 +1041,35 @@ export function startHandoff(
   projectId: string,
   agent: string,
   brief: string,
-  request: string | null
+  request: string | null,
+  task?: { kind?: string; difficulty?: string }
 ): number {
   const result = db
-    .prepare('INSERT INTO handoffs (project_id, agent, brief, request, started_at) VALUES (?, ?, ?, ?, ?)')
-    .run(projectId, agent, brief.slice(0, 6000), request?.slice(0, 2000) ?? null, now())
+    .prepare('INSERT INTO handoffs (project_id, agent, brief, request, started_at, task_kind, difficulty) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .run(projectId, agent, brief.slice(0, 6000), request?.slice(0, 2000) ?? null, now(), task?.kind ?? null, task?.difficulty ?? null)
   return Number(result.lastInsertRowid)
+}
+
+/**
+ * Marks earlier finished hand-offs in this request as redone: Claude, or a later hand-off, changed
+ * the same files (paths relative to the project, forward slashes, as hand-offs record them).
+ */
+export function markReworked(db: DatabaseSync, projectId: string, paths: string[], sinceIso: string, exceptId?: number): void {
+  const update = db.prepare(
+    "UPDATE handoffs SET reworked = 1 WHERE project_id = ? AND started_at >= ? AND status = 'done' AND id != ? AND files LIKE ?"
+  )
+  for (const path of new Set(paths)) {
+    if (!path) continue
+    update.run(projectId, sinceIso, exceptId ?? -1, `%${JSON.stringify(path.replace(/\\/g, '/'))}%`)
+  }
+}
+
+/** Which agents carried out hand-offs (or took over) for a project since a time, with how many each. */
+export function handoffAgentsSince(db: DatabaseSync, projectId: string, sinceIso: string): Record<string, number> {
+  const rows = db
+    .prepare('SELECT agent, COUNT(*) AS n FROM handoffs WHERE project_id = ? AND started_at >= ? GROUP BY agent')
+    .all(projectId, sinceIso) as { agent: string; n: number }[]
+  return Object.fromEntries(rows.map((r) => [r.agent, r.n]))
 }
 
 export function finishHandoff(
@@ -1057,9 +1102,9 @@ export function routeOf(agent: string): WorkRoute | null {
 export function recordReview(
   db: DatabaseSync,
   entry: { projectId: string; reviewer: WorkRoute; builtBy: WorkRoute[]; findings: { severity: 'high' | 'medium' | 'low' }[] }
-): void {
+): number {
   const count = (severity: string): number => entry.findings.filter((f) => f.severity === severity).length
-  db.prepare('INSERT INTO review_log (at, project_id, reviewer, built_by, high, medium, low) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
+  const result = db.prepare('INSERT INTO review_log (at, project_id, reviewer, built_by, high, medium, low) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
     now(),
     entry.projectId,
     entry.reviewer,
@@ -1068,6 +1113,25 @@ export function recordReview(
     count('medium'),
     count('low')
   )
+  return Number(result.lastInsertRowid)
+}
+
+/** After a review's fixes: whether the automatic checks passed on the fixed code. */
+export function setReviewFixResult(db: DatabaseSync, reviewId: number, ok: boolean): void {
+  db.prepare('UPDATE review_log SET fix_ok = ? WHERE id = ?').run(ok ? 1 : 0, reviewId)
+}
+
+/**
+ * The user's reaction to a request: "complaint" (the next message said its result was wrong or broken)
+ * goes on the project's latest request; "undone" on the request whose snapshot Undo went back to.
+ */
+export function markRequest(db: DatabaseSync, projectId: string, what: 'complaint' | 'undone', snapshot?: string): void {
+  const row = (
+    snapshot
+      ? db.prepare('SELECT id FROM request_log WHERE project_id = ? AND snapshot = ? ORDER BY id DESC LIMIT 1').get(projectId, snapshot)
+      : db.prepare("SELECT id FROM request_log WHERE project_id = ? AND mode != 'plan' ORDER BY id DESC LIMIT 1").get(projectId)
+  ) as { id: number } | undefined
+  if (row) db.prepare(`UPDATE request_log SET ${what === 'complaint' ? 'complaint' : 'undone'} = 1 WHERE id = ?`).run(row.id)
 }
 
 const BACKGROUND_KINDS = ['route', 'scribe', 'tidy', 'brief', 'codemap', 'summary']
@@ -1078,7 +1142,15 @@ export function workSummary(db: DatabaseSync, sinceIso: string, projectId?: stri
   const out = Object.fromEntries(
     WORK_ROUTES.map((r) => [
       r,
-      { lead: 0, build: 0, review: 0, background: 0, handoffs: { total: 0, failed: 0, checksRun: 0, checksFailed: 0 }, reviewed: { total: 0, serious: 0 } }
+      {
+        lead: 0,
+        build: 0,
+        review: 0,
+        background: 0,
+        handoffs: { total: 0, failed: 0, checksRun: 0, checksFailed: 0, reworked: 0 },
+        reviewed: { total: 0, serious: 0, fixesChecked: 0, fixesFailed: 0 },
+        requests: { built: 0, complaints: 0, undone: 0 }
+      }
     ])
   ) as Record<WorkRoute, RouteWork>
   const where = `at >= ?${projectId ? ' AND project_id = ?' : ''}`
@@ -1098,33 +1170,59 @@ export function workSummary(db: DatabaseSync, sinceIso: string, projectId?: stri
   }
 
   // Claude's own building: Build/Plan requests where it edited files itself.
-  const edited = db.prepare(`SELECT tools FROM request_log WHERE ${where}`).all(...args) as { tools: string }[]
+  const edited = db.prepare(`SELECT tools, built_by, complaint, undone FROM request_log WHERE ${where}`).all(...args) as {
+    tools: string
+    built_by: string | null
+    complaint: number
+    undone: number
+  }[]
   for (const row of edited) {
     try {
       if ((JSON.parse(row.tools) as Record<string, number>).edit > 0) out.claude.build++
     } catch {
       // no breakdown
     }
+    // The user's reaction counts against everyone who built the request's changes.
+    let builders: string[] = []
+    try {
+      builders = JSON.parse(row.built_by ?? '[]') as string[]
+    } catch {
+      // none recorded
+    }
+    for (const b of new Set(builders.map(routeOf).filter((x): x is WorkRoute => !!x))) {
+      out[b].requests.built++
+      if (row.complaint) out[b].requests.complaints++
+      if (row.undone) out[b].requests.undone++
+    }
   }
 
   const handoffWhere = `started_at >= ? AND status != 'running'${projectId ? ' AND project_id = ?' : ''}`
   const handoffs = db
     .prepare(
-      `SELECT agent, COUNT(*) AS total, SUM(status = 'error') AS failed, SUM(checks_ok IS NOT NULL) AS checksRun, SUM(checks_ok = 0) AS checksFailed
+      `SELECT agent, COUNT(*) AS total, SUM(status = 'error') AS failed, SUM(checks_ok IS NOT NULL) AS checksRun, SUM(checks_ok = 0) AS checksFailed,
+              SUM(reworked = 1) AS reworked
        FROM handoffs WHERE ${handoffWhere} GROUP BY agent`
     )
-    .all(...args) as { agent: string; total: number; failed: number; checksRun: number; checksFailed: number }[]
+    .all(...args) as { agent: string; total: number; failed: number; checksRun: number; checksFailed: number; reworked: number }[]
   for (const h of handoffs) {
     const route = routeOf(h.agent)
     if (!route) continue
     out[route].build += h.total
-    out[route].handoffs = { total: h.total, failed: h.failed ?? 0, checksRun: h.checksRun ?? 0, checksFailed: h.checksFailed ?? 0 }
+    const was = out[route].handoffs
+    out[route].handoffs = {
+      total: was.total + h.total,
+      failed: was.failed + (h.failed ?? 0),
+      checksRun: was.checksRun + (h.checksRun ?? 0),
+      checksFailed: was.checksFailed + (h.checksFailed ?? 0),
+      reworked: was.reworked + (h.reworked ?? 0)
+    }
   }
 
-  const reviews = db.prepare(`SELECT built_by, high, medium FROM review_log WHERE ${where}`).all(...args) as {
+  const reviews = db.prepare(`SELECT built_by, high, medium, fix_ok FROM review_log WHERE ${where}`).all(...args) as {
     built_by: string
     high: number
     medium: number
+    fix_ok: number | null
   }[]
   for (const rv of reviews) {
     let builders: string[] = []
@@ -1138,9 +1236,52 @@ export function workSummary(db: DatabaseSync, sinceIso: string, projectId?: stri
       if (!route) continue
       out[route].reviewed.total++
       if (rv.high + rv.medium > 0) out[route].reviewed.serious++
+      if (rv.fix_ok !== null) {
+        out[route].reviewed.fixesChecked++
+        if (rv.fix_ok === 0) out[route].reviewed.fixesFailed++
+      }
     }
   }
   return out
+}
+
+/** How each route's hand-offs went, per kind of task (routed hand-offs say what kind they are). */
+export function workByKind(
+  db: DatabaseSync,
+  sinceIso: string,
+  projectId?: string
+): { route: WorkRoute; kind: string; total: number; failed: number; checksFailed: number; reworked: number }[] {
+  const rows = db
+    .prepare(
+      `SELECT agent, COALESCE(task_kind, 'unlabelled') AS kind, COUNT(*) AS total, SUM(status = 'error') AS failed,
+              SUM(checks_ok = 0) AS checksFailed, SUM(reworked = 1) AS reworked
+       FROM handoffs WHERE started_at >= ? AND status != 'running'${projectId ? ' AND project_id = ?' : ''}
+       GROUP BY agent, kind ORDER BY total DESC`
+    )
+    .all(...(projectId ? [sinceIso, projectId] : [sinceIso])) as {
+    agent: string
+    kind: string
+    total: number
+    failed: number
+    checksFailed: number
+    reworked: number
+  }[]
+  const out: { route: WorkRoute; kind: string; total: number; failed: number; checksFailed: number; reworked: number }[] = []
+  for (const r of rows) {
+    const route = routeOf(r.agent)
+    if (route) out.push({ route, kind: r.kind, total: r.total, failed: r.failed ?? 0, checksFailed: r.checksFailed ?? 0, reworked: r.reworked ?? 0 })
+  }
+  return out
+}
+
+/** Why requests were or weren't reviewed, with how many of each. */
+export function reviewOutcomes(db: DatabaseSync, sinceIso: string, projectId?: string): Record<string, number> {
+  const rows = db
+    .prepare(
+      `SELECT review, COUNT(*) AS n FROM request_log WHERE at >= ? AND review IS NOT NULL${projectId ? ' AND project_id = ?' : ''} GROUP BY review`
+    )
+    .all(...(projectId ? [sinceIso, projectId] : [sinceIso])) as { review: string; n: number }[]
+  return Object.fromEntries(rows.map((r) => [r.review, r.n]))
 }
 
 export function recentHandoffs(db: DatabaseSync, projectId: string, limit = 3): Handoff[] {
@@ -1795,13 +1936,23 @@ export interface RequestLogRow {
   claude: { fresh: number; cached: number; output: number }
   codex: { fresh: number; cached: number; output: number }
   cline: { fresh: number; cached: number; output: number }
+  /** Who changed files for it: "claude" for its own edits, and the agents of its hand-offs. */
+  builtBy?: string[]
+  /** The snapshot from before it (what Undo goes back to). */
+  snapshot?: string | null
+  /** Reviewed ("reviewed"), or why not. */
+  review?: string | null
+  /** The user's reaction: said the result was wrong, or pressed Undo. */
+  complaint?: boolean
+  undone?: boolean
 }
 
 export function logRequest(db: DatabaseSync, row: RequestLogRow): void {
   db.prepare(
     `INSERT INTO request_log (at, project_id, mode, balance, route, size, model, text, outcome, seconds, claude_steps, tools, handoffs,
-       claude_fresh, claude_cached, claude_output, codex_fresh, codex_cached, codex_output, cline_fresh, cline_cached, cline_output)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       claude_fresh, claude_cached, claude_output, codex_fresh, codex_cached, codex_output, cline_fresh, cline_cached, cline_output,
+       built_by, snapshot, review)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     row.at,
     row.projectId,
@@ -1824,7 +1975,10 @@ export function logRequest(db: DatabaseSync, row: RequestLogRow): void {
     Math.round(row.codex.output),
     Math.round(row.cline.fresh),
     Math.round(row.cline.cached),
-    Math.round(row.cline.output)
+    Math.round(row.cline.output),
+    JSON.stringify(row.builtBy ?? []),
+    row.snapshot ?? null,
+    row.review ?? null
   )
 }
 
@@ -1855,7 +2009,18 @@ export function listRequests(db: DatabaseSync, sinceIso: string, projectId?: str
       handoffs: Number(r.handoffs),
       claude: { fresh: Number(r.claude_fresh), cached: Number(r.claude_cached), output: Number(r.claude_output) },
       codex: { fresh: Number(r.codex_fresh), cached: Number(r.codex_cached), output: Number(r.codex_output) },
-      cline: { fresh: Number(r.cline_fresh ?? 0), cached: Number(r.cline_cached ?? 0), output: Number(r.cline_output ?? 0) }
+      cline: { fresh: Number(r.cline_fresh ?? 0), cached: Number(r.cline_cached ?? 0), output: Number(r.cline_output ?? 0) },
+      builtBy: (() => {
+        try {
+          return JSON.parse(String(r.built_by ?? '[]')) as string[]
+        } catch {
+          return []
+        }
+      })(),
+      snapshot: (r.snapshot as string | null) ?? null,
+      review: (r.review as string | null) ?? null,
+      complaint: Number(r.complaint ?? 0) === 1,
+      undone: Number(r.undone ?? 0) === 1
     }
   })
 }

@@ -97,7 +97,7 @@ test('the report says where usage went, how Codex was used, and names the expens
 test('Codex-led asks Codex to check its own work and Claude to deploy with the saved Deploy', async () => {
   const settings = { smartRouting: true, aiRouting: false, agentBalance: 'codex', claudeModel: 'sonnet' } as unknown as AppSettings
   const route = await routeMessage('Add a shop screen with a sell button', settings)
-  assert.match(route.note ?? '', /Codex builds and tests/)
+  assert.match(route.note ?? '', /the helper agents build and test/)
   assert.match(route.note ?? '', /don't re-read the diff with git or repeat the testing yourself/)
   assert.match(route.note ?? '', /run_deploy/)
   const leaning = await routeMessage('Add a shop screen with a sell button', { ...settings, agentBalance: 'lean-codex' } as AppSettings)

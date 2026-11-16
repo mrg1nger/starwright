@@ -9,13 +9,16 @@ export interface Classification {
   size: 'quick' | 'normal' | 'complex'
   codex: 'none' | 'some' | 'most'
   reason: string
+  /** The message says the previous result was wrong, broken or not done (a quality signal). */
+  fixesLast?: boolean
 }
 
 const SYSTEM_PROMPT = `You are a router inside a coding app. You never answer or act on requests; you only label them.
 Each message contains one user request between <request> tags, sent to a coding agent (Claude) that can hand work to a second agent (Codex). Label it:
 - size: "quick" = small, contained tweak (text, colour, size, spacing, a one-line change); "normal" = typical feature, fix, or any debugging question ("why does X happen?"); "complex" = several features at once, architecture changes, tricky or vague bugs, or work across many files.
 - codex: "none" = not worth splitting or too small; "some" = has an independent, well-scoped part another agent could build in parallel; "most" = mostly straightforward implementation from a clear spec.
-Reply with exactly one line of JSON and nothing else: {"size":"...","codex":"...","reason":"under 10 words"}`
+- fixes_last: true only if the user says the previous change is wrong, broken, missing something it should have done, or still not working ("that broke the login", "still doesn't work", "you missed the footer"); false for new requests and follow-up ideas.
+Reply with exactly one line of JSON and nothing else: {"size":"...","codex":"...","fixes_last":false,"reason":"under 10 words"}`
 
 /** A cold start is ~1.5 s; after that answers take ~0.6-0.8 s (measured). */
 const TIMEOUT_MS = 5_000
@@ -162,7 +165,8 @@ export function parseClassification(reply: string): Classification | null {
     return {
       size: parsed.size as Classification['size'],
       codex: parsed.codex as Classification['codex'],
-      reason: typeof parsed.reason === 'string' ? parsed.reason.slice(0, 120) : ''
+      reason: typeof parsed.reason === 'string' ? parsed.reason.slice(0, 120) : '',
+      fixesLast: (parsed as { fixes_last?: unknown }).fixes_last === true
     }
   } catch {
     return null

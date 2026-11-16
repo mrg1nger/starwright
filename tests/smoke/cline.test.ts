@@ -195,11 +195,11 @@ test('Claude hands a task to Cline and gets back the files changed', { timeout: 
   const s = testSession(t, projectId('cline-handoff'), dir)
   const events = await turn(
     s,
-    'Use the run_cline_subtask tool (do not edit any files yourself) to have Cline create util.js exporting a function add(a, b) that returns their sum. Then reply DONE.',
+    'Use the run_subtask tool with agent "cline" (do not edit any files yourself) to have Cline create util.js exporting a function add(a, b) that returns their sum. Then reply DONE.',
     9 * MINUTES
   )
-  const call = events.find((e) => e.type === 'tool_call' && e.name === 'mcp__vibe_tools__run_cline_subtask') as Extract<VibeEvent, { type: 'tool_call' }> | undefined
-  assert.ok(call, 'Claude called run_cline_subtask')
+  const call = events.find((e) => e.type === 'tool_call' && e.name === 'mcp__vibe_tools__run_subtask') as Extract<VibeEvent, { type: 'tool_call' }> | undefined
+  assert.ok(call, 'Claude called run_subtask')
   const result = events.find((e) => e.type === 'tool_result' && e.toolUseId === call.toolUseId) as Extract<VibeEvent, { type: 'tool_result' }> | undefined
   const text = Array.isArray(result?.raw) ? (result!.raw as { text?: string }[]).map((b) => b.text ?? '').join('\n') : String(result?.summary)
   assert.match(text, /Cline hand-off.*files changed: .*util\.js/s)

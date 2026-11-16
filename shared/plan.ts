@@ -62,7 +62,7 @@ export function parsePlanSteps(plan: string): PlanStep[] {
 
 /** The note that goes with "build it" after the user approves a plan. */
 export function approvedPlanNote(plan: string): string {
-  return `[VibeApp note: the user approved the plan below. Build it now, following its steps in order. Report progress with mcp__vibe_tools__plan_progress, one call per step: status "doing" for the first step, then, as each step finishes, status "done" with next set to the step you start next (leave next out after the last one). Hand the steps marked (Codex) to Codex with run_codex_subtask, including how to check them, and judge them from Codex's report rather than testing again yourself. For a deploy step, call mcp__vibe_tools__run_deploy. If something in the plan turns out to be wrong, say so briefly and adapt.]
+  return `[VibeApp note: the user approved the plan below. Build it now, following its steps in order. Report progress with mcp__vibe_tools__plan_progress, one call per step: status "doing" for the first step, then, as each step finishes, status "done" with next set to the step you start next (leave next out after the last one). Hand the steps marked (Codex), and any other simple, well-specified step, off with run_subtask (saying how hard each is, so Starwright can give the simple ones to the cheaper agents), including how to check them, and judge them from the agent's report rather than testing again yourself. For a deploy step, call mcp__vibe_tools__run_deploy. If something in the plan turns out to be wrong, say so briefly and adapt.]
 
 Approved plan:
 ${plan}`

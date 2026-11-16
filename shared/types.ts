@@ -390,11 +390,20 @@ export interface RouteWork {
   review: number
   /** Background jobs (memory, tidy-up, brief, code map, summaries, labelling requests). */
   background: number
-  /** Hand-offs given to it, and how they went. */
-  handoffs: { total: number; failed: number; checksRun: number; checksFailed: number }
-  /** Reviews of changes it helped build, and how many found something serious (high or medium). */
-  reviewed: { total: number; serious: number }
+  /** Hand-offs given to it, and how they went (reworked: Claude or a later hand-off redid its files). */
+  handoffs: { total: number; failed: number; checksRun: number; checksFailed: number; reworked: number }
+  /**
+   * Reviews of changes it helped build: how many found something serious (high or medium), and after
+   * the fixes, how many were checked and how many still failed the automatic checks.
+   */
+  reviewed: { total: number; serious: number; fixesChecked: number; fixesFailed: number }
+  /** Requests it helped build, and the user's reaction: said the result was wrong, or pressed Undo. */
+  requests: { built: number; complaints: number; undone: number }
 }
+
+/** How hard Claude says a hand-off is, and what kind of task (routed hand-offs). */
+export type TaskDifficulty = 'simple' | 'moderate' | 'hard'
+export type TaskKind = 'feature' | 'bugfix' | 'tests' | 'refactor' | 'boilerplate' | 'docs' | 'other'
 
 /** One backup of VibeApp's data (a folder). */
 export interface BackupInfo {

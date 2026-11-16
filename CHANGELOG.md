@@ -2,6 +2,19 @@
 
 The version goes up with each improvement that ships: the middle number for new features, the last for fixes only. Settings shows the version a computer is running. (Starwright was called VibeApp up to 0.10.0.)
 
+## 0.14.0 (2026-11-15)
+
+**Starwright now decides who gets each hand-off** (step 2 of the work equalizer). Claude used to choose between Codex, Cline and the local model itself, and in practice almost always picked Codex: on one install, Cline and the local model got no coding work in 30 days although both were switched on.
+- **One hand-off tool for Claude:** it describes the task, what kind it is (feature, bug fix, tests, refactor, boilerplate, docs) and how hard (simple, moderate, hard). Starwright picks the agent: simple work goes to the free local model first, then Cline, then Codex; moderate work to Codex first; hard work to Codex or Cline, never the local model. Tests, boilerplate and docs count as simple unless Claude says they're hard. A nearly used-up Codex plan moves Codex to the back; an agent you ask for by name goes first.
+- **Passed on when one fails:** if an agent fails without changing anything, the next one gets the task (a cheaper agent with another behind it gets 10 minutes, not 15, so a stall doesn't hold things up). The chat card shows who got it, and Claude is told who did it and who passed it on.
+- **Claude is asked to split bigger jobs**, handing the simple, well-specified parts off separately so they can go to the cheaper agents, even when nothing in the request suits Codex.
+
+**Quality is now tracked as and after work is done**, for each agent and kind of task (shown on the meters and in the usage report):
+- **Your reaction:** pressing Undo on a request, or saying the last result was wrong or broken ("that broke the login", "still not working"; Haiku spots it while labelling the message), counts against whoever built it.
+- **Redone hand-offs:** Claude, or a later hand-off, changing the same files again in the same request.
+- **Fixes that held:** after Codex's review and Claude's fixes, the automatic checks run again.
+- **Why a request wasn't reviewed** (quick edit or plan, Codex built it, reviews off, Codex low, no changes...), to find out why reviews are rare. Work by Cline or the local model is now always reviewed like Claude's own.
+
 ## 0.13.0 (2026-11-15)
 
 **Who did the work.** The first step toward a work equalizer (one fader each for Claude, Codex, Cline and the local model, in place of the Claude/Codex slider): before the faders, the meters.

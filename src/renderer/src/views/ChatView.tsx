@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { SUBTASK_TOOL_NAME, agentOfRoutedNote } from '@shared/handoff'
 import type {
   ConfirmationRequest,
   DelegationActivity,
@@ -49,7 +50,7 @@ type ChatItem =
       summary?: string
       isDelegation: boolean
       /** Which agent a hand-off went to. */
-      agent?: 'Codex' | 'Cline' | 'Local model'
+      agent?: 'Codex' | 'Cline' | 'Local model' | 'Helper'
       progressNote?: string
       /** Codex's steps during a hand-off. */
       activity?: DelegationActivity[]
@@ -90,6 +91,18 @@ type ChatItem =
 const DELEGATION_TOOL_NAME = 'mcp__vibe_tools__run_codex_subtask'
 const CLINE_TOOL_NAME = 'mcp__vibe_tools__run_cline_subtask'
 const LOCAL_TOOL_NAME = 'mcp__vibe_tools__run_local_subtask'
+const HANDOFF_TOOLS = new Set([DELEGATION_TOOL_NAME, CLINE_TOOL_NAME, LOCAL_TOOL_NAME, SUBTASK_TOOL_NAME])
+
+/** Who a hand-off card is for: the named tools say; a routed one says when the user asked, else "Helper" until Starwright picks. */
+function handoffAgent(name: string, input: unknown): 'Codex' | 'Cline' | 'Local model' | 'Helper' {
+  if (name === CLINE_TOOL_NAME) return 'Cline'
+  if (name === LOCAL_TOOL_NAME) return 'Local model'
+  if (name === SUBTASK_TOOL_NAME) {
+    const asked = (input as { agent?: string } | undefined)?.agent
+    return asked === 'codex' ? 'Codex' : asked === 'cline' ? 'Cline' : asked === 'local' ? 'Local model' : 'Helper'
+  }
+  return 'Codex'
+}
 const PREVIEW_PREF_KEY = 'vibeapp.showPreview'
 const SIDE_PREF_KEY = 'vibeapp.sidePane'
 const ASK_PREF_KEY = 'vibeapp.askMode'
@@ -361,8 +374,8 @@ function ChatView({ project, onBack, onOpenHistory, onOpenMemory, onError, think
                 toolUseId: event.toolUseId,
                 label: event.friendlyLabel,
                 status: 'running',
-                isDelegation: event.name === DELEGATION_TOOL_NAME || event.name === CLINE_TOOL_NAME || event.name === LOCAL_TOOL_NAME,
-                agent: event.name === CLINE_TOOL_NAME ? 'Cline' : event.name === LOCAL_TOOL_NAME ? 'Local model' : 'Codex',
+                isDelegation: HANDOFF_TOOLS.has(event.name),
+                agent: handoffAgent(event.name, event.input),
                 startedAt: Date.now()
               }
             ]
@@ -406,9 +419,11 @@ function ChatView({ project, onBack, onOpenHistory, onOpenMemory, onError, think
               .reverse()
               .find(({ item }) => item.kind === 'tool' && item.isDelegation && item.status === 'running')?.idx
             if (lastRunningIndex === undefined) return prev
+            // A routed hand-off names its agent when Starwright picks it (or passes it on).
+            const routedTo = agentOfRoutedNote(event.note)
             return prev.map((item, idx) =>
               idx === lastRunningIndex && item.kind === 'tool'
-                ? { ...item, progressNote: event.note }
+                ? { ...item, progressNote: event.note, ...(routedTo ? { agent: routedTo } : {}) }
                 : item
             )
           }

@@ -31,6 +31,11 @@ function friendlyToolLabel(name: string, input: unknown): string {
       const first = (input as { questions?: { question?: string }[] })?.questions?.[0]?.question
       return first ? `Asked you: ${first}` : 'Asked you a question'
     }
+    case 'mcp__vibe_tools__run_subtask': {
+      const i = input as { prompt?: string; agent?: string }
+      const to = i?.agent === 'codex' ? 'Codex' : i?.agent === 'cline' ? 'Cline' : i?.agent === 'local' ? 'the local model' : 'another agent'
+      return `Handed off to ${to}: ${i?.prompt ?? 'a subtask'}`
+    }
     case 'mcp__vibe_tools__run_codex_subtask':
       return `Delegated to Codex: ${(input as { prompt?: string })?.prompt ?? 'a subtask'}`
     case 'mcp__vibe_tools__run_cline_subtask':

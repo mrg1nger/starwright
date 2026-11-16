@@ -109,7 +109,21 @@ import { runSavePass, runScribe, summarizeConversation, type TurnRecord } from '
 import { getBrief, maybeRefreshBrief, refreshBrief } from '../memory/brief'
 import { cleanCommand, isNotableCommand } from '../memory/commands'
 import { syncAgentsFile } from '../memory/agentsFile'
-import { agentUsageSince, codexUsageSince, keyFactsBlock, listRequests, logRequest, rememberPlan, usageByProject, usageSummary, workSummary } from '../memory/store'
+import {
+  agentUsageSince,
+  codexUsageSince,
+  handoffAgentsSince,
+  keyFactsBlock,
+  listRequests,
+  logRequest,
+  markRequest,
+  rememberPlan,
+  reviewOutcomes,
+  usageByProject,
+  usageSummary,
+  workByKind,
+  workSummary
+} from '../memory/store'
 import { RequestRecorder, type RequestStart } from '../usage/requestLog'
 import { buildReport } from '../usage/report'
 import {
@@ -176,7 +190,7 @@ import {
 import type { ScheduleInput } from '@shared/schedule'
 import { runTakeover, takeCatchUpNote } from '../orchestrator/takeover'
 import { getPreview, findPreview, previewEvents } from '../preview/preview'
-import { beginTurn, handleSessionEvent, skipReview } from '../review/reviewFlow'
+import { beginTurn, handleSessionEvent, skipReview, takeReviewNote } from '../review/reviewFlow'
 import { isPlanFile } from '../orchestrator/planGuard'
 import { prepareImages, imagesNote } from '../attachments/images'
 import { listSecrets, setSecret, deleteSecret } from '../secrets/vault'
@@ -517,8 +531,17 @@ export function registerIpcHandlers(getSender: () => WebContents | undefined): v
 
       // Quick edits skip the Codex review: it would take longer than the edit.
       // Planning changes nothing, so there's nothing to review.
+      // "That broke it" / "still not working": a mark against whoever built the last request.
+      if (route.fixesLast) {
+        try {
+          markRequest(memoryDb(), projectId, 'complaint')
+        } catch {
+          // bookkeeping only
+        }
+      }
       beginTurn(projectId, { projectPath, request: text, snapshot, skipReview: route.skipReview || planning })
       startRequestLog({
+        snapshot,
         projectId,
         mode: planning ? 'plan' : extra?.approvedPlan ? 'plan_build' : 'build',
         text,
@@ -542,7 +565,7 @@ export function registerIpcHandlers(getSender: () => WebContents | undefined): v
       }
       // The user's own words, for Codex hand-offs and for searching later.
       const element = picked ? pickedNote(picked) : undefined
-      session.setRequestContext({ text, element, images: prepared.map((p) => p.savedPath) })
+      session.setRequestContext({ text, element, images: prepared.map((p) => p.savedPath), startedAt: new Date().toISOString() })
       recordUserMessage(
         projectId,
         text,
@@ -598,6 +621,14 @@ export function registerIpcHandlers(getSender: () => WebContents | undefined): v
     'vibe:chat:undo',
     async (_event, projectPath: string, snapshot: string, projectId?: string, kind?: 'undo' | 'redo', request?: string) => {
       const result = await restoreSnapshot(projectPath, snapshot)
+      // Undo is the clearest verdict on a request: a mark against whoever built it.
+      if (projectId && kind !== 'redo' && result.changedFiles.length) {
+        try {
+          markRequest(memoryDb(), projectId, 'undone', snapshot)
+        } catch {
+          // bookkeeping only
+        }
+      }
       // Memory and Claude would otherwise still believe the undone work exists.
       if (projectId && result.changedFiles.length) {
         const files = result.changedFiles.slice(0, 15).join(', ')
@@ -1172,7 +1203,9 @@ export function registerIpcHandlers(getSender: () => WebContents | undefined): v
       projectNames: new Map(projects.map((p) => [p.id, p.name])),
       plans,
       only: only?.name,
-      work: workSummary(memoryDb(), since, only?.id)
+      work: workSummary(memoryDb(), since, only?.id),
+      byKind: workByKind(memoryDb(), since, only?.id),
+      reviews: reviewOutcomes(memoryDb(), since, only?.id)
     })
   })
 
@@ -1726,7 +1759,23 @@ function observeRequestLog(projectId: string, event: VibeEvent): void {
   try {
     const db = memoryDb()
     const since = recorder.startedAt.toISOString()
-    logRequest(db, recorder.finish(codexUsageSince(db, projectId, since), agentUsageSince(db, projectId, since, 'cline')))
+    const row = recorder.finish(codexUsageSince(db, projectId, since), agentUsageSince(db, projectId, since, 'cline'))
+    // Who carried out its hand-offs comes from their records: a routed hand-off's agent is only known there.
+    const agents = handoffAgentsSince(db, projectId, since)
+    if (row.mode !== 'takeover') {
+      const tools = { ...row.tools }
+      delete tools.handoff
+      delete tools.cline
+      delete tools.local
+      if (agents.codex) tools.handoff = agents.codex
+      if (agents.cline) tools.cline = agents.cline
+      if (agents.local) tools.local = agents.local
+      row.tools = tools
+      row.handoffs = agents.codex ?? 0
+    }
+    row.builtBy = [...(row.tools.edit ? ['claude'] : []), ...Object.keys(agents)]
+    row.review = takeReviewNote(projectId)
+    logRequest(db, row)
   } catch (err) {
     console.warn('Recording the request failed:', (err as Error).message)
   }

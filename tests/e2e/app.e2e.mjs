@@ -568,7 +568,7 @@ try {
 
   await step('Claude hands a job to Cline (kept running, as an editor hosts it) and the change lands', async () => {
     try {
-      await send("Use the run_cline_subtask tool to hand this to Cline: add a shield costing 60 gold to the exports in shop.js. Don't edit it yourself.")
+      await send("Use the run_subtask tool with agent 'cline' to hand this to Cline: add a shield costing 60 gold to the exports in shop.js. Don't edit it yourself.")
       await idle(600_000)
       if (!/shield/.test(readFileSync(join(project, 'shop.js'), 'utf-8'))) throw new Error('the shield was not added')
       const card = await evaluate(`(() => { const c = [...document.querySelectorAll('.tool-card-delegation')].at(-1); return c ? c.innerText : '' })()`)

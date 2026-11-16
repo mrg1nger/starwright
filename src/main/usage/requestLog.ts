@@ -24,7 +24,8 @@ export type StepKind =
 const SERVER_COMMAND = /\b(ssh|scp|rsync|sftp)\b/
 
 export function stepKind(name: string, input?: unknown): StepKind {
-  if (/run_codex_subtask$/.test(name)) return 'handoff'
+  // A routed hand-off counts as a hand-off here; who carried it out is filled in from the hand-off records.
+  if (/run_codex_subtask$|run_subtask$/.test(name)) return 'handoff'
   if (/run_cline_subtask$/.test(name)) return 'cline'
   if (/run_local_subtask$/.test(name)) return 'local'
   if (/run_deploy$/.test(name)) return 'deploy'
@@ -49,6 +50,8 @@ export interface RequestStart {
   balance?: string | null
   route?: string | null
   size?: string | null
+  /** The snapshot from before it (what Undo goes back to). */
+  snapshot?: string
 }
 
 /** Collects one request's events; finish() gives its row (without Codex tokens, which come from the usage log). */
@@ -112,6 +115,7 @@ export class RequestRecorder {
     return {
       at: this.startedAt.toISOString(),
       projectId: this.start.projectId,
+      snapshot: this.start.snapshot ?? null,
       mode: this.takeover ? 'takeover' : this.mode,
       balance: this.start.balance ?? null,
       route: this.start.route ?? null,

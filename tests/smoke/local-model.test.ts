@@ -26,11 +26,11 @@ test('Claude hands a task to the local model and gets back the files changed', {
   const s = testSession(t, pid, dir)
   const events = await turn(
     s,
-    'Use the run_local_subtask tool (do not edit any files yourself) to have the local model create util.js exporting a function add(a, b) that returns their sum. Then reply DONE.',
+    'Use the run_subtask tool with agent "local" (do not edit any files yourself) to have the local model create util.js exporting a function add(a, b) that returns their sum. Then reply DONE.',
     14 * MINUTES
   )
-  const call = events.find((e) => e.type === 'tool_call' && e.name === 'mcp__vibe_tools__run_local_subtask') as Extract<VibeEvent, { type: 'tool_call' }> | undefined
-  assert.ok(call, 'Claude called run_local_subtask')
+  const call = events.find((e) => e.type === 'tool_call' && e.name === 'mcp__vibe_tools__run_subtask') as Extract<VibeEvent, { type: 'tool_call' }> | undefined
+  assert.ok(call, 'Claude called run_subtask')
   const result = events.find((e) => e.type === 'tool_result' && e.toolUseId === call.toolUseId) as Extract<VibeEvent, { type: 'tool_result' }> | undefined
   const text = Array.isArray(result?.raw) ? (result!.raw as { text?: string }[]).map((b) => b.text ?? '').join('\n') : String(result?.summary)
   assert.match(text, /Local model hand-off.*files changed: .*util\.js/s, text)
@@ -39,4 +39,31 @@ test('Claude hands a task to the local model and gets back the files changed', {
   assert.equal(typeof add === 'function' ? add(2, 3) : add.add?.(2, 3), 5)
   assert.ok(events.some((e) => e.type === 'delegation_activity'), "the local model's steps reached the chat")
   assert.ok(usageSummary(memoryDb(), since, pid).some((r) => r.kind === 'handoff (lmstudio)'), 'logged as LM Studio usage')
+})
+
+test('a simple hand-off with no agent named goes to the free local model first', { timeout: 15 * MINUTES }, async (t) => {
+  const status = await lmStudioStatus('http://localhost:1234')
+  if (!status.running || !status.models.some((m) => m.loaded)) return t.skip('LM Studio is not running with a model loaded')
+  updateSettings({ claudeModel: 'haiku', autoMemory: false, localHandoffs: true, clineHandoffs: false, lmStudioUrl: 'http://localhost:1234', lmStudioModel: null })
+  forgetLmStudioStatus()
+  const pid = projectId('routed-handoff')
+  const since = new Date(Date.now() - 1000).toISOString()
+  const dir = makeProject()
+  const s = testSession(t, pid, dir)
+  const events = await turn(
+    s,
+    'Use the run_subtask tool (do not edit any files yourself, and do not name an agent) to hand off this simple boilerplate task: create util.js exporting a function add(a, b) that returns their sum. Then reply DONE.',
+    14 * MINUTES
+  )
+  const call = events.find((e) => e.type === 'tool_call' && e.name === 'mcp__vibe_tools__run_subtask') as Extract<VibeEvent, { type: 'tool_call' }> | undefined
+  assert.ok(call, 'Claude called run_subtask')
+  assert.equal((call.input as { agent?: string }).agent, undefined, 'no agent named')
+  const result = events.find((e) => e.type === 'tool_result' && e.toolUseId === call.toolUseId) as Extract<VibeEvent, { type: 'tool_result' }> | undefined
+  const text = Array.isArray(result?.raw) ? (result!.raw as { text?: string }[]).map((b) => b.text ?? '').join('\n') : String(result?.summary)
+  assert.match(text, /Starwright gave this simple \w+ task to the local model/, text)
+  assert.ok(events.some((e) => e.type === 'delegation_progress' && /^Handed to the local model/.test(e.note)), 'the chat card learned the agent')
+  const row = memoryDb().prepare('SELECT agent, task_kind, difficulty, checks_ok FROM handoffs WHERE project_id = ? AND started_at >= ?').get(pid, since) as Record<string, unknown>
+  assert.equal(row.agent, 'local')
+  assert.equal(row.difficulty, 'simple')
+  assert.ok(row.task_kind, 'the kind of task is recorded')
 })

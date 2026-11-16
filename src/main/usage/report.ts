@@ -79,7 +79,13 @@ function shares(work: Record<WorkRoute, RouteWork>, pick: (w: RouteWork) => numb
 }
 
 /** Who did the work, per route: the numbers behind the work equalizer's meters. */
-export function workSection(work: Record<WorkRoute, RouteWork>): string[] {
+export function workSection(
+  work: Record<WorkRoute, RouteWork>,
+  extra: {
+    byKind?: { route: WorkRoute; kind: string; total: number; failed: number; checksFailed: number; reworked: number }[]
+    reviews?: Record<string, number>
+  } = {}
+): string[] {
   const lines = [
     '## Who did the work',
     `- Building (Claude editing itself, or a hand-off): ${shares(work, (w) => w.build)}`,
@@ -89,13 +95,30 @@ export function workSection(work: Record<WorkRoute, RouteWork>): string[] {
   ]
   const handoffs = ROUTES.filter((r) => work[r].handoffs.total > 0).map((r) => {
     const h = work[r].handoffs
-    return `${ROUTE_LABELS[r]} ${h.total} (${h.failed} failed; checks failed ${h.checksFailed} of ${h.checksRun} run)`
+    return `${ROUTE_LABELS[r]} ${h.total} (${h.failed} failed; checks failed ${h.checksFailed} of ${h.checksRun} run; ${h.reworked} redone)`
   })
   if (handoffs.length) lines.push(`- Hand-offs and how they went: ${handoffs.join(' · ')}`)
   const reviewed = ROUTES.filter((r) => work[r].reviewed.total > 0).map(
     (r) => `${ROUTE_LABELS[r]} ${work[r].reviewed.serious} of ${work[r].reviewed.total}`
   )
   if (reviewed.length) lines.push(`- Reviews that found something serious in work it helped build: ${reviewed.join(' · ')}`)
+  const fixes = ROUTES.filter((r) => work[r].reviewed.fixesChecked > 0).map(
+    (r) => `${ROUTE_LABELS[r]} ${work[r].reviewed.fixesFailed} of ${work[r].reviewed.fixesChecked}`
+  )
+  if (fixes.length) lines.push(`- Fixes after a review that still failed the checks: ${fixes.join(' · ')}`)
+  const reactions = ROUTES.filter((r) => work[r].requests.built > 0).map((r) => {
+    const q = work[r].requests
+    return `${ROUTE_LABELS[r]} ${q.complaints} said wrong, ${q.undone} undone, of ${q.built}`
+  })
+  if (reactions.length) lines.push(`- Your reaction to requests it helped build: ${reactions.join(' · ')}`)
+  if (extra.byKind?.length) {
+    lines.push('- By kind of task (hand-offs, failed, checks failed, redone):')
+    for (const k of extra.byKind) {
+      lines.push(`  - ${ROUTE_LABELS[k.route]}, ${k.kind}: ${k.total}, ${k.failed} failed, ${k.checksFailed} checks failed, ${k.reworked} redone`)
+    }
+  }
+  const reviews = Object.entries(extra.reviews ?? {}).sort((a, b) => b[1] - a[1])
+  if (reviews.length) lines.push(`- Codex reviews: ${reviews.map(([why, n]) => `${why} ${n}`).join(' · ')}`)
   return lines
 }
 
@@ -117,6 +140,9 @@ export function buildReport(input: {
   only?: string
   /** Who did the work, per route. */
   work?: Record<WorkRoute, RouteWork>
+  byKind?: { route: WorkRoute; kind: string; total: number; failed: number; checksFailed: number; reworked: number }[]
+  /** Whether requests were reviewed, or why not, with counts. */
+  reviews?: Record<string, number>
 }): string {
   const { days, usage, requests, projectNames } = input
   const name = (id: string): string => (id ? projectNames.get(id) ?? id : '(no project: Chat tab)')
@@ -125,7 +151,7 @@ export function buildReport(input: {
     'Weights are estimates in fresh-Sonnet-input units (cached reads x0.1, output x5, Haiku /3, Opus x5/3).'
   ]
   if (input.plans?.length) lines.push(`Plans now: ${input.plans.join(' · ')}`)
-  if (input.work) lines.push('', ...workSection(input.work))
+  if (input.work) lines.push('', ...workSection(input.work, { byKind: input.byKind, reviews: input.reviews }))
 
   // ---- Claude by project and by kind of work
   const claudeRows = usage.filter((u) => u.agent === 'claude')

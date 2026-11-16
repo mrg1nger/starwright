@@ -37,7 +37,7 @@ const ONLY = process.env.VIBEAPP_EVAL_ONLY ? new RegExp(process.env.VIBEAPP_EVAL
 /** cline: the building goes to Cline instead of Codex (the same tasks, to compare the two). */
 const BUILDER = process.env.VIBEAPP_EVAL_BUILDER === 'cline' ? 'cline' : 'codex'
 const CLINE_BUILDS =
-  '[VibeApp note: for this request, hand the implementation to Cline with run_cline_subtask instead of Codex: give it a clear spec, the files and how to check it, then judge its report the way you would judge a Codex hand-off. Don\'t call run_codex_subtask.]'
+  '[VibeApp note: for this request, hand the implementation to Cline with run_subtask (agent "cline") instead of Codex: give it a clear spec, the files and how to check it, then judge its report the way you would judge a Codex hand-off. Don\'t give it to Codex.]'
 
 const FILES: Record<string, string> = {
   'package.json': JSON.stringify({ name: 'eval-game', version: '1.0.0', scripts: { test: 'node --test' } }, null, 2),

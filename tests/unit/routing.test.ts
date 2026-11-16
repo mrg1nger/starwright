@@ -84,8 +84,10 @@ test('classifier replies are parsed strictly', () => {
   assert.deepEqual(parseClassification('{"size":"quick","codex":"none","reason":"tiny"}'), {
     size: 'quick',
     codex: 'none',
-    reason: 'tiny'
+    reason: 'tiny',
+    fixesLast: false
   })
+  assert.equal(parseClassification('{"size":"normal","codex":"none","fixes_last":true,"reason":"login broke"}')?.fixesLast, true)
   assert.equal(parseClassification("You've hit your session limit · resets 7:30pm"), null)
   assert.equal(parseClassification('{"size":"huge","codex":"none"}'), null)
 })

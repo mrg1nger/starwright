@@ -15,10 +15,15 @@ function quality(w: RouteWork): string {
   const parts: string[] = []
   const h = w.handoffs
   if (h.total) {
-    parts.push(`${plural(h.total, 'hand-off')}${h.failed ? `, ${h.failed} failed` : ''}`)
+    parts.push(`${plural(h.total, 'hand-off')}${h.failed ? `, ${h.failed} failed` : ''}${h.reworked ? `, ${h.reworked} redone` : ''}`)
     if (h.checksRun) parts.push(`checks failed ${h.checksFailed} of ${h.checksRun}`)
   }
   if (w.reviewed.total) parts.push(`serious review findings in ${w.reviewed.serious} of ${w.reviewed.total}`)
+  if (w.reviewed.fixesFailed) parts.push(`${plural(w.reviewed.fixesFailed, 'fix', 'fixes')} still failing`)
+  const q = w.requests
+  if (q.complaints || q.undone) {
+    parts.push([q.complaints ? `you said ${q.complaints} went wrong` : '', q.undone ? `you undid ${q.undone}` : ''].filter(Boolean).join(', '))
+  }
   return parts.join(' · ')
 }
 
@@ -81,7 +86,8 @@ function WorkMeters({ days = 7 }: { days?: number }) {
       </ul>
       <small className="memory-hint">
         Bars: each one's share of the building (Claude editing files itself, or a hand-off it carried out). Hover a row for
-        the detail. Quality is recorded from 0.13.0 on: hand-offs whose checks failed, and what Codex's reviews found.
+        the detail. Quality is recorded from 0.13.0 on (hand-offs whose checks failed, what Codex's reviews found) and from 0.14.0
+        on (hand-offs redone, fixes that still failed, and your reactions: Undo, or saying a result was wrong).
       </small>
     </div>
   )

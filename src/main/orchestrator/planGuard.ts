@@ -44,6 +44,7 @@ const EDIT_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit'])
 /** VibeApp's own tools that act rather than look. Drafts (save_deploy_recipe, save_schedule) still need the user's check, so they're fine. */
 const ACTING_VIBE_TOOLS: Record<string, string> = {
   run_deploy: 'run the Deploy',
+  run_subtask: 'hand work to another agent',
   run_codex_subtask: 'hand work to Codex',
   run_cline_subtask: 'hand work to Cline',
   run_local_subtask: 'hand work to the local model',

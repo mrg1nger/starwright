@@ -40,7 +40,7 @@ test('without a Steps heading, the first numbered list is used; no list means no
 test('the build note tells Claude to report progress and hand Codex steps to Codex', () => {
   const note = approvedPlanNote('## Steps\n1. (Codex) Build it')
   assert.match(note, /plan_progress/)
-  assert.match(note, /run_codex_subtask/)
+  assert.match(note, /run_subtask/)
   assert.match(note, /1\. \(Codex\) Build it/)
 })
 

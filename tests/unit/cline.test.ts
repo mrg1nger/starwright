@@ -179,7 +179,8 @@ test("a background job's JSON answer is found and checked against its format", (
 test('routing offers Cline only when it can take work, and when Codex is low it goes to Cline instead', async () => {
   const settings = { smartRouting: true, aiRouting: false, agentBalance: 'codex', claudeModel: 'sonnet', clineHandoffs: true } as unknown as AppSettings
   const withCline = await routeMessage('Add a shop screen with a sell button', settings, { clineReady: true })
-  assert.match(withCline.note ?? '', /run_cline_subtask/)
+  assert.match(withCline.note ?? '', /run_subtask/)
+  assert.match(withCline.note ?? '', /Cline/)
   const without = await routeMessage('Add a shop screen with a sell button', settings, { clineReady: false })
   assert.doesNotMatch(without.note ?? '', /Cline/)
   const quick = await routeMessage('Make the title blue', { ...settings, agentBalance: 'balanced' } as AppSettings, { clineReady: true })

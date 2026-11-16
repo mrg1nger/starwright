@@ -8,9 +8,9 @@ import type { VibeEvent } from '@shared/types'
 import { makeProject, projectId, testSession, turn } from '../support/fixtures'
 
 // Claude (Haiku, to keep it cheap) hands work to the real Codex CLI through
-// VibeApp's run_codex_subtask tool, as it does in the app.
+// Starwright's run_subtask tool, as it does in the app.
 
-const HANDOFF = 'mcp__vibe_tools__run_codex_subtask'
+const HANDOFF = 'mcp__vibe_tools__run_subtask'
 type ToolResult = Extract<VibeEvent, { type: 'tool_result' }>
 
 function handoffResults(events: VibeEvent[]): { prompt: string; text: string; ok: boolean }[] {
@@ -41,7 +41,7 @@ test('Claude hands a task to Codex and gets back the files changed and the check
   const { s, dir } = session(t)
   const events = await turn(
     s,
-    'Use the run_codex_subtask tool (do not edit any files yourself) to have Codex create util.js exporting a function add(a, b) that returns their sum. Then reply DONE.',
+    'Use the run_subtask tool with agent "codex" (do not edit any files yourself) to have Codex create util.js exporting a function add(a, b) that returns their sum. Then reply DONE.',
     540_000
   )
   const results = handoffResults(events)
@@ -60,7 +60,7 @@ test('a second hand-off in the same request continues the same Codex session', {
   const { s, dir } = session(t)
   const events = await turn(
     s,
-    'Make two hand-offs with the run_codex_subtask tool, one after the other: wait for the first to finish before starting the second. First: create notes.txt containing the line "one". Second: append the line "two" to notes.txt. Do not edit files yourself. Then reply DONE.',
+    'Make two hand-offs with the run_subtask tool (agent "codex"), one after the other: wait for the first to finish before starting the second. First: create notes.txt containing the line "one". Second: append the line "two" to notes.txt. Do not edit files yourself. Then reply DONE.',
     840_000
   )
   const results = handoffResults(events)
@@ -73,7 +73,7 @@ test('two hand-offs asked for at once are kept apart (each reports only its own 
   const { s, dir } = session(t)
   const events = await turn(
     s,
-    'In ONE message, call the run_codex_subtask tool twice at the same time (two tool calls in parallel, not one after the other): the first creates x.txt containing "x"; the second creates y.txt containing "y". Do not edit files yourself. Then reply DONE.',
+    'In ONE message, call the run_subtask tool (agent "codex") twice at the same time (two tool calls in parallel, not one after the other): the first creates x.txt containing "x"; the second creates y.txt containing "y". Do not edit files yourself. Then reply DONE.',
     840_000
   )
   const results = handoffResults(events)
