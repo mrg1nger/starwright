@@ -20,6 +20,8 @@ import type {
   DeployEvent,
   BackupInfo,
   BackupSecrets,
+  RouteWork,
+  WorkRoute,
   PickedElement,
   PreviewProblem,
   PreviewState,
@@ -509,7 +511,9 @@ export function createVibeApi(ipcRenderer: IpcLike, host: 'electron' | 'browser'
       /** Tokens by kind of work over the last N days (from VibeApp's own log). */
       summary: (days: number): Promise<UsageSummaryRow[]> => ipcRenderer.invoke('vibe:usage:summary', days),
       /** A written report: by project, by kind of work, the Claude/Codex split, the most expensive requests. */
-      report: (days: number, projectId?: string): Promise<string> => ipcRenderer.invoke('vibe:usage:report', days, projectId)
+      report: (days: number, projectId?: string): Promise<string> => ipcRenderer.invoke('vibe:usage:report', days, projectId),
+      /** Who did the work over the last `days`, per route (Claude, Codex, Cline, the local model). */
+      work: (days: number): Promise<Record<WorkRoute, RouteWork>> => ipcRenderer.invoke('vibe:usage:work', days)
     }
   }
 }

@@ -142,6 +142,8 @@ export async function runTakeover(req: TakeoverRequest): Promise<void> {
   let report = ''
   let changes: FileChange[] | null = null
   let checks = ''
+  /** Whether the automatic checks passed (null: none ran), for the hand-off record. */
+  let checksResult: boolean | null = null
   let passToCline = false
 
   try {
@@ -225,6 +227,7 @@ export async function runTakeover(req: TakeoverRequest): Promise<void> {
         ).catch(() => ({ ok: null as boolean | null, summary: '' }))
         checks = verdict.summary
         checksOk = verdict.ok !== false
+        checksResult = verdict.ok
       }
       emit({ type: 'tool_result', toolUseId, ok: status === 'done' && checksOk, summary: report.slice(0, 300), raw: null })
       emit({
@@ -250,7 +253,8 @@ export async function runTakeover(req: TakeoverRequest): Promise<void> {
         finishHandoff(memoryDb(), handoffId, {
           status,
           report: [report, checks].filter(Boolean).join('\n\n'),
-          files: changes?.map((c) => c.path) ?? null
+          files: changes?.map((c) => c.path) ?? null,
+          checksOk: checksResult
         })
       )
     }
@@ -292,6 +296,7 @@ async function runClineTakeover(req: TakeoverRequest, afterCodex = false): Promi
   let report = ''
   let changes: FileChange[] | null = null
   let checks = ''
+  let checksResult: boolean | null = null
   try {
     const context = await handoffContext(projectId, prompt, { text: req.text, element: req.element, images: req.images }).catch(
       () => undefined
@@ -331,6 +336,7 @@ async function runClineTakeover(req: TakeoverRequest, afterCodex = false): Promi
       const verdict = await verifyChanges(projectPath, changes.map((c) => c.path)).catch(() => ({ ok: null as boolean | null, summary: '' }))
       checks = verdict.summary
       checksOk = verdict.ok !== false
+      checksResult = verdict.ok
     }
     emit({ type: 'tool_result', toolUseId, ok: status === 'done' && checksOk, summary: report.slice(0, 300), raw: null })
     emit({
@@ -351,7 +357,7 @@ async function runClineTakeover(req: TakeoverRequest, afterCodex = false): Promi
     }
   } finally {
     if (handoffId !== undefined) {
-      attempt(() => finishHandoff(memoryDb(), handoffId, { status, report: [report, checks].filter(Boolean).join('\n\n'), files: changes?.map((c) => c.path) ?? null }))
+      attempt(() => finishHandoff(memoryDb(), handoffId, { status, report: [report, checks].filter(Boolean).join('\n\n'), files: changes?.map((c) => c.path) ?? null, checksOk: checksResult }))
     }
     writeCatchUp(projectId, [
       ...readCatchUp(projectId),

@@ -537,7 +537,8 @@ export function createCodexDelegationServer(
           finishHandoff(memoryDb(), handoffId, {
             status,
             report: [report, checks].filter(Boolean).join('\n\n'),
-            files: changes?.map((c) => c.path) ?? null
+            files: changes?.map((c) => c.path) ?? null,
+            checksOk
           })
         )
       }

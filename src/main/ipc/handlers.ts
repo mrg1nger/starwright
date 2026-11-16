@@ -109,7 +109,7 @@ import { runSavePass, runScribe, summarizeConversation, type TurnRecord } from '
 import { getBrief, maybeRefreshBrief, refreshBrief } from '../memory/brief'
 import { cleanCommand, isNotableCommand } from '../memory/commands'
 import { syncAgentsFile } from '../memory/agentsFile'
-import { agentUsageSince, codexUsageSince, keyFactsBlock, listRequests, logRequest, rememberPlan, usageByProject, usageSummary } from '../memory/store'
+import { agentUsageSince, codexUsageSince, keyFactsBlock, listRequests, logRequest, rememberPlan, usageByProject, usageSummary, workSummary } from '../memory/store'
 import { RequestRecorder, type RequestStart } from '../usage/requestLog'
 import { buildReport } from '../usage/report'
 import {
@@ -1171,8 +1171,15 @@ export function registerIpcHandlers(getSender: () => WebContents | undefined): v
       requests: listRequests(memoryDb(), since, only?.id),
       projectNames: new Map(projects.map((p) => [p.id, p.name])),
       plans,
-      only: only?.name
+      only: only?.name,
+      work: workSummary(memoryDb(), since, only?.id)
     })
+  })
+
+  // Who did the work, per route (the work equalizer's meters).
+  ipc.handle('vibe:usage:work', (_event, days: number) => {
+    const span = Math.max(1, Math.min(90, Number(days) || 7))
+    return workSummary(memoryDb(), new Date(Date.now() - span * 86_400_000).toISOString())
   })
 
   ipc.handle('vibe:usage:get',(_event, cli: CliName, force?: boolean) => getUsage(cli, force))

@@ -1,3 +1,4 @@
+import type { RouteWork, WorkRoute } from '@shared/types'
 import type { RequestLogRow } from '../memory/store'
 import type { StepKind } from './requestLog'
 
@@ -65,6 +66,39 @@ function addTools(into: Record<string, number>, tools: Record<string, number>): 
   for (const [kind, n] of Object.entries(tools)) into[kind] = (into[kind] ?? 0) + n
 }
 
+const ROUTE_LABELS: Record<WorkRoute, string> = { claude: 'Claude', codex: 'Codex', cline: 'Cline', local: 'Local model' }
+const ROUTES: WorkRoute[] = ['claude', 'codex', 'cline', 'local']
+
+/** "Claude 45% (10) · Codex 55% (12)": each route's share of one kind of work, routes with none left out. */
+function shares(work: Record<WorkRoute, RouteWork>, pick: (w: RouteWork) => number): string {
+  const total = sum(ROUTES.map((r) => pick(work[r])))
+  if (!total) return 'none'
+  return ROUTES.filter((r) => pick(work[r]) > 0)
+    .map((r) => `${ROUTE_LABELS[r]} ${pct(pick(work[r]), total)} (${pick(work[r])})`)
+    .join(' · ')
+}
+
+/** Who did the work, per route: the numbers behind the work equalizer's meters. */
+export function workSection(work: Record<WorkRoute, RouteWork>): string[] {
+  const lines = [
+    '## Who did the work',
+    `- Building (Claude editing itself, or a hand-off): ${shares(work, (w) => w.build)}`,
+    `- In charge of requests: ${shares(work, (w) => w.lead)}`,
+    `- Reviews: ${shares(work, (w) => w.review)}`,
+    `- Background jobs: ${shares(work, (w) => w.background)}`
+  ]
+  const handoffs = ROUTES.filter((r) => work[r].handoffs.total > 0).map((r) => {
+    const h = work[r].handoffs
+    return `${ROUTE_LABELS[r]} ${h.total} (${h.failed} failed; checks failed ${h.checksFailed} of ${h.checksRun} run)`
+  })
+  if (handoffs.length) lines.push(`- Hand-offs and how they went: ${handoffs.join(' · ')}`)
+  const reviewed = ROUTES.filter((r) => work[r].reviewed.total > 0).map(
+    (r) => `${ROUTE_LABELS[r]} ${work[r].reviewed.serious} of ${work[r].reviewed.total}`
+  )
+  if (reviewed.length) lines.push(`- Reviews that found something serious in work it helped build: ${reviewed.join(' · ')}`)
+  return lines
+}
+
 const MODE_LABELS: Record<string, string> = {
   build: 'Build requests',
   plan: 'Making a plan',
@@ -81,6 +115,8 @@ export function buildReport(input: {
   plans?: string[]
   /** Only this project (its name), when the report was filtered. */
   only?: string
+  /** Who did the work, per route. */
+  work?: Record<WorkRoute, RouteWork>
 }): string {
   const { days, usage, requests, projectNames } = input
   const name = (id: string): string => (id ? projectNames.get(id) ?? id : '(no project: Chat tab)')
@@ -89,6 +125,7 @@ export function buildReport(input: {
     'Weights are estimates in fresh-Sonnet-input units (cached reads x0.1, output x5, Haiku /3, Opus x5/3).'
   ]
   if (input.plans?.length) lines.push(`Plans now: ${input.plans.join(' · ')}`)
+  if (input.work) lines.push('', ...workSection(input.work))
 
   // ---- Claude by project and by kind of work
   const claudeRows = usage.filter((u) => u.agent === 'claude')

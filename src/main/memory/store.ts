@@ -2,7 +2,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { createHash } from 'crypto'
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from 'fs'
 import { basename, dirname, join } from 'path'
-import { MEMORY_CATEGORIES, type MemoryCategory, type MemoryFact, type TodoItem } from '@shared/types'
+import { MEMORY_CATEGORIES, type MemoryCategory, type MemoryFact, type RouteWork, type TodoItem, type WorkRoute } from '@shared/types'
 import { approvedPlanFact, planTitle } from '@shared/plan'
 
 // The shared memory: one SQLite file used by the app (Memory screen, key
@@ -14,7 +14,7 @@ import { approvedPlanFact, planTitle } from '@shared/plan'
 /** Facts in the global scope apply to every project. */
 export const GLOBAL_SCOPE = 'global'
 
-const SCHEMA_VERSION = 6
+const SCHEMA_VERSION = 7
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS facts (
@@ -155,6 +155,19 @@ CREATE TABLE IF NOT EXISTS request_log (
 );
 CREATE INDEX IF NOT EXISTS request_at ON request_log(at);
 
+-- Each review of a change: who built it, who reviewed it, and what was found (how good each route's work is).
+CREATE TABLE IF NOT EXISTS review_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  at TEXT NOT NULL,
+  project_id TEXT NOT NULL DEFAULT '',
+  reviewer TEXT NOT NULL,
+  built_by TEXT NOT NULL DEFAULT '[]',
+  high INTEGER NOT NULL DEFAULT 0,
+  medium INTEGER NOT NULL DEFAULT 0,
+  low INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS review_at ON review_log(at);
+
 -- The user's own to-do list and notes for each project (the agents can add to-dos and read both).
 CREATE TABLE IF NOT EXISTS todos (
   id TEXT PRIMARY KEY,
@@ -250,6 +263,9 @@ export function openMemory(dbPath: string, vectorExtension?: string): DatabaseSy
   for (const column of ['cline_fresh', 'cline_cached', 'cline_output']) {
     if (!requestColumns.has(column)) db.exec(`ALTER TABLE request_log ADD COLUMN ${column} INTEGER NOT NULL DEFAULT 0`)
   }
+  const handoffColumns = new Set((db.prepare('PRAGMA table_info(handoffs)').all() as { name: string }[]).map((c) => c.name))
+  // Whether the automatic checks passed after the hand-off (null: none ran).
+  if (!handoffColumns.has('checks_ok')) ignoreDuplicateColumn(() => db.exec('ALTER TABLE handoffs ADD COLUMN checks_ok INTEGER'))
   const factColumns = new Set((db.prepare('PRAGMA table_info(facts)').all() as { name: string }[]).map((c) => c.name))
   // Another process may add it between the look and the change.
   if (!factColumns.has('replaced_by')) ignoreDuplicateColumn(() => db.exec('ALTER TABLE facts ADD COLUMN replaced_by TEXT'))
@@ -1014,15 +1030,117 @@ export function startHandoff(
 export function finishHandoff(
   db: DatabaseSync,
   id: number,
-  result: { status: Handoff['status']; report: string; files: string[] | null }
+  result: { status: Handoff['status']; report: string; files: string[] | null; checksOk?: boolean | null }
 ): void {
-  db.prepare('UPDATE handoffs SET status = ?, report = ?, files = ?, finished_at = ? WHERE id = ?').run(
+  db.prepare('UPDATE handoffs SET status = ?, report = ?, files = ?, finished_at = ?, checks_ok = ? WHERE id = ?').run(
     result.status,
     result.report.slice(0, 12000),
     result.files ? JSON.stringify(result.files.slice(0, 200)) : null,
     now(),
+    result.checksOk === undefined || result.checksOk === null ? null : result.checksOk ? 1 : 0,
     id
   )
+}
+
+// ---- who did the work (for the work equalizer's meters and the usage report) ----
+
+export type { WorkRoute, RouteWork }
+export const WORK_ROUTES: WorkRoute[] = ['claude', 'codex', 'cline', 'local']
+
+/** A usage_log / handoffs agent name as a route ("lmstudio" is the local model). */
+export function routeOf(agent: string): WorkRoute | null {
+  if (agent === 'lmstudio' || agent === 'local') return 'local'
+  return (WORK_ROUTES as string[]).includes(agent) ? (agent as WorkRoute) : null
+}
+
+/** Records a review of a change: who built it and what the reviewer found. */
+export function recordReview(
+  db: DatabaseSync,
+  entry: { projectId: string; reviewer: WorkRoute; builtBy: WorkRoute[]; findings: { severity: 'high' | 'medium' | 'low' }[] }
+): void {
+  const count = (severity: string): number => entry.findings.filter((f) => f.severity === severity).length
+  db.prepare('INSERT INTO review_log (at, project_id, reviewer, built_by, high, medium, low) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
+    now(),
+    entry.projectId,
+    entry.reviewer,
+    JSON.stringify([...new Set(entry.builtBy)]),
+    count('high'),
+    count('medium'),
+    count('low')
+  )
+}
+
+const BACKGROUND_KINDS = ['route', 'scribe', 'tidy', 'brief', 'codemap', 'summary']
+const LEAD_KINDS = ['request', 'takeover', 'chat']
+
+/** Who did what since a time: the meters' numbers, per route. */
+export function workSummary(db: DatabaseSync, sinceIso: string, projectId?: string): Record<WorkRoute, RouteWork> {
+  const out = Object.fromEntries(
+    WORK_ROUTES.map((r) => [
+      r,
+      { lead: 0, build: 0, review: 0, background: 0, handoffs: { total: 0, failed: 0, checksRun: 0, checksFailed: 0 }, reviewed: { total: 0, serious: 0 } }
+    ])
+  ) as Record<WorkRoute, RouteWork>
+  const where = `at >= ?${projectId ? ' AND project_id = ?' : ''}`
+  const args = projectId ? [sinceIso, projectId] : [sinceIso]
+
+  const usage = db.prepare(`SELECT agent, kind, COUNT(*) AS n FROM usage_log WHERE ${where} GROUP BY agent, kind`).all(...args) as {
+    agent: string
+    kind: string
+    n: number
+  }[]
+  for (const u of usage) {
+    const route = routeOf(u.agent)
+    if (!route) continue
+    if (LEAD_KINDS.includes(u.kind)) out[route].lead += u.n
+    else if (u.kind === 'review') out[route].review += u.n
+    else if (BACKGROUND_KINDS.includes(u.kind)) out[route].background += u.n
+  }
+
+  // Claude's own building: Build/Plan requests where it edited files itself.
+  const edited = db.prepare(`SELECT tools FROM request_log WHERE ${where}`).all(...args) as { tools: string }[]
+  for (const row of edited) {
+    try {
+      if ((JSON.parse(row.tools) as Record<string, number>).edit > 0) out.claude.build++
+    } catch {
+      // no breakdown
+    }
+  }
+
+  const handoffWhere = `started_at >= ? AND status != 'running'${projectId ? ' AND project_id = ?' : ''}`
+  const handoffs = db
+    .prepare(
+      `SELECT agent, COUNT(*) AS total, SUM(status = 'error') AS failed, SUM(checks_ok IS NOT NULL) AS checksRun, SUM(checks_ok = 0) AS checksFailed
+       FROM handoffs WHERE ${handoffWhere} GROUP BY agent`
+    )
+    .all(...args) as { agent: string; total: number; failed: number; checksRun: number; checksFailed: number }[]
+  for (const h of handoffs) {
+    const route = routeOf(h.agent)
+    if (!route) continue
+    out[route].build += h.total
+    out[route].handoffs = { total: h.total, failed: h.failed ?? 0, checksRun: h.checksRun ?? 0, checksFailed: h.checksFailed ?? 0 }
+  }
+
+  const reviews = db.prepare(`SELECT built_by, high, medium FROM review_log WHERE ${where}`).all(...args) as {
+    built_by: string
+    high: number
+    medium: number
+  }[]
+  for (const rv of reviews) {
+    let builders: string[] = []
+    try {
+      builders = JSON.parse(rv.built_by) as string[]
+    } catch {
+      continue
+    }
+    for (const b of builders) {
+      const route = routeOf(b)
+      if (!route) continue
+      out[route].reviewed.total++
+      if (rv.high + rv.medium > 0) out[route].reviewed.serious++
+    }
+  }
+  return out
 }
 
 export function recentHandoffs(db: DatabaseSync, projectId: string, limit = 3): Handoff[] {

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { AppSettings, CodexModelList, ModelOption, ThemeDefinition, UsageSummaryRow } from '@shared/types'
 import UsageReport from '../components/UsageReport'
+import WorkMeters from '../components/WorkMeters'
 import RemoteAccessSettings from '../components/RemoteAccessSettings'
 import BackupSettings from '../components/BackupSettings'
 import ScheduleSettings from '../components/ScheduleSettings'
@@ -459,6 +460,7 @@ function SettingsView({ settings, themes, onSettingsChange, onThemesChange, onEr
 
       <section className="settings-section">
         <h3>Where your usage goes (last 7 days)</h3>
+        <WorkMeters />
         {usageRows === null ? (
           <p className="memory-hint">Loading…</p>
         ) : usageRows.length === 0 ? (

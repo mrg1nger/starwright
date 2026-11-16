@@ -2,6 +2,13 @@
 
 The version goes up with each improvement that ships: the middle number for new features, the last for fixes only. Settings shows the version a computer is running. (Starwright was called VibeApp up to 0.10.0.)
 
+## 0.13.0 (2026-11-15)
+
+**Who did the work.** The first step toward a work equalizer (one fader each for Claude, Codex, Cline and the local model, in place of the Claude/Codex slider): before the faders, the meters.
+- **Settings, "Where your usage goes", now opens with a meter per route:** each one's share of the building over the last week (Claude editing files itself, or a hand-off it carried out), with what else it did (requests it was in charge of, reviews, background jobs) and how its work went. Hover a row for the detail.
+- **New records, for judging how good each route's work is:** whether each hand-off's automatic checks passed, and every Codex review with who built the change and how serious its findings were.
+- **The usage report** (Settings, and Claude Code through the API) starts with the same breakdown, "Who did the work".
+
 ## 0.12.0 (2026-11-15)
 
 **Secrets move to a new computer with a backup password.** Secrets and extension keys are locked to the Windows account that saved them, so until now a backup couldn't bring them to another computer.

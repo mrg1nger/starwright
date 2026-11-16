@@ -377,6 +377,25 @@ export interface TranscriptEntry {
 export const MEMORY_CATEGORIES = ['about', 'setup', 'decision', 'preference', 'gotcha', 'other'] as const
 export type MemoryCategory = (typeof MEMORY_CATEGORIES)[number]
 
+/** The four routes work can take (the work equalizer's faders). */
+export type WorkRoute = 'claude' | 'codex' | 'cline' | 'local'
+
+/** What one route did over a period: the work equalizer's meters. */
+export interface RouteWork {
+  /** Requests it handled as the one in charge (Claude normally; Codex or Cline when they took over). */
+  lead: number
+  /** Pieces of building: requests where Claude edited files itself, or hand-offs it carried out. */
+  build: number
+  /** Reviews of others' changes. */
+  review: number
+  /** Background jobs (memory, tidy-up, brief, code map, summaries, labelling requests). */
+  background: number
+  /** Hand-offs given to it, and how they went. */
+  handoffs: { total: number; failed: number; checksRun: number; checksFailed: number }
+  /** Reviews of changes it helped build, and how many found something serious (high or medium). */
+  reviewed: { total: number; serious: number }
+}
+
 /** One backup of VibeApp's data (a folder). */
 export interface BackupInfo {
   path: string

@@ -6,6 +6,8 @@ import { peekUsage, percentLeft } from '../usage/usage'
 import { changesBetween, fixPrompt, reviewChanges } from './codexReview'
 import { scanDiff } from '../secrets/leakScan'
 import { secretValues } from '../secrets/vault'
+import { memoryDb } from '../memory/paths'
+import { recordReview, type WorkRoute } from '../memory/store'
 
 /** Below this share of Codex plan left, skip reviews to save it for real work. */
 const CODEX_REVIEW_MIN_LEFT = 15
@@ -22,6 +24,8 @@ interface TurnContext {
   delegated: boolean
   /** Claude edited files itself (not just via Codex). */
   claudeEdited: boolean
+  /** Who changed files in this request, for the review record (how good each route's work is). */
+  builders: Set<WorkRoute>
   abort?: AbortController
   /** Emits the held-back turn_complete (used by "Skip review"). */
   finishNow?: () => void
@@ -37,7 +41,7 @@ export function beginTurn(
   context: Pick<TurnContext, 'projectPath' | 'request' | 'snapshot' | 'skipReview'>
 ): void {
   turns.get(projectId)?.abort?.abort()
-  turns.set(projectId, { ...context, phase: 'main', hadError: false, delegated: false, claudeEdited: false })
+  turns.set(projectId, { ...context, phase: 'main', hadError: false, delegated: false, claudeEdited: false, builders: new Set() })
 }
 
 function reviewAllowed(): boolean {
@@ -66,6 +70,16 @@ export function handleSessionEvent(
   // Plan mode was left with the user's OK: what's built from here gets the usual review.
   if (turn && event.type === 'plan_left') turn.skipReview = false
   if (turn && event.type === 'tool_call') {
+    const builder: WorkRoute | null = /run_codex_subtask$/.test(event.name)
+      ? 'codex'
+      : /run_cline_subtask$/.test(event.name)
+        ? 'cline'
+        : /run_local_subtask$/.test(event.name)
+          ? 'local'
+          : EDIT_TOOLS.has(event.name)
+            ? 'claude'
+            : null
+    if (builder) turn.builders.add(builder)
     if (event.name === 'mcp__vibe_tools__run_codex_subtask') turn.delegated = true
     // Cline's work gets Codex's review like Claude's own: a different agent, so it's independent.
     else if (event.name === 'mcp__vibe_tools__run_cline_subtask' || event.name === 'mcp__vibe_tools__run_local_subtask' || EDIT_TOOLS.has(event.name)) turn.claudeEdited = true
@@ -125,6 +139,16 @@ export function handleSessionEvent(
       if (finished || abort.signal.aborted) return
 
       const serious = review.findings.filter((f) => f.severity !== 'low')
+      try {
+        recordReview(memoryDb(), {
+          projectId,
+          reviewer: 'codex',
+          builtBy: turn.builders.size ? [...turn.builders] : ['claude'],
+          findings: review.findings
+        })
+      } catch (err) {
+        console.warn('Recording the review failed:', (err as Error).message)
+      }
       const fixing = serious.length > 0 && !session.isDead()
       forward({ type: 'review_result', ok: true, summary: review.summary, findings: review.findings, fixing })
       if (!fixing) return finish()

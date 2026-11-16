@@ -3811,6 +3811,64 @@ textarea {
   color: var(--warning-text);
 }
 
+/* ---- Settings: who did the work (the work equalizer's meters) ---- */
+
+.work-meters {
+  margin: 4px 0 14px;
+}
+
+.work-meters h4 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+
+.work-meters ul {
+  list-style: none;
+  margin: 0 0 6px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.work-meters li {
+  display: grid;
+  grid-template-columns: 96px 1fr 72px;
+  align-items: center;
+  column-gap: 10px;
+  font-size: 13px;
+}
+
+.work-meter-track {
+  height: 10px;
+  border-radius: 4px;
+  background: var(--surface-sunken);
+  overflow: hidden;
+}
+
+.work-meter-fill {
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+  background: var(--accent);
+}
+
+.work-meter-value {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.work-meter-value small,
+.work-meter-detail {
+  color: var(--text-muted);
+}
+
+.work-meter-detail {
+  grid-column: 2 / 4;
+  font-size: 12px;
+  margin-top: 2px;
+}
+
 .backup-unlock .modal-text {
   margin: 0 0 4px;
   color: inherit;
