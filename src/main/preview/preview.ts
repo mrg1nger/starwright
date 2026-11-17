@@ -8,8 +8,11 @@ import { extname, join, normalize, resolve, sep } from 'path'
 import type { PreviewProblem, PreviewState } from '@shared/types'
 import { isCliOnPath } from '../cli/execCli'
 import { secretEnv } from '../secrets/vault'
+import { recordPreview, stopLeftoverPreviews } from './leftovers'
 
 const LOG_LIMIT = 300
+/** How often a running preview's processes are written down again (dev servers start more as they go). */
+const RECORD_EVERY_MS = 2 * 60_000
 const URL_PATTERN = /https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1?\])(?::\d+)?[^\s'"]*/i
 // eslint-disable-next-line no-control-regex
 const ANSI_PATTERN = /\x1b\[[0-9;?]*[A-Za-z]/g
@@ -168,6 +171,7 @@ export class PreviewRunner extends EventEmitter {
   private pendingProblem: string[] | undefined
   private problemTimer: NodeJS.Timeout | undefined
   private probeTimer: NodeJS.Timeout | undefined
+  private recordTimer: NodeJS.Timeout | undefined
   private generation = 0
 
   constructor(
@@ -188,6 +192,14 @@ export class PreviewRunner extends EventEmitter {
   private setState(state: PreviewState): void {
     this.state = state
     this.emit('state', state)
+    if (state.status === 'running' && this.child && !this.recordTimer) {
+      // Written down so a crash or forced close can't leave them running (see leftovers.ts).
+      const record = (): void => {
+        if (this.child?.pid) void recordPreview(this.projectId, this.child.pid).catch(() => undefined)
+      }
+      record()
+      this.recordTimer = setInterval(record, RECORD_EVERY_MS)
+    }
   }
 
   private problem(problem: PreviewProblem): void {
@@ -279,6 +291,8 @@ export class PreviewRunner extends EventEmitter {
       if (this.child !== child) return // stopped on purpose
       this.child = undefined
       this.clearTimers()
+      // What it started may still be running (and holding its port) without it.
+      void stopLeftoverPreviews(this.projectId).catch(() => undefined)
       const command = this.state.status === 'idle' || this.state.status === 'none' ? plan.label : this.state.command
       this.setState({ status: 'crashed', command, exitCode: code })
       this.problem({
@@ -306,6 +320,8 @@ export class PreviewRunner extends EventEmitter {
   private clearTimers(): void {
     if (this.probeTimer) clearTimeout(this.probeTimer)
     if (this.problemTimer) clearTimeout(this.problemTimer)
+    if (this.recordTimer) clearInterval(this.recordTimer)
+    this.recordTimer = undefined
     this.pendingProblem = undefined
   }
 
@@ -315,6 +331,9 @@ export class PreviewRunner extends EventEmitter {
     const child = this.child
     this.child = undefined
     if (child) killTree(child, sync)
+    // Anything it started that's no longer under it (its parent ended) is stopped too. On quit there's
+    // no time to look: what's left is stopped when Starwright next opens.
+    if (!sync) void stopLeftoverPreviews(this.projectId).catch(() => undefined)
     this.staticServer?.close()
     this.staticServer = undefined
     if (this.state.status !== 'idle') this.setState({ status: 'idle' })

@@ -2,6 +2,11 @@
 
 The version goes up with each improvement that ships: the middle number for new features, the last for fixes only. Settings shows the version a computer is running. (Starwright was called VibeApp up to 0.10.0.)
 
+## 0.15.8 (2026-11-17)
+
+**Previews don't leave dev servers running any more.** Stopping a preview always stopped what it started, but only while Starwright was there to do it: after a crash, a forced close or an update restart, the dev servers kept running and held their ports, so the next preview failed with errors like "Port 5173 is already in use". Starwright now writes down each preview's processes while it runs, and stops whatever is still running from that list when it next opens, when a preview stops or restarts, and when a preview's server ends on its own. A process is only stopped if both its id and its start time match what was written down, so nothing else is touched, including a dev server you started yourself.
+- A dev server already left running by an earlier version isn't on the list, so it has to be ended once by hand: stop the preview, find it with `Get-NetTCPConnection -LocalPort 5173 -State Listen` in PowerShell, and end that process.
+
 ## 0.15.7 (2026-11-17)
 
 **A local model light in the top bar.** Next to the usage meters, a green or red light shows whether LM Studio's server is answering, with the model loaded under it ("Offline" when it isn't answering, "not loaded" when the chosen model isn't in memory). Hover for the address, every loaded model and its context size; click to check again. It's checked every 30 seconds, and only shows while the local model is in use (background jobs or coding hand-offs turned on in Settings → LM Studio).

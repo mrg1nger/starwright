@@ -6,6 +6,7 @@ import { broadcaster } from './remote/bus'
 import { registerRemoteHandlers } from './remote/ipc'
 import { applyRemoteSettings, stopRemote } from './remote/server'
 import { stopAllPreviews } from './preview/preview'
+import { stopLeftoverPreviews } from './preview/leftovers'
 import { stopAllChildren } from './cli/codexExec'
 import { requestClassifier } from './orchestrator/classifier'
 import { getSettings } from './settings/store'
@@ -131,6 +132,10 @@ app.whenReady().then(() => {
 
   // A restore chosen last time goes in place before anything opens the data.
   applyPendingRestore()
+  // Previews left running by a crash or forced close last time (their ports would be taken).
+  void stopLeftoverPreviews()
+    .then((names) => names.length && console.log(`Stopped ${names.length} preview process(es) left running last time: ${names.join(', ')}`))
+    .catch(() => undefined)
 
   // Events go to the desktop window and to any Remote access screens.
   const toScreens = broadcaster(() => currentWindow?.webContents)
