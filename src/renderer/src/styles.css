@@ -1097,6 +1097,42 @@ textarea {
   font-weight: 600;
 }
 
+/* The local model: a light (green online, red offline) and the model loaded. */
+.local-model-light {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+
+.local-model-online .local-model-light {
+  background: #3fcf72;
+  box-shadow: 0 0 6px rgba(63, 207, 114, 0.6);
+}
+
+.local-model-offline .local-model-light {
+  background: #e5484d;
+  box-shadow: 0 0 6px rgba(229, 72, 77, 0.6);
+}
+
+.local-model-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+}
+
+.local-model-name {
+  max-width: 9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.65rem;
+  color: var(--text-muted);
+}
+
 .usage-meter-bars {
   display: flex;
   flex-direction: column;

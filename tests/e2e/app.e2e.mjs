@@ -1125,10 +1125,25 @@ try {
       if (!/answered in/.test(result)) throw new Error(`the test failed: ${result}`)
     }
     await shot('lmstudio-settings')
+    // The top bar's local model light: green with the model when the server answers, red when not.
+    const indicator = `document.querySelector('.usage-meters .local-model')`
+    await waitFor(`!!${indicator} && /local-model-(online|offline)/.test(${indicator}.className)`, 'the local model light', 15_000)
+    const lit = await evaluate(`({ cls: ${indicator}.className, text: ${indicator}.innerText.replace(/\\s+/g, ' ') })`)
+    console.log(`  (top bar: ${lit.text}; ${lit.cls.includes('online') ? 'green' : 'red'})`)
+    if (lit.cls.includes('online') !== running) throw new Error(`the light says ${lit.cls.includes('online') ? 'online' : 'offline'}, Settings says ${running ? 'running' : 'not running'}`)
+    if (!running && !/Offline/.test(lit.text)) throw new Error('an unreachable local model is not shown as offline')
+    await shot('local-model-light')
+    // An address nothing answers at: the light goes red and says Offline.
+    const realUrl = settingsNow().lmStudioUrl
+    await evaluate(`window.vibe.settings.update({ lmStudioUrl: 'http://127.0.0.1:9' })`)
+    await waitFor(`${indicator}?.classList.contains('local-model-offline') && /Offline/.test(${indicator}.innerText)`, 'the light to go red', 15_000)
+    await shot('local-model-light-offline')
+    await evaluate(`window.vibe.settings.update({ lmStudioUrl: ${JSON.stringify(realUrl)} })`)
     // Back to how the test started.
     await evaluate(`${panel}.querySelectorAll('input[type=checkbox]')[1].click()`)
     await evaluate(`${panel}.querySelector('input[type=checkbox]').click()`)
     await sleep(800)
+    if (await evaluate(`!!${indicator}`)) throw new Error('the local model light still shows with the local model turned off')
   })
 
   await step('the Extensions screen lists tools to install', async () => {

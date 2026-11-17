@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useState, type ReactNode } from 'react'
-import type { CliName, CliStatus, UsageSnapshot, UsageSource } from '@shared/types'
+import type { AppSettings, CliName, CliStatus, LmStudioStatus, UsageSnapshot, UsageSource } from '@shared/types'
 
 interface UsageMetersProps {
   statuses: Record<CliName, CliStatus>
@@ -32,6 +32,85 @@ function levelClass(usedPercent: number): string {
   if (usedPercent >= 90) return 'usage-danger'
   if (usedPercent >= 75) return 'usage-warning'
   return ''
+}
+
+const LOCAL_POLL_MS = 30_000
+
+/** "qwen/qwen3.6-35b-a3b" → "qwen3.6-35b-a3b": the publisher prefix only takes room. */
+function shortModel(id: string): string {
+  return id.split('/').pop() || id
+}
+
+/**
+ * The local model (LM Studio): a green or red light for whether its server answers, and the model
+ * loaded. Shown only when the local model is in use (background jobs or coding hand-offs turned on).
+ */
+function LocalModelIndicator() {
+  const [settings, setSettings] = useState<AppSettings | null>(null)
+  const [status, setStatus] = useState<LmStudioStatus | null>(null)
+  const inUse = !!settings && (settings.lmStudioHelpers || settings.localHandoffs)
+
+  useEffect(() => {
+    window.vibe.settings.get().then(setSettings).catch(() => undefined)
+    return window.vibe.settings.onChanged(setSettings)
+  }, [])
+
+  const refresh = useCallback(() => {
+    window.vibe.lmStudio
+      .status()
+      .then(setStatus)
+      .catch(() => undefined)
+  }, [])
+
+  useEffect(() => {
+    if (!inUse) return
+    refresh()
+    const interval = setInterval(refresh, LOCAL_POLL_MS)
+    window.addEventListener('focus', refresh)
+    return () => {
+      clearInterval(interval)
+      window.removeEventListener('focus', refresh)
+    }
+  }, [inUse, settings?.lmStudioUrl, refresh])
+
+  if (!inUse) return null
+  const online = !!status?.running
+  const loaded = status?.models.filter((m) => m.loaded) ?? []
+  const chosen = settings?.lmStudioModel ?? null
+  // The model Starwright uses: the one picked in Settings, else the first one loaded.
+  const model = chosen ? (loaded.find((m) => m.id === chosen) ?? null) : (loaded[0] ?? null)
+  const label = !status
+    ? 'Checking…'
+    : !online
+      ? 'Offline'
+      : model
+        ? shortModel(model.id)
+        : chosen
+          ? `${shortModel(chosen)} (not loaded)`
+          : 'No model loaded'
+  const tooltip = !status
+    ? 'Checking the local model…'
+    : [
+        online ? `LM Studio is answering at ${status.url}` : (status.error ?? `LM Studio isn't answering at ${status.url}.`),
+        ...(online
+          ? [
+              loaded.length ? `Loaded: ${loaded.map((m) => m.id).join(', ')}` : 'No model loaded (LM Studio loads one on first use, which takes a while).',
+              ...(model?.contextLength ? [`Context: ${model.contextLength.toLocaleString()} tokens`] : [])
+            ]
+          : []),
+        'Click to check again'
+      ].join('\n')
+  const light = !status ? '' : online ? 'local-model-online' : 'local-model-offline'
+
+  return (
+    <button className={`usage-meter local-model ${light}`} title={tooltip} onClick={refresh} aria-label={`Local model: ${online ? 'online' : 'offline'}, ${label}`}>
+      <span className="local-model-light" aria-hidden="true" />
+      <span className="local-model-text">
+        <span className="usage-meter-name">Local</span>
+        <span className="local-model-name">{label}</span>
+      </span>
+    </button>
+  )
 }
 
 /** Compact plan-usage bars for Claude, Codex and ClinePass, shown in the top bar. */
@@ -126,6 +205,7 @@ function UsageMeters({ statuses, children }: UsageMetersProps) {
           </Fragment>
         )
       })}
+      <LocalModelIndicator />
     </div>
   )
 }

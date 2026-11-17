@@ -2,6 +2,10 @@
 
 The version goes up with each improvement that ships: the middle number for new features, the last for fixes only. Settings shows the version a computer is running. (Starwright was called VibeApp up to 0.10.0.)
 
+## 0.15.7 (2026-11-17)
+
+**A local model light in the top bar.** Next to the usage meters, a green or red light shows whether LM Studio's server is answering, with the model loaded under it ("Offline" when it isn't answering, "not loaded" when the chosen model isn't in memory). Hover for the address, every loaded model and its context size; click to check again. It's checked every 30 seconds, and only shows while the local model is in use (background jobs or coding hand-offs turned on in Settings → LM Studio).
+
 ## 0.15.6 (2026-11-17)
 
 **A ClinePass usage meter.** With a Cline API key saved (Settings → Cline → ClinePass usage meter; make one at app.cline.bot → Settings → API Keys), the top bar shows ClinePass's 5-hour, weekly and monthly limits next to Claude and Codex, the same numbers as Cline's dashboard.
