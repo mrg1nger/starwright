@@ -2,6 +2,15 @@
 
 The version goes up with each improvement that ships: the middle number for new features, the last for fixes only. Settings shows the version a computer is running. (Starwright was called VibeApp up to 0.10.0.)
 
+## 0.15.5 (2026-11-17)
+
+**Go Nutz means no Allow/Deny prompts, for every agent.**
+- Claude's own PowerShell commands could still ask in Go Nutz: while a plan was being made, or on the way into building an approved one. They don't any more. (Changing files while planning is still stopped, as before.)
+- Cline and the local model don't ask in Go Nutz either, including a Cline that was already running before Go Nutz was turned on (it kept the rules it started with).
+- Turning Go Nutz on answers a helper's prompt that's already waiting with Allow, so the hand-off carries on.
+
+**Commands with a web address aren't "outside the project" any more.** The "s:/" of `https://localhost:8443/...` was read as a path on drive S:, so `curl` and `Invoke-WebRequest` calls to your own server asked every time. Web addresses are now skipped; `file://` ones still count as files.
+
 ## 0.15.4 (2026-11-17)
 
 **Undo works again after a project's first `npm install`.** The copy Starwright saves before each message (what Undo goes back to, and what the Codex review compares against) failed in any project whose `.gitignore` lists `node_modules`, because git refused Starwright's own "leave node_modules out" rule for naming an ignored folder. From a project's first install on, messages had no Undo and no Codex review. Fixed; and if saving that copy ever fails again, the chat says Undo isn't available for that message, and why.

@@ -10,6 +10,9 @@ test('ordinary commands inside the project need no prompt', () => {
     'npm test',
     'cd "C:\\Users\\me\\Projects\\game"; node --test',
     'cd /c/Users/me/Projects/game && npm run build',
+    // Web addresses aren't paths (the "s://" of https:// read as drive S:).
+    "cd C:\\Users\\me\\Projects\\game; curl.exe -s -k -b cookies.txt https://localhost:8443/api/commands/ff9e -w '\\nHTTP %{http_code}\\n'",
+    'Invoke-WebRequest http://127.0.0.1:3000/health -UseBasicParsing',
     'git status --short > /dev/null',
     'node C:/Users/me/Projects/game/scripts/check.js',
     // Seen on a real Cline run: a sed expression isn't a path.
@@ -35,6 +38,8 @@ test('commands that reach outside the project still ask', () => {
     "sed 's/a/b/w /tmp/out' src/a.txt",
     "sed 's/a/b/' src/a.txt > /tmp/out",
     'cd "C:\\Users\\me\\Projects\\game-other"; npm test',
+    'curl -s https://localhost:8443/api/x -o C:\\Temp\\out.json',
+    'curl file:///C:/Users/me/.ssh/id_rsa',
     ''
   ]) {
     assert.equal(staysInProject(command, project), false, command)

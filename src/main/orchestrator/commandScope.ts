@@ -17,6 +17,11 @@ const HARMLESS_UNIX = new Set(['/dev/null', '/dev/stdout', '/dev/stderr'])
 // are still checked.
 const SUBSTITUTION = /(^|[\s'"])s\/(?:[^/\\\n]|\\.)*\/(?:[^/\\\n]|\\.)*\/[a-z0-9]*(?=$|[\s'";|&)])/gi
 
+// Web addresses aren't files: the "s://" of https://localhost:8443/api/... read as a drive
+// path (S:), so any command with a URL in it (curl, Invoke-WebRequest) counted as outside the
+// project (found on a real run). file:// addresses do name files, so they stay.
+const WEB_URL = /\b(?!file:)[a-z][a-z0-9+.-]*:\/\/[^\s"'`<>|;&()]*/gi
+
 function normalise(path: string): string {
   return path.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
 }
@@ -28,6 +33,7 @@ function inside(path: string, project: string): boolean {
 
 export function staysInProject(command: string, projectPath: string): boolean {
   if (!command.trim()) return false
+  command = command.replace(WEB_URL, ' ')
   if (HOME_REFERENCES.test(command) || UNC_PATH.test(command) || PARENT_DIR.test(command)) return false
   const project = normalise(projectPath)
   for (const match of command.match(WINDOWS_PATH) ?? []) {

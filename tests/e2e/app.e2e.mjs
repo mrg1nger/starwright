@@ -616,7 +616,7 @@ try {
     const shown = outsideFile.replace(/\\/g, '/')
     try {
       await send(
-        `Use the run_subtask tool with agent 'cline' to hand this to Cline, word for word: "Run exactly this one command and nothing else, then report its output: node -e \\"require('fs').writeFileSync('${shown}', 'ok')\\"". Don't run it yourself.`
+        `Call the tool mcp__vibe_tools__run_subtask (load it with ToolSearch first if you need to) with agent 'cline' to hand this to Cline, word for word (not a helper agent of your own, and not yourself): "Run exactly this one command and nothing else, then report its output: node -e \\"require('fs').writeFileSync('${shown}', 'ok')\\"". Don't run it yourself.`
       )
       await waitFor(`/Cline wants to run a command/.test(document.querySelector('.confirmation-banner')?.textContent ?? '')`, "Cline's Allow/Deny prompt", 300_000)
       await click('Allow', '.confirmation-banner button')
@@ -624,6 +624,26 @@ try {
       if (!existsSync(outsideFile)) throw new Error('the allowed command did not run')
     } finally {
       rmSync(outsideFile, { force: true })
+    }
+  })
+
+  await step('Go Nutz turned on mid-hand-off: the waiting prompt clears itself and Cline asks no more', async () => {
+    const files = [1, 2].map((n) => join(tmpdir(), `starwright-e2e-nutz-${n}-${Date.now()}.txt`))
+    const [first, second] = files.map((f) => f.replace(/\\/g, '/'))
+    try {
+      await send(
+        `Call the tool mcp__vibe_tools__run_subtask (load it with ToolSearch first if you need to) with agent 'cline' to hand this to Cline, word for word (not a helper agent of your own, and not yourself): "Run exactly these two commands, one at a time, and nothing else, then report: node -e \\"require('fs').writeFileSync('${first}', 'ok')\\" and then node -e \\"require('fs').writeFileSync('${second}', 'ok')\\"". Don't run them yourself.`
+      )
+      await waitFor(`/Cline wants to run a command/.test(document.querySelector('.confirmation-banner')?.textContent ?? '')`, "Cline's first Allow/Deny prompt", 300_000)
+      await click('Go Nutz', '.go-nutz-control button')
+      await click('', '.go-nutz-confirm')
+      await waitFor(`/Go Nutz mode is ON/.test(document.body.innerText)`, 'the Go Nutz banner', 10_000)
+      await waitFor(`!document.querySelector('.confirmation-banner')`, 'the waiting prompt to clear by itself', 10_000)
+      await idle(600_000)
+      for (const f of files) if (!existsSync(f)) throw new Error(`a command did not run: ${f}`)
+    } finally {
+      for (const f of files) rmSync(f, { force: true })
+      if (/Go Nutz mode is ON/.test(await evaluate('document.body.innerText'))) await click('Go Nutz', '.go-nutz-control button')
     }
   })
 

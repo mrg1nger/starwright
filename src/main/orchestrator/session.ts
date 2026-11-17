@@ -493,6 +493,11 @@ ${extensionInstructions(extensions)}` : ''}`
                   message: "The user skipped these questions. Continue with your best judgment, or ask in plain text if you're blocked."
                 }
           }
+          // Go Nutz: no prompts. Claude Code normally doesn't ask then (bypassPermissions), but
+          // in plan mode, or on the way out of it into an approved plan's build, it still asked
+          // for PowerShell commands it couldn't place, and Starwright passed that on as a prompt.
+          // (Writing while planning is still stopped earlier, by the plan guard.)
+          if (this.goNutz) return { behavior: 'allow', updatedInput: input }
           // On Windows, Claude Code asks before every PowerShell command, so outside Go Nutz
           // mode even running the tests raised a prompt. Ordinary commands that stay in the
           // project go ahead; risky ones (caught earlier by the PreToolUse gate) and anything
@@ -626,6 +631,15 @@ ${extensionInstructions(extensions)}` : ''}`
 
   async setGoNutzMode(enabled: boolean): Promise<void> {
     this.goNutz = enabled
+    // A helper's Allow/Deny prompt already showing is answered Allow: Go Nutz means no prompts.
+    if (enabled) {
+      for (const [id, waiter] of [...this.confirmationWaiters]) {
+        if (waiter.request.toolName !== 'helper_command') continue
+        this.confirmationWaiters.delete(id)
+        this.emit('confirmation_closed', id)
+        waiter.resolve(true)
+      }
+    }
     if (!this.planning) await this.queryHandle.setPermissionMode(enabled ? 'bypassPermissions' : 'acceptEdits')
   }
 
@@ -787,6 +801,10 @@ ${extensionInstructions(extensions)}` : ''}`
    */
   askAboutCommand(agent: string, command: string): Promise<boolean> {
     if (this.disposed) return Promise.resolve(false)
+    // Go Nutz: no prompts, for the helpers as for Claude. Checked now, not when the helper
+    // started: a Cline that keeps running holds the rules it began with, so turning Go Nutz on
+    // mid-hand-off (or a project switched to it later) still showed Allow/Deny.
+    if (this.goNutz) return Promise.resolve(true)
     const shown = command.length > 300 ? `${command.slice(0, 300)}…` : command
     return new Promise((resolve) => {
       const request: ConfirmationRequest = {
