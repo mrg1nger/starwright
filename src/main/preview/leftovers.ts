@@ -139,3 +139,35 @@ export async function stopLeftoverPreviews(projectId?: string): Promise<string[]
   kill(alive.map((p) => p.pid))
   return alive.map((p) => p.name)
 }
+
+/** A time as Windows reports a process's start (100 ns steps since 1601), for comparing with `created`. */
+export function fileTimeOf(ms: number): string {
+  return String((BigInt(Math.floor(ms)) + 11_644_473_600_000n) * 10_000n)
+}
+
+/**
+ * Everything a process started that's still running, even after that process itself has ended
+ * (Windows keeps the parent's id on its children). `since`: when that process started, so a newer
+ * process that was given the same id doesn't count.
+ */
+export function startedBy(all: ProcessInfo[], pid: number, since: string): ProcessInfo[] {
+  const found: ProcessInfo[] = []
+  const parents = [{ pid, created: since }]
+  for (let i = 0; i < parents.length; i++) {
+    for (const p of all) {
+      if (p.ppid === parents[i].pid && p.pid !== pid && BigInt(p.created) >= BigInt(parents[i].created) && !found.includes(p)) {
+        found.push(p)
+        parents.push(p)
+      }
+    }
+  }
+  return found
+}
+
+/** Stops these processes, if they're still the same ones (id and start time). Returns their names. */
+export async function stopProcesses(recorded: RecordedProcess[]): Promise<string[]> {
+  if (!recorded.length || process.platform !== 'win32') return []
+  const alive = stillRunning(recorded, await listProcesses())
+  kill(alive.map((p) => p.pid))
+  return alive.map((p) => p.name)
+}

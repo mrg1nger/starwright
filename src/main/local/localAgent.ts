@@ -1,6 +1,6 @@
 import { spawn } from 'child_process'
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'fs'
-import { dirname, isAbsolute, relative, resolve, sep } from 'path'
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path'
 import { OUTSIDE_PROJECT, commandDanger } from '../cline/hookPolicy'
 import { killTree, trackChild } from '../cli/codexExec'
 import { bashPath } from '../deploy/deploy'
@@ -8,6 +8,7 @@ import { countsFromChatUsage, lmStudioBase, lmStudioStatus, pickModel } from '..
 import { getSettings } from '../settings/store'
 import type { TokenCounts } from '../usage/tokens'
 import type { DelegationActivity } from '@shared/types'
+import { fileTimeOf, listProcesses, startedBy, stopProcesses, type RecordedProcess } from '../preview/leftovers'
 
 // VibeApp's own coding agent, on a model in LM Studio. The model can only ask
 // for one of the tools below; VibeApp carries each request out itself, after
@@ -35,6 +36,9 @@ export interface LocalAgentRun {
   env?: Record<string, string>
   /** Asks the user about a command that only failed the folder check (Allow/Deny), as for Claude. None: refused. */
   ask?: (command: string) => Promise<boolean>
+  /** Set by runLocalAgent: when the run must end, and what its commands left running in the background. */
+  deadline?: number
+  leftBehind?: RecordedProcess[]
 }
 
 export interface LocalAgentResult {
@@ -195,18 +199,51 @@ interface ToolOutcome {
   blocked?: string
 }
 
-function runShell(
+/**
+ * Git's bin\bash.exe only starts usr\bin\bash.exe and ends; that one ends too once the command has,
+ * which leaves nothing linking a background process to the command that started it. Running the
+ * real bash directly keeps that link, so what a command leaves running can be found and stopped.
+ */
+function realBash(bash: string | undefined): string | undefined {
+  if (!bash || process.platform !== 'win32') return bash
+  const dir = dirname(bash)
+  // Git\bin\bash.exe (not Git\usr\bin\bash.exe, which is already the real one).
+  const launcher = basename(dir).toLowerCase() === 'bin' && basename(dirname(dir)).toLowerCase() !== 'usr'
+  const real = join(dirname(dir), 'usr', 'bin', 'bash.exe')
+  return launcher && existsSync(real) ? real : bash
+}
+
+/** How long to wait for a command's output to end after the command itself has. */
+const OUTPUT_GRACE_MS = 1_500
+
+export interface ShellResult {
+  code: number | null
+  output: string
+  timedOut: boolean
+  /** Something the command started is still running in the background (a server, say). */
+  background: boolean
+}
+
+/**
+ * Runs one command and always comes back: when it ends, when its time is up, or when the run is
+ * stopped. A command that starts something in the background (`npm run dev &`) ends while that
+ * process keeps its output open, which used to leave the run waiting for ever; now the run carries
+ * on after a moment, and what was left running goes into `leftBehind` to be stopped when the run ends.
+ */
+export function runShell(
   command: string,
   cwd: string,
   timeoutSec: number,
   signal?: AbortSignal,
-  extra: Record<string, string> = {}
-): Promise<{ code: number | null; output: string; timedOut: boolean }> {
+  extra: Record<string, string> = {},
+  leftBehind?: RecordedProcess[]
+): Promise<ShellResult> {
   return new Promise((done) => {
-    const bash = bashPath()
+    const startedAt = Date.now() - 1_000
+    const bash = realBash(bashPath())
     const child = trackChild(
       bash
-        ? spawn(bash, ['-lc', command], { cwd, env: { ...process.env, ...extra, CHERE_INVOKING: '1', CI: '1' }, windowsHide: true })
+        ? spawn(bash, ['-lc', command], { cwd, env: { ...process.env, ...extra, MSYSTEM: process.env.MSYSTEM ?? 'MINGW64', CHERE_INVOKING: '1', CI: '1' }, windowsHide: true })
         : spawn(command, { cwd, shell: true, env: { ...process.env, ...extra, CI: '1' }, windowsHide: true })
     )
     let output = ''
@@ -217,20 +254,51 @@ function runShell(
     child.stdout?.on('data', add)
     child.stderr?.on('data', add)
     let timedOut = false
+    let finished = false
+    let grace: NodeJS.Timeout | undefined
+    // What the command started and left running (found after it has ended).
+    const collectLeftovers = async (stopNow: boolean): Promise<boolean> => {
+      if (!child.pid) return false
+      const found = startedBy(await listProcesses(), child.pid, fileTimeOf(startedAt)).map(({ pid, created, name }) => ({ pid, created, name }))
+      if (stopNow) await stopProcesses(found)
+      else leftBehind?.push(...found)
+      return found.length > 0
+    }
+    const finish = (code: number | null, background = false): void => {
+      if (finished) return
+      finished = true
+      clearTimeout(timer)
+      if (grace) clearTimeout(grace)
+      signal?.removeEventListener('abort', onAbort)
+      // Stop listening: a background process may keep these open for as long as it runs.
+      child.stdout?.destroy()
+      child.stderr?.destroy()
+      done({ code, output, timedOut, background })
+    }
+    // Ended, but its output is still open: something it started is still running.
+    const endWithoutOutput = (code: number | null): void => {
+      if (finished) return
+      const stopNow = timedOut || !!signal?.aborted
+      void collectLeftovers(stopNow)
+        .catch(() => false)
+        .then((background) => finish(code, background && !stopNow))
+    }
     const timer = setTimeout(() => {
       timedOut = true
       killTree(child)
+      grace = setTimeout(() => endWithoutOutput(null), OUTPUT_GRACE_MS * 2)
     }, timeoutSec * 1000)
-    const onAbort = (): void => killTree(child)
-    signal?.addEventListener('abort', onAbort, { once: true })
-    const finish = (code: number | null): void => {
-      clearTimeout(timer)
-      signal?.removeEventListener('abort', onAbort)
-      done({ code, output, timedOut })
+    const onAbort = (): void => {
+      killTree(child)
+      endWithoutOutput(null)
     }
+    signal?.addEventListener('abort', onAbort, { once: true })
     child.once('error', (err) => {
       output += `\n${err.message}`
       finish(null)
+    })
+    child.once('exit', (code) => {
+      if (!grace) grace = setTimeout(() => endWithoutOutput(code), OUTPUT_GRACE_MS)
     })
     child.once('close', (code) => finish(code))
   })
@@ -333,10 +401,14 @@ async function runTool(name: string, args: Record<string, unknown>, run: LocalAg
           blocked: danger
         }
       }
-      const timeout = Math.min(600, Math.max(5, Math.floor(Number(args.timeout_seconds) || 120)))
-      const result = await runShell(command, cwd, timeout, run.signal, run.env)
+      // Never past the end of the whole run.
+      const left = Math.floor(((run.deadline ?? Infinity) - Date.now()) / 1000)
+      const timeout = Math.max(5, Math.min(600, left, Math.floor(Number(args.timeout_seconds) || 120)))
+      const result = await runShell(command, cwd, timeout, run.signal, run.env, run.leftBehind)
       const output = clip(result.output.trim() || '(no output)')
-      const status = result.timedOut ? `Stopped after ${timeout} s (still running).` : `Exit code ${result.code}.`
+      const status = result.timedOut
+        ? `Stopped after ${timeout} s (still running).`
+        : `Exit code ${result.code}.${result.background ? " Something it started is still running in the background (a server, say); Starwright stops it when this task ends. Don't wait for it or start it again." : ''}`
       return {
         text: `${status}\n${output}`,
         activity: { step: 'run', text: command.split('\n')[0].slice(0, 120), full: command, detail: clip(result.output.trim(), 2000), ok: result.code === 0 && !result.timedOut }
@@ -375,12 +447,23 @@ export function trimConversation(messages: Message[], keepRecent = 6): number {
 }
 
 /** Runs one task to the end on LM Studio's model. Never throws: failures come back in the result. */
-export async function runLocalAgent(run: LocalAgentRun): Promise<LocalAgentResult> {
+export async function runLocalAgent(task: LocalAgentRun): Promise<LocalAgentResult> {
+  const run: LocalAgentRun = { ...task, deadline: Date.now() + (task.timeoutMs ?? 15 * 60_000), leftBehind: [] }
+  try {
+    return await runModel(run)
+  } finally {
+    // Servers its commands started in the background end with the task.
+    const stopped = await stopProcesses(run.leftBehind!).catch(() => [] as string[])
+    if (stopped.length) run.onActivity?.({ id: 'local-cleanup', done: true, step: 'run', text: `Stopped what the task left running (${stopped.join(', ')})`, ok: true })
+  }
+}
+
+async function runModel(run: LocalAgentRun): Promise<LocalAgentResult> {
   const settings = getSettings()
   const base = lmStudioBase(settings.lmStudioUrl)
   const usage: TokenCounts = { fresh: 0, cached: 0, output: 0, steps: 0 }
   const blocked: string[] = []
-  const deadline = Date.now() + (run.timeoutMs ?? 15 * 60_000)
+  const deadline = run.deadline!
   const maxSteps = run.maxSteps ?? 60
   const fail = (error: string, steps: number, model?: string, text = ''): LocalAgentResult => ({ ok: false, text, error, model, steps, usage, blocked })
 

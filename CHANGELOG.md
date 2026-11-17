@@ -2,6 +2,14 @@
 
 The version goes up with each improvement that ships: the middle number for new features, the last for fixes only. Settings shows the version a computer is running. (Starwright was called VibeApp up to 0.10.0.)
 
+## 0.15.9 (2026-11-17)
+
+**The local model doesn't get stuck on a command any more.** A command that started something in the background (a dev server, say) and then ended was waited on for ever, because what it started kept its output open: the hand-off sat on "run_command…" with nothing happening, past its time limit, until it was stopped by hand. Now:
+- The local model carries on a moment after such a command ends, and is told the server is still running in the background.
+- Whatever its commands left running is stopped when the hand-off ends.
+- A command's time limit always ends it, and Stop ends it at once.
+- No command can run past the end of the hand-off's own time.
+
 ## 0.15.8 (2026-11-17)
 
 **Previews don't leave dev servers running any more.** Stopping a preview always stopped what it started, but only while Starwright was there to do it: after a crash, a forced close or an update restart, the dev servers kept running and held their ports, so the next preview failed with errors like "Port 5173 is already in use". Starwright now writes down each preview's processes while it runs, and stops whatever is still running from that list when it next opens, when a preview stops or restarts, and when a preview's server ends on its own. A process is only stopped if both its id and its start time match what was written down, so nothing else is touched, including a dev server you started yourself.
