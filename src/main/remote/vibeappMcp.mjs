@@ -453,11 +453,13 @@ server.registerTool(
 
 server.registerTool(
   'usage',
-  { description: 'How much of the Claude and Codex plans is left, as Starwright shows it.', inputSchema: {} },
+  { description: 'How much of the Claude, Codex and ClinePass plans is left, as Starwright shows it.', inputSchema: {} },
   guard(async () => {
     const out = []
-    for (const cli of ['claude', 'codex']) {
+    for (const cli of ['claude', 'codex', 'cline']) {
       const u = await invoke('vibe:usage:get', cli, false)
+      // A Starwright from before 0.15.6 answers 'cline' with Codex's numbers: leave it out.
+      if (u?.cli !== cli) continue
       out.push(
         u.status === 'ok'
           ? `${cli}: ${u.windows.map((w) => `${w.label} ${Math.round(100 - w.usedPercent)}% left`).join(', ')}`

@@ -944,6 +944,21 @@ button.active,
   margin: 0 0 0.8rem;
 }
 
+.settings-subsection {
+  margin: 0.4rem 0 1rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--border);
+}
+
+.settings-subsection h4 {
+  margin: 0 0 0.4rem;
+}
+
+.settings-subsection input[type='password'] {
+  flex: 1 1 16rem;
+  min-width: 0;
+}
+
 .settings-section-header {
   display: flex;
   align-items: center;

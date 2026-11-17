@@ -351,11 +351,11 @@ export function createCodexDelegationServer(
     timeoutMs?: number
   }): Promise<{ content: { type: 'text'; text: string }[]; isError: boolean }> {
     const settings = getSettings()
-    const { available, codexLow } = await helperAvailability(settings)
+    const { available, codexLow, clineLow } = await helperAvailability(settings)
     const faders = workModeOf(settings) === 'manual' ? fadersOf(settings) : undefined
     // Equal faders share the work: whoever took fewer hand-offs this past week goes first.
     const used = faders ? recentHandoffUse() : undefined
-    const routes = chooseRoutes({ difficulty: args.difficulty, kind: args.kind, available, codexLow, asked: args.agent, faders, used })
+    const routes = chooseRoutes({ difficulty: args.difficulty, kind: args.kind, available, codexLow, clineLow, asked: args.agent, faders, used })
     if (!routes.length && faders && (['codex', 'cline', 'local'] as const).some((r) => available[r])) {
       return {
         content: [

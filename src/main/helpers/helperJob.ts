@@ -8,7 +8,7 @@ import { clineModelFor } from '../cli/clineAcp'
 import { lmStudioReady, runLmStudio } from '../cli/lmStudio'
 import { getSettings } from '../settings/store'
 import { countsFromSdkResult, recordUsage } from '../usage/tokens'
-import { claudeHelpersAllowed } from '../usage/usage'
+import { claudeHelpersAllowed, clineLowNow } from '../usage/usage'
 import type { UsageKind } from '../memory/store'
 
 // VibeApp's background jobs (saving memory, the tidy-up, the project brief,
@@ -55,7 +55,8 @@ export async function helpersAllowed(): Promise<boolean> {
 }
 
 async function clineReady(): Promise<boolean> {
-  return getSettings().clineHelpers && !clineUnavailable() && !!(await resolveClineLaunch())
+  // ClinePass nearly used up: background jobs leave it for hand-offs (Haiku does them instead).
+  return getSettings().clineHelpers && !clineUnavailable() && !clineLowNow().low && !!(await resolveClineLaunch())
 }
 
 /** Unit tests answer background jobs themselves (no model, no usage). */

@@ -1,7 +1,8 @@
 import { app, nativeImage } from 'electron'
 import { createServer as createHttpServer, request as httpRequest, type IncomingMessage, type Server, type ServerResponse } from 'http'
-import { createServer as createHttpsServer, type ServerOptions as HttpsOptions } from 'https'
+import { createServer as createHttpsServer, request as httpsRequest, type ServerOptions as HttpsOptions } from 'https'
 import { connect as netConnect, type Socket } from 'net'
+import { connect as tlsConnect } from 'tls'
 import { copyFileSync, existsSync, readFileSync, statSync, writeFileSync } from 'fs'
 import { hostname, networkInterfaces } from 'os'
 import { extname, join, normalize, resolve, sep } from 'path'
@@ -475,7 +476,10 @@ async function previewProxy(projectId: string): Promise<{ port: number; secure: 
     const headers = { ...req.headers, host: to.host }
     delete headers.cookie
     delete headers['accept-encoding'] // so HTML can be read and the helper added
-    const upstream = httpRequest(to, { method: req.method, headers }, (up) => {
+    // A dev server on https (Vite with a self-signed certificate, say) is reached over https. It runs
+    // on this computer, so its certificate isn't checked.
+    const secureTarget = to.protocol === 'https:'
+    const onUpstream = (up: IncomingMessage): void => {
       const type = String(up.headers['content-type'] ?? '')
       const out = { ...up.headers }
       delete out['x-frame-options']
@@ -494,7 +498,15 @@ async function previewProxy(projectId: string): Promise<{ port: number; secure: 
         res.writeHead(up.statusCode ?? 200, out)
         up.pipe(res)
       }
-    })
+    }
+    let upstream: ReturnType<typeof httpRequest>
+    try {
+      upstream = secureTarget
+        ? httpsRequest(to, { method: req.method, headers, rejectUnauthorized: false }, onUpstream)
+        : httpRequest(to, { method: req.method, headers }, onUpstream)
+    } catch (err) {
+      return send(res, 502, { error: `The preview couldn't be reached: ${(err as Error).message}` })
+    }
     upstream.on('error', (err) => send(res, 502, { error: `The preview isn't answering: ${err.message}` }))
     req.pipe(upstream)
   }
@@ -506,7 +518,7 @@ async function previewProxy(projectId: string): Promise<{ port: number; secure: 
       return
     }
     const to = new URL(entry.target)
-    const upstream = netConnect(Number(to.port || 80), to.hostname, () => {
+    const tunnelled = (): void => {
       const lines = [`${req.method} ${req.url} HTTP/1.1`]
       for (let i = 0; i < req.rawHeaders.length; i += 2) {
         const name = req.rawHeaders[i]
@@ -517,7 +529,11 @@ async function previewProxy(projectId: string): Promise<{ port: number; secure: 
       upstream.write(lines.join('\r\n') + '\r\n\r\n')
       if (head.length) upstream.write(head)
       socket.pipe(upstream).pipe(socket)
-    })
+    }
+    const upstream: Socket =
+      to.protocol === 'https:'
+        ? tlsConnect({ port: Number(to.port || 443), host: to.hostname, servername: /^[d.]+$|:/.test(to.hostname) ? undefined : to.hostname, rejectUnauthorized: false }, tunnelled)
+        : netConnect(Number(to.port || 80), to.hostname, tunnelled)
     upstream.on('error', () => socket.destroy())
     socket.on('error', () => upstream.destroy())
   })

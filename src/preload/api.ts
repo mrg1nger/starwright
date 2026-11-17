@@ -3,6 +3,7 @@ import type {
   LmStudioStatus,
   CheckpointRecord,
   CliName,
+  UsageSource,
   CliStatus,
   ConfirmationRequest,
   ImageAttachment,
@@ -503,7 +504,12 @@ export function createVibeApi(ipcRenderer: IpcLike, host: 'electron' | 'browser'
       check: (): Promise<{ ok: boolean; message: string; model?: string; seconds: number }> => ipcRenderer.invoke('vibe:cline:check'),
       /** The ClinePass models Cline offers now, and which one it uses when none is chosen. */
       models: (refresh?: boolean): Promise<{ models: { id: string; name: string }[]; defaultId?: string }> =>
-        ipcRenderer.invoke('vibe:cline:models', refresh)
+        ipcRenderer.invoke('vibe:cline:models', refresh),
+      /** Whether a Cline API key is saved for the ClinePass usage meter (its last four characters). */
+      usageKey: (): Promise<{ saved: boolean; hint?: string }> => ipcRenderer.invoke('vibe:cline:usageKey'),
+      /** Saves the key once Cline accepts it (rejects with Cline's reason otherwise); null removes it. */
+      setUsageKey: (key: string | null): Promise<{ saved: boolean; hint?: string; snapshot?: UsageSnapshot }> =>
+        ipcRenderer.invoke('vibe:cline:setUsageKey', key)
     },
 
     lmStudio: {
@@ -514,7 +520,7 @@ export function createVibeApi(ipcRenderer: IpcLike, host: 'electron' | 'browser'
     },
 
     usage: {
-      get: (cli: CliName, force?: boolean): Promise<UsageSnapshot> =>
+      get: (cli: UsageSource, force?: boolean): Promise<UsageSnapshot> =>
         ipcRenderer.invoke('vibe:usage:get', cli, force),
       /** Tokens by kind of work over the last N days (from VibeApp's own log). */
       summary: (days: number): Promise<UsageSummaryRow[]> => ipcRenderer.invoke('vibe:usage:summary', days),

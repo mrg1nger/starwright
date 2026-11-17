@@ -3,6 +3,9 @@ import type { PlanStep } from './plan'
 
 export type CliName = 'claude' | 'codex'
 
+/** Plans with usage meters: the two signed-in CLIs, and ClinePass (read with an API key). */
+export type UsageSource = CliName | 'cline'
+
 export type AuthStatus = 'checking' | 'logged_in' | 'logged_out' | 'not_installed'
 
 export interface CliStatus {
@@ -44,7 +47,7 @@ export interface UsageWindow {
 
 /** Plan usage for one CLI's signed-in account (subscription windows, not raw token counts). */
 export interface UsageSnapshot {
-  cli: CliName
+  cli: UsageSource
   status: 'ok' | 'unavailable' | 'error'
   plan?: string
   windows: UsageWindow[]

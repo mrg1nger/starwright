@@ -206,6 +206,8 @@ export function chooseRoutes(input: {
   kind: TaskKind
   available: Record<HelperRoute, boolean>
   codexLow: boolean
+  /** ClinePass nearly used up: Cline only when nobody else can take the work. */
+  clineLow?: boolean
   asked?: HelperRoute
   /** The user's faders, when the equalizer is on Manual. */
   faders?: WorkFaders
@@ -217,6 +219,7 @@ export function chooseRoutes(input: {
   let order: HelperRoute[] = level === 'simple' ? ['local', 'cline', 'codex'] : level === 'moderate' ? ['codex', 'cline', 'local'] : ['codex', 'cline']
   if (input.faders) order = orderByFaders(order, input.faders, level, input.used)
   if (input.codexLow && order.includes('codex')) order = [...order.filter((r) => r !== 'codex'), 'codex']
+  if (input.clineLow && order.includes('cline')) order = [...order.filter((r) => r !== 'cline'), 'cline']
   // An agent asked for by name goes first, unless the user switched it off on the faders.
   if (input.asked && (!input.faders || input.faders[input.asked] > 0)) order = [input.asked, ...order.filter((r) => r !== input.asked)]
   return order.filter((r) => input.available[r])

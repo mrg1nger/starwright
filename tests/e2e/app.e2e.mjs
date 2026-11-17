@@ -1080,6 +1080,21 @@ try {
     if (JSON.parse(readFileSync(join(data, 'settings.json'), 'utf-8')).clineHelperModel !== null) throw new Error('"Same as hand-offs" was not saved')
   })
 
+  await step('ClinePass usage meter: a key Cline turns down is not kept, and no meter shows', async () => {
+    const box = `.cline-settings .settings-subsection`
+    await click('Settings', '.app-nav-tabs button')
+    await waitFor(`!!document.querySelector('${box} input[type=password]')`, 'the Cline API key box', 15_000)
+    await evaluate(`document.querySelector('${box}').scrollIntoView()`)
+    await fill(`${box} input[type=password]`, 'not-a-real-cline-key-e2e')
+    await click('Save key', `${box} button`)
+    await waitFor(`/turned the API key down|Couldn't reach Cline|answered|usage requests/.test(document.querySelector('${box}').innerText)`, "Cline's answer", 30_000)
+    const said = await evaluate(`document.querySelector('${box} .settings-warn')?.innerText ?? ''`)
+    console.log(`  (${said})`)
+    if (!said) throw new Error('no reason shown for the refused key')
+    if (existsSync(join(data, 'cline-usage-key.bin'))) throw new Error('a refused key was saved')
+    if (await evaluate(`[...document.querySelectorAll('.usage-meter-name')].some((n) => n.textContent === 'Cline')`)) throw new Error('a Cline meter shows with no key')
+  })
+
   await step('LM Studio in Settings: off at first, finds the server and its models, both switches save, and the test answers', async () => {
     const settingsNow = () => JSON.parse(readFileSync(join(data, 'settings.json'), 'utf-8'))
     const panel = `document.querySelector('.lmstudio-settings')`

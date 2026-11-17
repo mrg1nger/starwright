@@ -1,5 +1,5 @@
 import type { AppSettings } from '@shared/types'
-import { claudeHelpersAllowed, peekUsage, percentLeft } from '../usage/usage'
+import { claudeHelpersAllowed, clineLowNow, peekUsage, percentLeft } from '../usage/usage'
 import { requestClassifier, type Classification } from './classifier'
 import { BALANCE_LABELS, applyBalance, chooseRoutes, fadersOf, fadersText, leanFor, leanFromFaders, stepOfLean, workModeOf, type HelperRoute, type WorkFaders } from '@shared/balance'
 import { clineUnavailable, resolveClineLaunch } from '../cli/clineExec'
@@ -40,6 +40,7 @@ export interface RouteDecision {
 const CLAUDE_LOW = 25
 /** Below this share left, stop sending work to Codex. */
 const CODEX_LOW = 15
+
 
 // Fallback when Haiku can't answer in time: small, self-contained tweaks
 // (styling, wording, sizes). Deliberately narrow.
@@ -126,7 +127,9 @@ export type { HelperRoute }
 export { chooseRoutes }
 
 /** Which helper agents can take work right now, and whether Codex's plan is nearly used up. */
-export async function helperAvailability(settings: AppSettings): Promise<{ available: Record<HelperRoute, boolean>; codexLow: boolean }> {
+export async function helperAvailability(
+  settings: AppSettings
+): Promise<{ available: Record<HelperRoute, boolean>; codexLow: boolean; clineLow: boolean }> {
   const codex = peekUsage('codex')
   const codexLeft = percentLeft(codex)
   return {
@@ -136,7 +139,8 @@ export async function helperAvailability(settings: AppSettings): Promise<{ avail
       cline: await clineReadyForHandoffs(settings).catch(() => false),
       local: await localHandoffsReady().catch(() => false)
     },
-    codexLow: codexLeft !== undefined && codexLeft < CODEX_LOW
+    codexLow: codexLeft !== undefined && codexLeft < CODEX_LOW,
+    clineLow: clineLowNow().low
   }
 }
 
@@ -193,21 +197,24 @@ export async function routeMessage(
   // The local model (VibeApp's own agent on LM Studio), when it's switched on and LM Studio is up.
   const local = request.size !== 'quick' && on('local') && (context.localReady ?? (await localHandoffsReady()))
   const codexOn = on('codex')
+  // ClinePass nearly used up: Cline stays as a last resort, but doesn't count as a helper to lean on.
+  const { low: clineLow, left: clineLeft } = clineLowNow()
+  const clineFirst = cline && !clineLow
 
-  const lean = manual ? leanFromFaders(faders, { codex: codexOn && !codexLow, cline, local }) : leanFor(balance, claudeLeft, codexLeft)
+  const lean = manual ? leanFromFaders(faders, { codex: codexOn && !codexLow, cline: clineFirst, local }) : leanFor(balance, claudeLeft, codexLeft)
   let codex = applyBalance(request.codex, request.size, lean)
-  if (codexLow || (manual && !codexOn && !cline && !local)) codex = 'none'
+  if (codexLow || (manual && !codexOn && !clineFirst && !local)) codex = 'none'
   else if (claudeLow && codex === 'some') codex = 'most'
   const helperNote = handoffNote({ codex: !codexLow && codexOn, cline, local })
 
   const notes: string[] = []
   if (codexLow) {
     notes.push(
-      cline || local
-        ? `Codex plan usage is nearly used up (${Math.round(codexLeft)}% left), so Starwright sends hand-offs to ${[cline ? 'Cline' : '', local ? 'the local model' : ''].filter(Boolean).join(' or ')} first: hand off the straightforward, well-specified parts and do the tricky parts yourself.`
+      clineFirst || local
+        ? `Codex plan usage is nearly used up (${Math.round(codexLeft)}% left), so Starwright sends hand-offs to ${[clineFirst ? 'Cline' : '', local ? 'the local model' : ''].filter(Boolean).join(' or ')} first: hand off the straightforward, well-specified parts and do the tricky parts yourself.`
         : `Codex plan usage is nearly used up (${Math.round(codexLeft)}% left). Don't hand work off for this request; do the work yourself.`
     )
-    if (cline || local) notes.push(helperNote)
+    if (clineFirst || local) notes.push(helperNote)
   } else if (codex === 'most' && lean >= 2) {
     notes.push(CODEX_LED_NOTE)
     notes.push(helperNote)
@@ -226,7 +233,10 @@ export async function routeMessage(
     // Nothing big enough for Codex, but simple, well-specified parts can still go to the cheaper agents.
     notes.push(helperNote)
   }
-  if (context.planning) notes.push(planHandoffNote(lean, { codex: codexOn && !codexLow, cline, local }, manual ? faders : undefined))
+  if (cline && clineLow && clineLeft !== undefined && request.size !== 'quick') {
+    notes.push(`ClinePass usage is nearly used up (${Math.round(clineLeft)}% left): Starwright gives Cline work only when nobody else can take it.`)
+  }
+  if (context.planning) notes.push(planHandoffNote(lean, { codex: codexOn && !codexLow, cline: clineFirst, local }, manual ? faders : undefined))
   // Checking and saving memory would cost more than a quick edit itself.
   if (request.size === 'quick') {
     notes.push(
@@ -286,6 +296,7 @@ export async function routeMessage(
           kind: 'feature',
           available: { codex: codexOn && !codexLow, cline, local },
           codexLow,
+          clineLow,
           faders: manual ? faders : undefined,
           used: manual ? (context.used ?? recentHandoffUse()) : undefined
         })[0]
@@ -305,7 +316,9 @@ export async function routeMessage(
           : settings.aiRouting
           ? 'Keyword rules (Haiku was unavailable)'
           : 'Keyword rules'
-    }${manual ? ` · faders: ${fadersText(faders)}` : lean !== 0 ? ` · balance: ${BALANCE_LABELS[stepOfLean(lean)]}${balance === 'auto' ? ' (auto)' : ''}` : ''}`,
+    }${manual ? ` · faders: ${fadersText(faders)}` : lean !== 0 ? ` · balance: ${BALANCE_LABELS[stepOfLean(lean)]}${balance === 'auto' ? ' (auto)' : ''}` : ''}${
+      clineLow && clineLeft !== undefined ? ` · ClinePass ${Math.round(clineLeft)}% left` : ''
+    }`,
     note,
     skipReview: request.size === 'quick',
     size: request.size,

@@ -262,6 +262,7 @@ const READ_CHANNELS = new Set([
   'vibe:models:claude',
   'vibe:models:codex',
   'vibe:cline:status',
+  'vibe:cline:usageKey',
   'vibe:cline:models',
   'vibe:lmstudio:status',
   'vibe:update:state',
@@ -296,9 +297,10 @@ const READ_CHANNELS = new Set([
 /**
  * Managing Remote access itself stays on the computer, so a remote device can't widen its own access.
  * So does installing an update: it restarts VibeApp, and someone should be at the computer for that.
- * And the backup password: with it, a backup carries every secret off this computer.
+ * And the backup password: with it, a backup carries every secret off this computer. And the Cline
+ * API key: it's an account key, typed at the computer.
  */
-const DESKTOP_ONLY = /^vibe:remote:(?!previewUrl$)|^vibe:update:install$|^vibe:backup:setPassword$/
+const DESKTOP_ONLY = /^vibe:remote:(?!previewUrl$)|^vibe:update:install$|^vibe:backup:setPassword$|^vibe:cline:setUsageKey$/
 const REMOTE_SETTINGS = ['remoteAccess', 'remotePort', 'remoteReadOnly'] as const
 
 export interface CallCheck {
@@ -314,7 +316,9 @@ export function checkRemoteCall(channel: string, args: unknown[], readOnly: bool
       allowed: false,
       reason: channel.startsWith('vibe:update:')
         ? 'Updates are installed on the computer running Starwright.'
-        : 'Remote access settings can only be changed on the computer running Starwright.'
+        : channel === 'vibe:cline:setUsageKey'
+          ? 'The Cline API key is entered on the computer running Starwright.'
+          : 'Remote access settings can only be changed on the computer running Starwright.'
     }
   }
   if (readOnly && !READ_CHANNELS.has(channel)) {

@@ -2,6 +2,16 @@
 
 The version goes up with each improvement that ships: the middle number for new features, the last for fixes only. Settings shows the version a computer is running. (Starwright was called VibeApp up to 0.10.0.)
 
+## 0.15.6 (2026-11-17)
+
+**A ClinePass usage meter.** With a Cline API key saved (Settings → Cline → ClinePass usage meter; make one at app.cline.bot → Settings → API Keys), the top bar shows ClinePass's 5-hour, weekly and monthly limits next to Claude and Codex, the same numbers as Cline's dashboard.
+- The key is checked with Cline before it's kept, encrypted on this computer, and only ever sent to Cline. It can be removed in the same place, and it can't be set from a phone or browser (Remote access).
+- **Starwright backs off Cline before it runs out.** With less than 15% of a ClinePass window left, Cline only gets hand-offs nobody else can take, background jobs skip it, Claude is told, and the route tag says how much is left.
+- The usage report's "Plans now" line, and the `usage` tool for Claude Code, include ClinePass.
+- Cline doesn't publish this as an API (it's what its own dashboard reads), so if it changes, the meter shows "—" and nothing else is affected.
+
+**A preview on https no longer crashes Starwright.** Opening the preview of a project whose dev server runs on `https://localhost` (Vite with a certificate, say) from a phone or another computer (Remote access) brought up "A JavaScript error occurred in the main process" and left Starwright hung. The preview now passes through over https, live reload included, and Starwright's check that the preview has started works for https ones too. Anything else that goes wrong reaching a preview shows as an error on that page instead of stopping Starwright.
+
 ## 0.15.5 (2026-11-17)
 
 **Go Nutz means no Allow/Deny prompts, for every agent.**

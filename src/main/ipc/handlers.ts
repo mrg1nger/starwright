@@ -7,6 +7,7 @@ import { applyRemoteSettings } from '../remote/server'
 import type {
   AppSettings,
   CliName,
+  UsageSource,
   ConfirmationRequest,
   DeployEvent,
   DeployRecipe,
@@ -144,7 +145,8 @@ import { listClaudeModels } from '../cli/claudeModels'
 import { listCodexModels } from '../cli/codexModels'
 import { listThemes, deleteTheme, themesDir } from '../themes/store'
 import { generateTheme } from '../themes/generate'
-import { claudeBlockedUntil, claudeStandsDown, clearClaudeLimit, getUsage, noteClaudeLimit } from '../usage/usage'
+import { claudeBlockedUntil, claudeStandsDown, clearClaudeLimit, forgetUsage, getUsage, noteClaudeLimit } from '../usage/usage'
+import { clineUsageKeyStatus, fetchClineUsage, setClineUsageKey } from '../cline/clineUsage'
 import { helpersAllowed } from '../helpers/helperJob'
 import { checkCline, clineStatus } from '../cli/clineExec'
 import { clineModelFor, listClineModels } from '../cli/clineAcp'
@@ -1191,6 +1193,20 @@ export function registerIpcHandlers(getSender: () => WebContents | undefined): v
   // The ClinePass models Cline offers now, for the Settings menus (opens a session, sends nothing).
   ipc.handle('vibe:cline:models', (_event, refresh?: boolean) => listClineModels(!!refresh))
   ipc.handle('vibe:cline:check', async () => checkCline(await clineModelFor('helper')))
+  // ClinePass usage: the API key the meter reads it with (checked with Cline before it's kept).
+  ipc.handle('vibe:cline:usageKey', () => clineUsageKeyStatus())
+  ipc.handle('vibe:cline:setUsageKey', async (_event, key: string | null) => {
+    const value = typeof key === 'string' ? key.trim() : ''
+    if (value) {
+      const snapshot = await fetchClineUsage(value) // throws with Cline's reason when it's turned down
+      setClineUsageKey(value)
+      forgetUsage('cline')
+      return { ...clineUsageKeyStatus(), snapshot }
+    }
+    setClineUsageKey(null)
+    forgetUsage('cline')
+    return clineUsageKeyStatus()
+  })
   // LM Studio (a model on this computer, for background jobs): only ever the saved address,
   // so a remote screen can't make VibeApp reach other places.
   ipc.handle('vibe:lmstudio:status', () => lmStudioStatus())
@@ -1205,9 +1221,10 @@ export function registerIpcHandlers(getSender: () => WebContents | undefined): v
     if (projectId && !only) throw new Error(`No project called "${projectId}".`)
     const usage = usageByProject(memoryDb(), since).filter((u) => !only || u.projectId === only.id)
     const plans: string[] = []
-    for (const cli of ['claude', 'codex'] as const) {
+    for (const cli of ['claude', 'codex', 'cline'] as const) {
       const u = await getUsage(cli).catch(() => null)
-      for (const w of u?.windows ?? []) plans.push(`${cli === 'claude' ? 'Claude' : 'Codex'} ${w.label} ${w.usedPercent}% used`)
+      const name = cli === 'claude' ? 'Claude' : cli === 'codex' ? 'Codex' : 'ClinePass'
+      for (const w of u?.windows ?? []) plans.push(`${name} ${w.label} ${w.usedPercent}% used`)
     }
     return buildReport({
       days: span,
@@ -1228,7 +1245,7 @@ export function registerIpcHandlers(getSender: () => WebContents | undefined): v
     return workSummary(memoryDb(), new Date(Date.now() - span * 86_400_000).toISOString())
   })
 
-  ipc.handle('vibe:usage:get',(_event, cli: CliName, force?: boolean) => getUsage(cli, force))
+  ipc.handle('vibe:usage:get', (_event, cli: UsageSource, force?: boolean) => getUsage(cli, force))
 
   previewEvents.on('state', (projectId: string, state: PreviewState) => {
     getSender()?.send('vibe:preview:state', projectId, state)

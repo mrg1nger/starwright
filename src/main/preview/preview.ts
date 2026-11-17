@@ -2,6 +2,7 @@ import { execFileSync, spawn, type ChildProcess } from 'child_process'
 import { EventEmitter } from 'events'
 import { createReadStream, existsSync, readFileSync, statSync } from 'fs'
 import { createServer, get as httpGet, type Server } from 'http'
+import { get as httpsGet } from 'https'
 import { createServer as createNetServer } from 'net'
 import { extname, join, normalize, resolve, sep } from 'path'
 import type { PreviewProblem, PreviewState } from '@shared/types'
@@ -58,10 +59,22 @@ function freePort(): Promise<number> {
 
 function probe(url: string): Promise<boolean> {
   return new Promise((resolveProbe) => {
-    const req = httpGet(url, (res) => {
-      res.resume()
-      resolveProbe(true)
-    })
+    let req: ReturnType<typeof httpGet>
+    try {
+      // A dev server on https (a self-signed certificate on this computer) is checked over https.
+      req = url.startsWith('https:')
+        ? httpsGet(url, { rejectUnauthorized: false }, (res) => {
+            res.resume()
+            resolveProbe(true)
+          })
+        : httpGet(url, (res) => {
+            res.resume()
+            resolveProbe(true)
+          })
+    } catch {
+      resolveProbe(false)
+      return
+    }
     req.on('error', () => resolveProbe(false))
     req.setTimeout(1500, () => {
       req.destroy()

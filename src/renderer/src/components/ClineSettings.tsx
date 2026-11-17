@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { AppSettings } from '@shared/types'
+import type { AppSettings, UsageSnapshot } from '@shared/types'
+import { USAGE_CHANGED_EVENT } from './UsageMeters'
 import { CLINE_MODEL_NOTES, CLINE_RECOMMENDED, CLINE_TESTED_ON, clineModelLabel } from '@shared/clineModels'
 
 interface ClineSettingsProps {
@@ -66,6 +67,78 @@ function ModelPicker({ label, use, value, list, failed, emptyLabel, onChange }: 
   )
 }
 
+function describeUsage(snapshot: UsageSnapshot | undefined): string {
+  if (!snapshot || snapshot.status !== 'ok') return snapshot?.message ?? ''
+  return snapshot.windows.map((w) => `${w.label} ${Math.round(w.usedPercent)}% used`).join(' · ')
+}
+
+/**
+ * The ClinePass usage meter's key: an API key the user makes at app.cline.bot, checked with Cline
+ * before it's kept, encrypted on this computer and sent only to Cline.
+ */
+function ClineUsageKey() {
+  const [status, setStatus] = useState<{ saved: boolean; hint?: string } | null>(null)
+  const [typed, setTyped] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [note, setNote] = useState<{ ok: boolean; message: string } | null>(null)
+
+  useEffect(() => {
+    window.vibe.cline.usageKey().then(setStatus).catch(() => setStatus({ saved: false }))
+  }, [])
+
+  const save = async (key: string | null): Promise<void> => {
+    setBusy(true)
+    setNote(null)
+    try {
+      const result = await window.vibe.cline.setUsageKey(key)
+      setStatus(result)
+      setTyped('')
+      setNote(
+        key
+          ? { ok: true, message: `Saved. Cline says: ${describeUsage(result.snapshot) || 'no limits reported'}. Check these match app.cline.bot.` }
+          : { ok: true, message: 'Removed.' }
+      )
+      window.dispatchEvent(new Event(USAGE_CHANGED_EVENT))
+    } catch (err) {
+      setNote({ ok: false, message: (err as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="settings-subsection">
+      <h4>ClinePass usage meter</h4>
+      <p className="settings-hint">
+        Shows ClinePass's 5-hour, weekly and monthly limits in the top bar, and Starwright stops giving Cline work first when
+        one is nearly used up. Make an API key at app.cline.bot → Settings → API Keys and paste it here. It's encrypted on
+        this computer and only ever sent to Cline, to read your usage (the same numbers as Cline's dashboard).
+      </p>
+      {status?.saved && (
+        <div className="settings-row">
+          <span className="settings-ok">Key saved ({status.hint}).</span>
+          <button type="button" onClick={() => void save(null)} disabled={busy}>
+            Remove
+          </button>
+        </div>
+      )}
+      <div className="settings-row">
+        <input
+          type="password"
+          value={typed}
+          placeholder={status?.saved ? 'Paste a new key to replace it' : 'Cline API key'}
+          autoComplete="off"
+          onChange={(e) => setTyped(e.target.value)}
+        />
+        <button type="button" onClick={() => void save(typed)} disabled={busy || !typed.trim()}>
+          {busy ? 'Checking…' : 'Save key'}
+        </button>
+      </div>
+      {note && <small className={note.ok ? 'settings-ok' : 'settings-warn'}>{note.message}</small>}
+    </div>
+  )
+}
+
 /** Cline: a third agent on the user's own ClinePass plan, for hand-offs and VibeApp's background jobs. */
 function ClineSettings({ settings, onSettingsChange }: ClineSettingsProps) {
   const [status, setStatus] = useState<Status | null>(null)
@@ -117,6 +190,8 @@ function ClineSettings({ settings, onSettingsChange }: ClineSettingsProps) {
             ? `Cline ${status.version ?? ''} is installed.${status.unavailable ? ` Not usable right now: ${status.unavailable}` : ''}`
             : 'Cline isn\'t installed. To use it: in a terminal, run npm i -g cline, then cline auth and choose ClinePass.'}
       </p>
+      <ClineUsageKey />
+
       {status?.installed && (
         <div className="settings-row">
           <button type="button" onClick={runCheck} disabled={checking}>

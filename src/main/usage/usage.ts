@@ -3,11 +3,12 @@ import { app } from 'electron'
 import { existsSync } from 'fs'
 import { join } from 'path'
 import { query, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
-import type { CliName, UsageSnapshot, UsageWindow } from '@shared/types'
+import type { UsageSnapshot, UsageSource, UsageWindow } from '@shared/types'
 import { claudeAtZero } from '@shared/balance'
 import { getSettings } from '../settings/store'
 import { resolveClaudeExecutable } from '../cli/claudeBinary'
 import { killTree, resolveCodexLaunch, trackChild } from '../cli/codexExec'
+import { fetchClineUsage } from '../cline/clineUsage'
 
 const TIMEOUT_MS = 20_000
 /** Repeat requests inside this window get the cached snapshot. */
@@ -19,12 +20,12 @@ const MAX_BACKOFF_MS = 10 * 60_000
 /** How long the last real numbers keep showing (marked stale) through failed checks. */
 const STALE_OK_MS = 6 * 60 * 60_000
 
-const cache = new Map<CliName, UsageSnapshot>()
-const lastGood = new Map<CliName, UsageSnapshot>()
-const lastAttempt = new Map<CliName, number>()
-const failures = new Map<CliName, number>()
-const retryAt = new Map<CliName, number>()
-const inFlight = new Map<CliName, Promise<UsageSnapshot>>()
+const cache = new Map<UsageSource, UsageSnapshot>()
+const lastGood = new Map<UsageSource, UsageSnapshot>()
+const lastAttempt = new Map<UsageSource, number>()
+const failures = new Map<UsageSource, number>()
+const retryAt = new Map<UsageSource, number>()
+const inFlight = new Map<UsageSource, Promise<UsageSnapshot>>()
 
 function clock(ms: number): string {
   return new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
@@ -33,7 +34,7 @@ function clock(ms: number): string {
 // Each Claude check starts a Claude Code process and calls Anthropic's usage
 // service, so checks are spaced out, back off after failures, and a failure
 // never blanks the meter while recent real numbers exist.
-export function getUsage(cli: CliName, force = false): Promise<UsageSnapshot> {
+export function getUsage(cli: UsageSource, force = false): Promise<UsageSnapshot> {
   const now = Date.now()
   const cached = cache.get(cli)
   const pending = inFlight.get(cli)
@@ -44,7 +45,7 @@ export function getUsage(cli: CliName, force = false): Promise<UsageSnapshot> {
     if (now < (retryAt.get(cli) ?? 0)) return Promise.resolve(cached)
   }
   lastAttempt.set(cli, now)
-  const fetch = (cli === 'claude' ? fetchClaudeUsage() : fetchCodexUsage())
+  const fetch = (cli === 'claude' ? fetchClaudeUsage() : cli === 'codex' ? fetchCodexUsage() : fetchClineUsage())
     .catch((err): UsageSnapshot => ({
       cli,
       status: 'error',
@@ -81,9 +82,27 @@ export function getUsage(cli: CliName, force = false): Promise<UsageSnapshot> {
 }
 
 /** Latest known usage without waiting; kicks off a background refresh if it's stale. */
-export function peekUsage(cli: CliName): UsageSnapshot | undefined {
+export function peekUsage(cli: UsageSource): UsageSnapshot | undefined {
   getUsage(cli).catch(() => undefined)
   return cache.get(cli)
+}
+
+/** Below this share of a ClinePass window left, Cline only takes work nobody else can. */
+export const CLINE_LOW = 15
+
+/** ClinePass nearly used up (known only with a Cline API key saved for the usage meter). */
+export function clineLowNow(): { low: boolean; left?: number } {
+  const left = percentLeft(peekUsage('cline'))
+  return { low: left !== undefined && left < CLINE_LOW, left }
+}
+
+/** A new or removed ClinePass key: the next check starts afresh instead of showing the old answer. */
+export function forgetUsage(cli: UsageSource): void {
+  cache.delete(cli)
+  lastGood.delete(cli)
+  lastAttempt.delete(cli)
+  failures.delete(cli)
+  retryAt.delete(cli)
 }
 
 /** Lowest share left across a snapshot's windows (0-100), or undefined if unknown. */

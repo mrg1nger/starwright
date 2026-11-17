@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useState, type ReactNode } from 'react'
-import type { CliName, CliStatus, UsageSnapshot } from '@shared/types'
+import type { CliName, CliStatus, UsageSnapshot, UsageSource } from '@shared/types'
 
 interface UsageMetersProps {
   statuses: Record<CliName, CliStatus>
@@ -8,10 +8,17 @@ interface UsageMetersProps {
 }
 
 const POLL_INTERVAL_MS = 3 * 60_000
-const CLIS: { cli: CliName; name: string }[] = [
+const CLIS: { cli: UsageSource; name: string }[] = [
   { cli: 'claude', name: 'Claude' },
-  { cli: 'codex', name: 'Codex' }
+  { cli: 'codex', name: 'Codex' },
+  // ClinePass: shown once a Cline API key is saved (Settings → Cline).
+  { cli: 'cline', name: 'Cline' }
 ]
+
+/** Fired by Settings when the Cline API key changes, so the meter appears (or goes) at once. */
+export const USAGE_CHANGED_EVENT = 'starwright:usage-changed'
+
+const SHORT_LABELS: Record<string, string> = { '5-hour': '5h', Weekly: 'wk', Monthly: 'mo' }
 
 function formatReset(resetsAt: number | null): string {
   if (!resetsAt) return ''
@@ -27,14 +34,14 @@ function levelClass(usedPercent: number): string {
   return ''
 }
 
-/** Compact plan-usage bars for Claude and Codex, shown in the top bar. */
+/** Compact plan-usage bars for Claude, Codex and ClinePass, shown in the top bar. */
 function UsageMeters({ statuses, children }: UsageMetersProps) {
-  const [usage, setUsage] = useState<Partial<Record<CliName, UsageSnapshot>>>({})
+  const [usage, setUsage] = useState<Partial<Record<UsageSource, UsageSnapshot>>>({})
 
   const refresh = useCallback(
     (force = false) => {
       for (const { cli } of CLIS) {
-        if (statuses[cli].status !== 'logged_in') continue
+        if (cli !== 'cline' && statuses[cli].status !== 'logged_in') continue
         window.vibe.usage
           .get(cli, force)
           .then((snapshot) => setUsage((prev) => ({ ...prev, [cli]: snapshot })))
@@ -48,10 +55,13 @@ function UsageMeters({ statuses, children }: UsageMetersProps) {
     refresh()
     const interval = setInterval(() => refresh(), POLL_INTERVAL_MS)
     const onFocus = (): void => refresh()
+    const onChanged = (): void => refresh(true)
     window.addEventListener('focus', onFocus)
+    window.addEventListener(USAGE_CHANGED_EVENT, onChanged)
     return () => {
       clearInterval(interval)
       window.removeEventListener('focus', onFocus)
+      window.removeEventListener(USAGE_CHANGED_EVENT, onChanged)
     }
   }, [refresh])
 
@@ -65,7 +75,9 @@ function UsageMeters({ statuses, children }: UsageMetersProps) {
     [refresh]
   )
 
-  const shown = CLIS.filter(({ cli }) => statuses[cli].status === 'logged_in')
+  const shown = CLIS.filter(({ cli }) =>
+    cli === 'cline' ? !!usage.cline && usage.cline.status !== 'unavailable' : statuses[cli].status === 'logged_in'
+  )
 
   return (
     <div className="usage-meters">
@@ -98,7 +110,7 @@ function UsageMeters({ statuses, children }: UsageMetersProps) {
                   const left = Math.max(0, 100 - Math.round(w.usedPercent))
                   return (
                     <span key={w.label} className={`usage-bar-row ${levelClass(w.usedPercent)}`}>
-                      <span className="usage-bar-label">{w.label === '5-hour' ? '5h' : w.label === 'Weekly' ? 'wk' : w.label}</span>
+                      <span className="usage-bar-label">{SHORT_LABELS[w.label] ?? w.label}</span>
                       <span className="usage-bar">
                         <span className="usage-bar-fill" style={{ width: `${left}%` }} />
                       </span>
