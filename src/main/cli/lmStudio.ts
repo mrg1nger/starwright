@@ -89,6 +89,109 @@ export async function lmStudioAvailable(): Promise<boolean> {
   return cached!.status.running && !!pickModel(cached!.status.models, settings.lmStudioModel)
 }
 
+// ---- loading the model ------------------------------------------------------------------
+//
+// LM Studio loads a model on the first request for it ("just in time"), but with the model's own
+// default settings, often a much smaller context than Starwright plans for, and only if that
+// option is on. So Starwright loads the model itself first, with the context set in Settings, and
+// knows the size it's working with. LM Studio's REST API (0.4 and later): GET /api/v1/models lists
+// each model with its loaded_instances; POST /api/v1/models/load loads one.
+
+/** Context to load with when Settings has none (32k: what hand-offs need). */
+export const DEFAULT_LOAD_CONTEXT = 32_768
+/** A 20 GB model from a slow disk can take minutes. */
+const LOAD_TIMEOUT_MS = 10 * 60_000
+
+export interface V1Model {
+  key: string
+  type?: string
+  max_context_length?: number
+  variants?: string[]
+  selected_variant?: string
+  loaded_instances?: { id: string; config?: { context_length?: number } }[]
+}
+
+export interface ModelReady {
+  /** The context the model is loaded with, when LM Studio says. */
+  contextLength?: number
+  /** Starwright loaded it just now (with how long it took). */
+  loadedNow: boolean
+  seconds?: number
+}
+
+const loading = new Map<string, Promise<ModelReady>>()
+
+/** The model's entry in LM Studio's list (by its key, or one of its variants). */
+export function findV1Model(models: V1Model[], model: string): V1Model | undefined {
+  return models.find((m) => m.key === model || m.selected_variant === model || m.variants?.includes(model))
+}
+
+/**
+ * Makes sure the model is loaded, loading it with Settings' context if it isn't, and says what
+ * context it has. An LM Studio without this API: nothing is done (it loads the model on demand).
+ * Only one load runs at a time per model, and a model with a loaded copy is never loaded again
+ * (a second copy would need the memory twice). Throws when LM Studio can't load it.
+ */
+export function ensureModelLoaded(model: string, onLoading?: (contextLength: number) => void): Promise<ModelReady> {
+  const settings = getSettings()
+  const base = lmStudioBase(settings.lmStudioUrl)
+  const key = `${base} ${model}`
+  const running = loading.get(key)
+  if (running) {
+    onLoading?.(0)
+    return running
+  }
+  const work = (async (): Promise<ModelReady> => {
+    let list: V1Model[]
+    try {
+      const res = await fetch(`${base}/api/v1/models`, { signal: AbortSignal.timeout(5_000) })
+      if (!res.ok) return { loadedNow: false } // an older LM Studio: it loads on demand
+      list = ((await res.json()) as { models?: V1Model[] }).models ?? []
+    } catch {
+      return { loadedNow: false } // the request itself will say what's wrong
+    }
+    const entry = findV1Model(list, model)
+    if (!entry) return { loadedNow: false }
+    const instance = entry.loaded_instances?.[0]
+    if (instance) return { loadedNow: false, contextLength: instance.config?.context_length }
+    const wanted = Math.max(2_048, Math.floor(settings.lmStudioContextLength || DEFAULT_LOAD_CONTEXT))
+    const contextLength = entry.max_context_length ? Math.min(wanted, entry.max_context_length) : wanted
+    onLoading?.(contextLength)
+    let res: Response
+    try {
+      res = await fetch(`${base}/api/v1/models/load`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: entry.key, context_length: contextLength, echo_load_config: true }),
+        signal: AbortSignal.timeout(LOAD_TIMEOUT_MS)
+      })
+    } catch (err) {
+      throw new Error((err as Error).name === 'TimeoutError' ? `LM Studio took more than 10 minutes to load ${model}.` : `Couldn't reach LM Studio to load ${model} (${(err as Error).message}).`)
+    }
+    const text = await res.text()
+    if (!res.ok) {
+      let reason = text.slice(0, 300)
+      try {
+        const json = JSON.parse(text) as { error?: string | { message?: string } }
+        reason = typeof json.error === 'string' ? json.error : (json.error?.message ?? reason)
+      } catch {
+        // not JSON: the text as it is
+      }
+      throw new Error(`LM Studio couldn't load ${model} with ${contextLength.toLocaleString()} tokens of context: ${reason || `HTTP ${res.status}`}. Try a smaller context in Settings → LM Studio.`)
+    }
+    forgetLmStudioStatus()
+    let loaded: { load_time_seconds?: number; load_config?: { context_length?: number } } = {}
+    try {
+      loaded = JSON.parse(text)
+    } catch {
+      // loaded, but the answer wasn't JSON: go by what was asked for
+    }
+    return { loadedNow: true, contextLength: loaded.load_config?.context_length ?? contextLength, seconds: loaded.load_time_seconds }
+  })().finally(() => loading.delete(key))
+  loading.set(key, work)
+  return work
+}
+
 /** Forget the last look at the server (after a failure or a settings change). */
 export function forgetLmStudioStatus(): void {
   cached = undefined
@@ -141,6 +244,8 @@ export async function runLmStudio(run: LmStudioRun): Promise<LmStudioResult> {
     model = pickModel(status.models, null)
     if (!model) throw new Error('LM Studio has no chat model downloaded.')
   }
+  // Loaded with the context Starwright plans for, rather than whatever LM Studio would pick.
+  await ensureModelLoaded(model)
   const body: Record<string, unknown> = {
     model,
     messages: [

@@ -43,6 +43,7 @@ const DEFAULTS: AppSettings = {
   lmStudioHelpers: false,
   lmStudioUrl: 'http://localhost:1234',
   lmStudioModel: null,
+  lmStudioContextLength: 32_768,
   localHandoffs: false,
   updateChecks: true,
   skippedVersion: null,

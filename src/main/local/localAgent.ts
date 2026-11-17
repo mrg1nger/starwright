@@ -4,7 +4,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'pat
 import { OUTSIDE_PROJECT, commandDanger } from '../cline/hookPolicy'
 import { killTree, trackChild } from '../cli/codexExec'
 import { bashPath } from '../deploy/deploy'
-import { countsFromChatUsage, lmStudioBase, lmStudioStatus, pickModel } from '../cli/lmStudio'
+import { countsFromChatUsage, ensureModelLoaded, lmStudioBase, lmStudioStatus, pickModel, type ModelReady } from '../cli/lmStudio'
 import { getSettings } from '../settings/store'
 import type { TokenCounts } from '../usage/tokens'
 import type { DelegationActivity } from '@shared/types'
@@ -471,14 +471,29 @@ async function runModel(run: LocalAgentRun): Promise<LocalAgentResult> {
   if (!status.running) return fail(status.error ?? 'LM Studio is not running.', 0)
   const model = run.model ?? pickModel(status.models, settings.lmStudioModel)
   if (!model) return fail('LM Studio has no chat model downloaded.', 0)
-  const context = status.models.find((m) => m.id === model)?.contextLength ?? 32_000
+  let activityId = 0
+  const emit = (a: Omit<DelegationActivity, 'id' | 'done'>, done = true): void => run.onActivity?.({ id: `local-${++activityId}`, done, ...a })
+  let ready: ModelReady
+  try {
+    ready = await ensureModelLoaded(model, (size) =>
+      emit({ step: 'tool', text: size ? `Loading ${model} in LM Studio (${size.toLocaleString()} tokens of context)…` : `Waiting for LM Studio to load ${model}…` }, false)
+    )
+  } catch (err) {
+    return fail((err as Error).message, 0, model)
+  }
+  if (ready.loadedNow) {
+    emit({ step: 'tool', text: `Loaded ${model} in LM Studio${ready.seconds ? ` in ${Math.round(ready.seconds)} s` : ''} (${(ready.contextLength ?? 0).toLocaleString()} tokens of context)`, ok: true })
+  }
+  const listed = status.models.find((m) => m.id === model)
+  // Only a loaded model's size is its real one (otherwise it's the most the model supports).
+  let context = ready.contextLength ?? (listed?.loaded ? listed.contextLength : undefined)
+  const contextKnown = context !== undefined
+  context ??= 8_192
 
   const messages: Message[] = [
     { role: 'system', content: SYSTEM },
     { role: 'user', content: run.task }
   ]
-  let activityId = 0
-  const emit = (a: Omit<DelegationActivity, 'id' | 'done'>, done = true): void => run.onActivity?.({ id: `local-${++activityId}`, done, ...a })
   let lastCall = ''
   let repeats = 0
   let nudged = false
@@ -558,6 +573,11 @@ async function runModel(run: LocalAgentRun): Promise<LocalAgentResult> {
     }
 
     // Keep the conversation inside the model's context.
+    if (!contextKnown && step === 1) {
+      // LM Studio loaded it for the first request: now it can say with how much.
+      const now = (await lmStudioStatus(base).catch(() => null))?.models.find((m) => m.id === model)
+      if (now?.loaded && now.contextLength) context = now.contextLength
+    }
     const prompt = counts.fresh + counts.cached
     if (prompt > context * 0.6) trimConversation(messages)
     if (prompt > context * 0.9 && !trimConversation(messages, 2)) {

@@ -86,3 +86,27 @@ test("the local model's commands see the project's secrets", { timeout: 15 * MIN
   assert.ok(existsSync(join(dir, 'out.txt')), 'the command ran')
   assert.equal(require('fs').readFileSync(join(dir, 'out.txt'), 'utf8'), 'yes', 'the secret reached the command')
 })
+
+test("with the model not loaded, the hand-off loads it with Settings' context first", { timeout: 15 * MINUTES }, async (t) => {
+  const status = await lmStudioStatus('http://localhost:1234')
+  if (!status.running || !status.models.length) return t.skip('LM Studio is not running with a model downloaded')
+  if (status.models.some((m) => m.loaded)) return t.skip('a model is loaded (unload it in LM Studio to run this)')
+  updateSettings({ claudeModel: 'haiku', autoMemory: false, localHandoffs: true, lmStudioUrl: 'http://localhost:1234', lmStudioModel: null, lmStudioContextLength: 32_768 })
+  forgetLmStudioStatus()
+  const dir = makeProject()
+  const s = testSession(t, projectId('local-load'), dir)
+  const events = await turn(
+    s,
+    'Use the run_subtask tool with agent "local" (do not edit any files yourself) to have the local model create util.js exporting a function add(a, b) that returns their sum. Then reply DONE.',
+    14 * MINUTES
+  )
+  const steps = events.flatMap((e) => (e.type === 'delegation_activity' ? [e.activity.text] : []))
+  console.log(steps.filter((x) => /load/i.test(x)).join('\n'))
+  assert.ok(steps.some((x) => /^Loading .* in LM Studio \(32,768 tokens of context\)/.test(x)), 'the hand-off said it was loading the model')
+  assert.ok(steps.some((x) => /^Loaded .* \(32,768 tokens of context\)/.test(x)), 'and when it was loaded')
+  assert.ok(existsSync(join(dir, 'util.js')), 'the work was done')
+  const after = await lmStudioStatus('http://localhost:1234')
+  const loaded = after.models.filter((m) => m.loaded)
+  assert.equal(loaded.length, 1, 'one model loaded')
+  assert.equal(loaded[0].contextLength, 32_768, "with Settings' context")
+})

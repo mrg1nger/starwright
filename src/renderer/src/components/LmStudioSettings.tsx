@@ -18,8 +18,19 @@ function LmStudioSettings({ settings, onSettingsChange }: LmStudioSettingsProps)
   const [checking, setChecking] = useState(false)
   const [check, setCheck] = useState<{ ok: boolean; message: string } | null>(null)
   const [url, setUrl] = useState(settings.lmStudioUrl)
+  const [contextText, setContextText] = useState(String(settings.lmStudioContextLength))
   // Follow changes made elsewhere (another window, a phone).
   useEffect(() => setUrl(settings.lmStudioUrl), [settings.lmStudioUrl])
+  useEffect(() => setContextText(String(settings.lmStudioContextLength)), [settings.lmStudioContextLength])
+
+  const saveContext = (): void => {
+    const n = Math.round(Number(contextText.replace(/[,\s_]/g, '')))
+    if (!Number.isFinite(n) || n < 2048) {
+      setContextText(String(settings.lmStudioContextLength))
+      return
+    }
+    if (n !== settings.lmStudioContextLength) onSettingsChange({ lmStudioContextLength: n }).catch(() => undefined)
+  }
 
   const look = useCallback(async () => {
     setLooking(true)
@@ -137,7 +148,7 @@ function LmStudioSettings({ settings, onSettingsChange }: LmStudioSettingsProps)
           </select>
           {!offered && <small className="settings-warn">LM Studio doesn't have {chosen} now; pick another.</small>}
           {inUse && !inUse.loaded && (
-            <small className="settings-hint">Not loaded yet: LM Studio loads it on the first job, which can take a minute.</small>
+            <small className="settings-hint">Not loaded yet: Starwright loads it for the first job, which can take a minute.</small>
           )}
           {inUse?.loaded && inUse.contextLength !== undefined && inUse.contextLength < SMALL_CONTEXT && (
             <small className="settings-warn">
@@ -146,6 +157,23 @@ function LmStudioSettings({ settings, onSettingsChange }: LmStudioSettingsProps)
           )}
         </label>
       )}
+
+      <label className="settings-field">
+        <span>Context to load the model with</span>
+        <input
+          className="lmstudio-context"
+          inputMode="numeric"
+          value={contextText}
+          onChange={(e) => setContextText(e.target.value)}
+          onBlur={saveContext}
+          onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+        />
+        <small className="settings-hint">
+          Tokens. When the model isn't loaded, Starwright loads it with this much context (or the most it supports)
+          instead of LM Studio's default, which is often far smaller. More context fits longer hand-offs but needs more
+          memory; 32,768 suits most work. A model you loaded yourself is used as it is.
+        </small>
+      </label>
 
       <div className="settings-row">
         <button type="button" onClick={() => look().catch(() => undefined)} disabled={looking}>

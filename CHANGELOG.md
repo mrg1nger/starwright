@@ -2,6 +2,14 @@
 
 The version goes up with each improvement that ships: the middle number for new features, the last for fixes only. Settings shows the version a computer is running. (Starwright was called VibeApp up to 0.10.0.)
 
+## 0.15.10 (2026-11-17)
+
+**Starwright loads the local model itself, with enough room.** When the LM Studio model isn't loaded (after LM Studio restarts, or after it unloads an idle model), Starwright used to leave it to LM Studio to load it on the first request, with LM Studio's own default context, often only 4,096 tokens. Hand-offs then outgrew it, while Starwright thought the model had all 262,144 tokens it supports. Now:
+- Before a hand-off or background job, a model that isn't loaded is loaded by Starwright with the context set in **Settings → LM Studio → Context to load the model with** (32,768 to start with; capped at what the model supports). The hand-off shows "Loading… / Loaded in N s".
+- A model that's already loaded (by you, or earlier) is used as it is, and Starwright goes by the context it really has. A second copy is never loaded, and two jobs at once share one load.
+- If LM Studio can't load it (not enough memory, say), the hand-off says so, and what to try, and the work goes to another agent.
+- With an older LM Studio that can't be asked to load a model, Starwright plans for 8,192 tokens until the model is up, then for what it really has.
+
 ## 0.15.9 (2026-11-17)
 
 **The local model doesn't get stuck on a command any more.** A command that started something in the background (a dev server, say) and then ended was waited on for ever, because what it started kept its output open: the hand-off sat on "run_command…" with nothing happening, past its time limit, until it was stopped by hand. Now:

@@ -21,6 +21,8 @@ const server = createServer((req, res) => {
   req.on('end', () => {
     res.writeHead(200, { 'Content-Type': 'application/json' })
     if (req.url === '/api/v0/models') return res.end(JSON.stringify({ data: [{ id: 'coder', type: 'llm', state: 'loaded', loaded_context_length: 32000 }] }))
+    // Already loaded: Starwright uses it as it is (it never loads a second copy).
+    if (req.url === '/api/v1/models') return res.end(JSON.stringify({ models: [{ type: 'llm', key: 'coder', max_context_length: 131072, loaded_instances: [{ id: 'coder', config: { context_length: 32000 } }] }] }))
     requests.push(JSON.parse(raw))
     const turn = script.shift() ?? { say: 'Done.' }
     const message = turn.calls

@@ -703,6 +703,8 @@ export interface AppSettings {
   lmStudioUrl: string
   /** LM Studio model for background jobs and hand-offs; null = the one loaded now. */
   lmStudioModel: string | null
+  /** The context (tokens) Starwright loads the model with when it isn't loaded yet (capped at what the model supports). */
+  lmStudioContextLength: number
   /** Claude may hand coding work to VibeApp's own agent on the LM Studio model. */
   localHandoffs: boolean
   /** Look for new versions on GitHub Releases (at start and every few hours). */
