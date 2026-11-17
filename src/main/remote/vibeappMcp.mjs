@@ -158,6 +158,9 @@ function describe(result) {
       case 'route':
         lines.push(`(${event.label}: ${event.reason})`)
         break
+      case 'note':
+        lines.push(`(${event.text})`)
+        break
       case 'plan_proposed':
         lines.push(`PLAN PROPOSED (plan id ${event.toolUseId}):
 ${event.plan}

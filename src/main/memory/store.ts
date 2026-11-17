@@ -1072,6 +1072,12 @@ export function handoffAgentsSince(db: DatabaseSync, projectId: string, sinceIso
   return Object.fromEntries(rows.map((r) => [r.agent, r.n]))
 }
 
+/** Hand-offs each agent took since then, across all projects (equal faders share by this). */
+export function handoffCountsSince(db: DatabaseSync, sinceIso: string): Record<string, number> {
+  const rows = db.prepare('SELECT agent, COUNT(*) AS n FROM handoffs WHERE started_at >= ? GROUP BY agent').all(sinceIso) as { agent: string; n: number }[]
+  return Object.fromEntries(rows.map((r) => [r.agent, r.n]))
+}
+
 export function finishHandoff(
   db: DatabaseSync,
   id: number,

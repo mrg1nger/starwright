@@ -473,9 +473,11 @@ export function registerIpcHandlers(getSender: () => WebContents | undefined): v
       // Snapshot first so "Undo" can put the files back exactly as they
       // were before this message (a failure only costs the undo button).
       // Haiku labels the request meanwhile, so the two waits overlap.
+      let snapshotError: string | undefined
       const [snapshot, route] = await Promise.all([
         takeSnapshot(projectPath, text).catch((err: Error) => {
           console.warn('Snapshot failed:', err.message)
+          snapshotError = snapshotFailure(err)
           return undefined
         }),
         // "OK, fix it" after a question is judged together with that question.
@@ -544,7 +546,7 @@ export function registerIpcHandlers(getSender: () => WebContents | undefined): v
           // bookkeeping only
         }
       }
-      beginTurn(projectId, { projectPath, request: text, snapshot, skipReview: route.skipReview || planning })
+      beginTurn(projectId, { projectPath, request: text, snapshot, snapshotError, skipReview: route.skipReview || planning })
       startRequestLog({
         snapshot,
         projectId,
@@ -560,6 +562,10 @@ export function registerIpcHandlers(getSender: () => WebContents | undefined): v
         attachment: picked ? describePicked(picked) : undefined,
         images: thumbnails.length ? thumbnails : undefined
       })
+      // No snapshot means no Undo for this message (and no Codex review): say so, and why.
+      if (snapshotError) {
+        session.emit('event', { type: 'note', text: `⚠ Undo isn't available for this message: saving a copy of the files failed (${snapshotError}).` } satisfies VibeEvent)
+      }
       if (route.label) {
         session.emit('event', {
           type: 'route',
@@ -1760,6 +1766,12 @@ function startTakeover(
     .finally(() => takeovers.delete(projectId))
 }
 
+/** Git's own words for a failed snapshot, shortened to its first useful line. */
+function snapshotFailure(err: Error): string {
+  const lines = err.message.split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !/^Command failed:|^hint:|^warning:/i.test(l))
+  return (lines[0] ?? 'git failed').slice(0, 200)
+}
+
 /** The request each project is running, being recorded for the usage report. */
 const requestLogs = new Map<string, RequestRecorder>()
 
@@ -1786,7 +1798,8 @@ function observeRequestLog(projectId: string, event: VibeEvent): void {
       if (agents.cline) tools.cline = agents.cline
       if (agents.local) tools.local = agents.local
       row.tools = tools
-      row.handoffs = agents.codex ?? 0
+      // Every agent's hand-offs (it counted only Codex's, so Cline and local-model work showed 0).
+      row.handoffs = (agents.codex ?? 0) + (agents.cline ?? 0) + (agents.local ?? 0)
     }
     row.builtBy = [...(row.tools.edit ? ['claude'] : []), ...Object.keys(agents)]
     row.review = takeReviewNote(projectId)

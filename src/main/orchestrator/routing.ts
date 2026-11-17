@@ -4,6 +4,19 @@ import { requestClassifier, type Classification } from './classifier'
 import { BALANCE_LABELS, applyBalance, chooseRoutes, fadersOf, fadersText, leanFor, leanFromFaders, stepOfLean, workModeOf, type HelperRoute, type WorkFaders } from '@shared/balance'
 import { clineUnavailable, resolveClineLaunch } from '../cli/clineExec'
 import { localHandoffsReady } from '../cli/lmStudio'
+import { memoryDb } from '../memory/paths'
+import { handoffCountsSince } from '../memory/store'
+
+/** Hand-offs each agent took this past week: equal faders share the work by this. */
+export function recentHandoffUse(): Partial<Record<HelperRoute, number>> {
+  try {
+    return handoffCountsSince(memoryDb(), new Date(Date.now() - 7 * 24 * 3600_000).toISOString())
+  } catch {
+    return {} // bookkeeping only: without it, ties keep the usual order
+  }
+}
+
+const AGENT_NAMES: Record<HelperRoute, string> = { codex: 'Codex', cline: 'Cline', local: 'The local model' }
 
 export interface RouteDecision {
   /** Model to use for this message; null = the user's chosen model (or account default). */
@@ -142,6 +155,8 @@ export async function routeMessage(
     clineReady?: boolean
     /** Whether the local model can take hand-offs (looked up when not given). */
     localReady?: boolean
+    /** Hand-offs each agent took lately (looked up when not given). */
+    used?: Partial<Record<HelperRoute, number>>
   } = {}
 ): Promise<RouteDecision> {
   // Smart switching off means no model changes and no Haiku judge, but the
@@ -231,7 +246,14 @@ export async function routeMessage(
       model = 'haiku'
       modelLabel = 'Haiku'
       modelReason = 'quick edit'
-    } else if (request.size === 'complex' && settings.stepUpForComplex && baseline && CHEAP_MODELS.test(baseline)) {
+    } else if (
+      request.size === 'complex' &&
+      settings.stepUpForComplex &&
+      baseline &&
+      CHEAP_MODELS.test(baseline) &&
+      // Claude's fader at its lowest says spend as little Claude as possible: no step up to Opus.
+      !(manual && faders.claude <= 1)
+    ) {
       // Opt-in only: the model the user picked is otherwise a ceiling.
       model = 'opus'
       modelLabel = 'Opus'
@@ -246,7 +268,7 @@ export async function routeMessage(
     ) {
       model = 'sonnet'
       modelLabel = 'Sonnet'
-      modelReason = 'Codex is building it'
+      modelReason = 'the helpers are building it'
     } else if (request.size === 'normal' && claudeLow && !(baseline && CHEAP_MODELS.test(baseline))) {
       model = 'sonnet'
       modelLabel = 'Sonnet'
@@ -254,20 +276,27 @@ export async function routeMessage(
     }
   }
 
-  // "some" is a suggestion Claude may turn down, so the tag says so.
-  const codexReason =
-    codex === 'most' ? 'Codex does most of the work' : codex === 'some' ? 'Codex suggested for a part' : undefined
-  const reasons = [modelReason, codexReason].filter(Boolean) as string[]
+  // "some" is a suggestion Claude may turn down, so the tag says so. It names the agent a hand-off
+  // would go to first now (the faders, then who took fewer lately), not always Codex.
+  const lead =
+    codex === 'none'
+      ? undefined
+      : chooseRoutes({
+          difficulty: request.size === 'complex' ? 'hard' : 'moderate',
+          kind: 'feature',
+          available: { codex: codexOn && !codexLow, cline, local },
+          codexLow,
+          faders: manual ? faders : undefined,
+          used: manual ? (context.used ?? recentHandoffUse()) : undefined
+        })[0]
+  const leadName = lead ? AGENT_NAMES[lead] : 'The helpers'
+  const helperReason =
+    codex === 'most' ? (lead ? 'does most of the work' : 'do most of the work') : codex === 'some' ? 'suggested for a part' : undefined
+  const reasons = [modelReason, helperReason && `${leadName} ${helperReason}`].filter(Boolean) as string[]
   return {
     model,
-    label: modelLabel ?? (codexReason ? 'Codex' : undefined),
-    reason: modelLabel
-      ? reasons.join(' · ')
-      : codex === 'most'
-        ? 'does most of the work'
-        : codex === 'some'
-          ? 'suggested for a part'
-          : undefined,
+    label: modelLabel ?? (helperReason ? leadName : undefined),
+    reason: modelLabel ? reasons.join(' · ') : helperReason,
     detail: `${
       labelled
         ? `Haiku: ${request.size}${request.reason ? ` (${request.reason})` : ''}`

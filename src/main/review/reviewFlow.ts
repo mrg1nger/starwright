@@ -19,6 +19,8 @@ interface TurnContext {
   request: string
   /** Files as they were before the user's message. */
   snapshot?: string
+  /** Why there's no snapshot, when taking it failed. */
+  snapshotError?: string
   skipReview: boolean
   phase: 'main' | 'reviewing' | 'fixing'
   hadError: boolean
@@ -40,7 +42,7 @@ const EDIT_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit'])
 
 export function beginTurn(
   projectId: string,
-  context: Pick<TurnContext, 'projectPath' | 'request' | 'snapshot' | 'skipReview'>
+  context: Pick<TurnContext, 'projectPath' | 'request' | 'snapshot' | 'snapshotError' | 'skipReview'>
 ): void {
   turns.get(projectId)?.abort?.abort()
   turns.set(projectId, { ...context, phase: 'main', hadError: false, claudeEdited: false, startedAt: new Date().toISOString() })
@@ -123,7 +125,7 @@ export function handleSessionEvent(
   }
   if (!turn.snapshot) {
     turns.delete(projectId)
-    reviewNotes.set(projectId, 'skipped: no snapshot')
+    reviewNotes.set(projectId, turn.snapshotError ? `skipped: no snapshot (${turn.snapshotError})` : 'skipped: no snapshot')
     forward(event)
     return
   }

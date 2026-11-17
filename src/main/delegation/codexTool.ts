@@ -20,7 +20,7 @@ import { verifyChanges } from '../review/checks'
 import { countsFromCodexEvents, recordUsage } from '../usage/tokens'
 import type { DelegationActivity, TaskDifficulty, TaskKind } from '@shared/types'
 import { agentName, routedNote, type HandoffAgent } from '@shared/handoff'
-import { chooseRoutes, helperAvailability, type HelperRoute } from '../orchestrator/routing'
+import { chooseRoutes, helperAvailability, recentHandoffUse, type HelperRoute } from '../orchestrator/routing'
 import { fadersOf, fadersText, workModeOf } from '@shared/balance'
 import type { AgentInstallRequest } from '../extensions/install'
 import { saveRecipe } from '../deploy/deploy'
@@ -353,7 +353,9 @@ export function createCodexDelegationServer(
     const settings = getSettings()
     const { available, codexLow } = await helperAvailability(settings)
     const faders = workModeOf(settings) === 'manual' ? fadersOf(settings) : undefined
-    const routes = chooseRoutes({ difficulty: args.difficulty, kind: args.kind, available, codexLow, asked: args.agent, faders })
+    // Equal faders share the work: whoever took fewer hand-offs this past week goes first.
+    const used = faders ? recentHandoffUse() : undefined
+    const routes = chooseRoutes({ difficulty: args.difficulty, kind: args.kind, available, codexLow, asked: args.agent, faders, used })
     if (!routes.length && faders && (['codex', 'cline', 'local'] as const).some((r) => available[r])) {
       return {
         content: [

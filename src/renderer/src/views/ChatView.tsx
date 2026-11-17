@@ -515,6 +515,7 @@ function ChatView({ project, onBack, onOpenHistory, onOpenMemory, onError, think
           }
           case 'schedule_note':
           case 'github_note':
+          case 'note':
             return [...prev, { kind: 'notice', text: event.text }]
           case 'schedule_ready':
             return [...prev, { kind: 'schedule_ready', scheduleId: event.scheduleId, name: event.name, summary: event.summary }]

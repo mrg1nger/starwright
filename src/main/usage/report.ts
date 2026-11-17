@@ -226,22 +226,24 @@ export function buildReport(input: {
     for (const r of rows) addTools(tools, r.tools)
     const withHandoff = rows.filter((r) => r.handoffs > 0).length
     lines.push(
-      `- ${MODE_LABELS[mode] ?? mode}: ${rows.length}, avg ${Math.round(sum(rows.map((r) => r.claudeSteps)) / rows.length)} Claude steps and ${k(sum(rows.map(reqWeight)) / rows.length)} each; ${withHandoff} used Codex. Claude's tool calls: ${stepMix(tools)}`
+      `- ${MODE_LABELS[mode] ?? mode}: ${rows.length}, avg ${Math.round(sum(rows.map((r) => r.claudeSteps)) / rows.length)} Claude steps and ${k(sum(rows.map(reqWeight)) / rows.length)} each; ${withHandoff} handed work off. Claude's tool calls: ${stepMix(tools)}`
     )
   }
 
-  // ---- the Claude/Codex split: where routing asked for a helper
-  const codexRouted = requests.filter((r) => r.mode !== 'plan' && r.mode !== 'takeover' && /Codex/i.test(r.route ?? ''))
+  // ---- the Claude/helpers split: where routing asked for a helper (older rows' tags named Codex,
+  // newer ones name the agent a hand-off would go to first, or "the helpers")
+  const ROUTED = /Codex|Cline|local model|helpers|does most of the work|do most of the work|suggested for a part/i
+  const codexRouted = requests.filter((r) => r.mode !== 'plan' && r.mode !== 'takeover' && ROUTED.test(r.route ?? ''))
   if (codexRouted.length) {
     const handedOff = codexRouted.filter((r) => r.handoffs > 0)
     const after = (kind: StepKind): number => handedOff.filter((r) => (r.tools[kind] ?? 0) > 0).length
     lines.push(
       '',
       `## Teamwork (${codexRouted.length} requests routed to the helpers)`,
-      `- Called Codex: ${handedOff.length} (${pct(handedOff.length, codexRouted.length)}). Didn't: ${codexRouted.length - handedOff.length}.`,
+      `- Handed work off: ${handedOff.length} (${pct(handedOff.length, codexRouted.length)}). Didn't: ${codexRouted.length - handedOff.length}.`,
       `- After handing off, Claude still edited files in ${after('edit')}, checked in a browser in ${after('browser')}, ran server commands in ${after('server')} and local commands in ${after('command')}.`,
       `- Claude's share of the work there: ${stepMix(Object.fromEntries(Object.entries(handedOff.reduce<Record<string, number>>((acc, r) => (addTools(acc, r.tools), acc), {})).filter(([kind]) => kind !== 'handoff')))}`,
-      `- Codex tokens per hand-off request: ${k(sum(handedOff.map((r) => weight(r.codex))) / Math.max(1, handedOff.length))}; Claude's: ${k(sum(handedOff.map(reqWeight)) / Math.max(1, handedOff.length))}.`
+      `- Codex tokens per request that handed off: ${k(sum(handedOff.map((r) => weight(r.codex))) / Math.max(1, handedOff.length))}; Claude's: ${k(sum(handedOff.map(reqWeight)) / Math.max(1, handedOff.length))}.`
     )
   }
   const toLocal = requests.filter((r) => (r.tools.local ?? 0) > 0)

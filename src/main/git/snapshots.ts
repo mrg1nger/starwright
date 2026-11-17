@@ -8,8 +8,11 @@ const execFileAsync = promisify(execFile)
 
 // Dependency folders are huge, regenerable, and not something "undo" should
 // ever touch -- even in a project whose .gitignore forgot them.
+// As glob pathspecs: the plain `:(exclude)node_modules` made `git add` stop with "paths are ignored
+// by one of your .gitignore files" (exit 1) in any project whose .gitignore lists node_modules too,
+// so after a project's first npm install every snapshot failed (no Undo, no Codex review).
 const EXCLUDES = ['node_modules', '.venv', 'venv', '__pycache__']
-const EXCLUDE_PATHSPECS = EXCLUDES.flatMap((d) => [`:(exclude)${d}`, `:(exclude)**/${d}`])
+export const EXCLUDE_PATHSPECS = EXCLUDES.map((d) => `:(exclude,glob)**/${d}/**`)
 
 // Snapshots are commits outside any branch, so they need no configured identity.
 const IDENTITY_ENV = {

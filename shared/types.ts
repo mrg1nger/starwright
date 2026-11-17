@@ -99,6 +99,8 @@ export type VibeEvent =
   | { type: 'schedule_ready'; scheduleId: string; name: string; summary: string }
   /** Something about the GitHub copy worth a line in the chat (a backup that couldn't go, newer work fetched). */
   | { type: 'github_note'; text: string }
+  /** A plain notice in the chat (e.g. Undo isn't available for this message). */
+  | { type: 'note'; text: string }
   /** What the user decided about a proposed plan (kept so the chat shows it after reopening). */
   | { type: 'plan_decided'; toolUseId: string; decision: 'approved' | 'revised' | 'cancelled' }
   /** Building an approved plan: a step started or finished. */

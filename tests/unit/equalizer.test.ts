@@ -14,6 +14,7 @@ import {
   workModeOf
 } from '@shared/balance'
 import { chooseRoutes, planHandoffNote, routeMessage } from '../../src/main/orchestrator/routing'
+import { requestClassifier } from '../../src/main/orchestrator/classifier'
 
 const all = { codex: true, cline: true, local: true }
 
@@ -55,6 +56,21 @@ test('the faders reorder hand-offs within the roles each agent can take', () => 
   assert.deepEqual(pick('simple', { ...f, local: 0 }, 'local'), ['cline', 'codex'], 'an agent switched off is not used even when asked for')
 })
 
+test('equal faders share the work: the agent used least lately goes first', () => {
+  const even = { claude: 1, codex: 3, cline: 3, local: 3 }
+  const pick = (difficulty: 'simple' | 'moderate' | 'hard', used?: Record<string, number>) =>
+    chooseRoutes({ difficulty, kind: 'feature', available: all, codexLow: false, faders: even, used })
+  assert.deepEqual(pick('moderate', { codex: 8, cline: 0 }), ['cline', 'codex', 'local'], '3/3/3 sent every hand-off to Codex before')
+  assert.deepEqual(pick('hard', { codex: 2, cline: 5 }), ['codex', 'cline'])
+  assert.deepEqual(pick('moderate'), ['codex', 'cline', 'local'], 'no record: the usual order')
+  assert.deepEqual(pick('simple', { local: 9, cline: 1, codex: 4 }), ['cline', 'codex', 'local'])
+  assert.deepEqual(
+    chooseRoutes({ difficulty: 'moderate', kind: 'feature', available: all, codexLow: false, faders: { ...even, codex: 4 }, used: { codex: 50 } }),
+    ['codex', 'cline', 'local'],
+    'a higher fader still wins over how much it was used'
+  )
+})
+
 test('presets are recognised, and none breaks the rules', () => {
   for (const p of FADER_PRESETS) {
     assert.equal(faderProblem(p.faders), null, p.id)
@@ -69,6 +85,10 @@ test("routing follows the faders on Manual: who's named, and how hard Claude lea
   const helpersOff = await routeMessage('Build a settings page with a dark mode toggle', { ...base, workFaders: { claude: 4, codex: 0, cline: 0, local: 0 } }, ready)
   assert.doesNotMatch(helpersOff.note ?? '', /run_subtask/, 'nobody to hand to')
   assert.match(helpersOff.detail ?? '', /faders: Claude 4 · Codex 0/)
+
+  const label = await routeMessage('Build a settings page with a dark mode toggle', { ...base, workFaders: { claude: 1, codex: 3, cline: 3, local: 3 } }, { ...ready, used: { codex: 8 } })
+  assert.equal(label.label, 'Cline', 'the tag names who a hand-off would go to now, not always Codex')
+  assert.doesNotMatch(`${label.reason}`, /Codex/)
 
   const clineOnly = await routeMessage('Build a settings page with a dark mode toggle', { ...base, workFaders: { claude: 1, codex: 0, cline: 4, local: 0 } }, ready)
   assert.match(clineOnly.note ?? '', /Cline/)
@@ -94,4 +114,16 @@ test('plan steps say who they would likely go to, and planning is told how much 
   assert.match(planned.note ?? '', /For the plan:/)
   const built = await routeMessage('Plan a Hyper-V MCP server', base, { clineReady: true, localReady: true, notQuick: true })
   assert.doesNotMatch(built.note ?? '', /For the plan:/, 'only while planning')
+})
+
+test("Claude's fader at its lowest stops the step up to Opus for complex requests", async (t) => {
+  // Stands in for the Haiku judge (the keyword rules never call a request complex).
+  t.mock.method(requestClassifier, 'classify', async () => ({ size: 'complex', codex: 'most', reason: 'big build' }))
+  const base = { smartRouting: true, aiRouting: true, agentBalance: 'auto', claudeModel: 'sonnet', stepUpForComplex: true, workMode: 'manual' } as unknown as AppSettings
+  const ready = { clineReady: true, localReady: true, notQuick: true, used: {} }
+  const low = await routeMessage('Build the whole inventory system', { ...base, workFaders: { claude: 1, codex: 3, cline: 3, local: 3 } }, ready)
+  const high = await routeMessage('Build the whole inventory system', { ...base, workFaders: { claude: 3, codex: 3, cline: 3, local: 3 } }, ready)
+  assert.equal(high.size, 'complex')
+  assert.equal(high.model, 'opus')
+  assert.notEqual(low.model, 'opus')
 })

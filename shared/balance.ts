@@ -160,14 +160,23 @@ export function leanFromFaders(f: WorkFaders, available: Record<HelperRoute, boo
 }
 
 /**
- * The helpers in order of trying under the faders: higher faders first, ties keeping the usual
- * order for this difficulty; off ones dropped. The local model never moves ahead of the others for
- * work above simple (it's there as a last resort).
+ * The helpers in order of trying under the faders: higher faders first; off ones dropped. Equal
+ * faders share the work: the one given fewer hand-offs lately (`used`) goes first, and only a tie
+ * there too keeps the usual order for this difficulty (which put Codex first every time at 3/3/3).
+ * The local model never moves ahead of the others for work above simple (it's a last resort there).
  */
-export function orderByFaders(order: HelperRoute[], f: WorkFaders, difficulty: TaskDifficulty): HelperRoute[] {
+export function orderByFaders(
+  order: HelperRoute[],
+  f: WorkFaders,
+  difficulty: TaskDifficulty,
+  used: Partial<Record<HelperRoute, number>> = {}
+): HelperRoute[] {
   const on = order.filter((r) => f[r] > 0)
   const ranked = (list: HelperRoute[]): HelperRoute[] =>
-    list.map((r, i) => ({ r, i })).sort((a, b) => f[b.r] - f[a.r] || a.i - b.i).map((x) => x.r)
+    list
+      .map((r, i) => ({ r, i }))
+      .sort((a, b) => f[b.r] - f[a.r] || (used[a.r] ?? 0) - (used[b.r] ?? 0) || a.i - b.i)
+      .map((x) => x.r)
   if (difficulty === 'simple') return ranked(on)
   return [...ranked(on.filter((r) => r !== 'local')), ...on.filter((r) => r === 'local')]
 }
@@ -200,11 +209,13 @@ export function chooseRoutes(input: {
   asked?: HelperRoute
   /** The user's faders, when the equalizer is on Manual. */
   faders?: WorkFaders
+  /** Hand-offs each agent took lately: equal faders go to the one used least. */
+  used?: Partial<Record<HelperRoute, number>>
 }): HelperRoute[] {
   const plain = input.kind === 'tests' || input.kind === 'boilerplate' || input.kind === 'docs'
   const level = input.difficulty === 'moderate' && plain ? 'simple' : input.difficulty
   let order: HelperRoute[] = level === 'simple' ? ['local', 'cline', 'codex'] : level === 'moderate' ? ['codex', 'cline', 'local'] : ['codex', 'cline']
-  if (input.faders) order = orderByFaders(order, input.faders, level)
+  if (input.faders) order = orderByFaders(order, input.faders, level, input.used)
   if (input.codexLow && order.includes('codex')) order = [...order.filter((r) => r !== 'codex'), 'codex']
   // An agent asked for by name goes first, unless the user switched it off on the faders.
   if (input.asked && (!input.faders || input.faders[input.asked] > 0)) order = [input.asked, ...order.filter((r) => r !== input.asked)]

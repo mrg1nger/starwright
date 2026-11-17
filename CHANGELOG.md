@@ -2,6 +2,18 @@
 
 The version goes up with each improvement that ships: the middle number for new features, the last for fixes only. Settings shows the version a computer is running. (Starwright was called VibeApp up to 0.10.0.)
 
+## 0.15.4 (2026-11-17)
+
+**Undo works again after a project's first `npm install`.** The copy Starwright saves before each message (what Undo goes back to, and what the Codex review compares against) failed in any project whose `.gitignore` lists `node_modules`, because git refused Starwright's own "leave node_modules out" rule for naming an ignored folder. From a project's first install on, messages had no Undo and no Codex review. Fixed; and if saving that copy ever fails again, the chat says Undo isn't available for that message, and why.
+
+**Equal faders share the work.** With Codex, Cline and the local model on the same fader, every hand-off went to Codex (ties fell back to the old order). Now the agent that took fewer hand-offs this past week goes first, so 3/3/3 really splits it. A higher fader still always wins.
+
+**The route tag names the agent that would take the work.** It said "Codex does most of the work" whatever the faders were; it now names who a hand-off would go to first ("Cline · does most of the work").
+
+**Claude's fader at its lowest stops the step up to Opus.** With "step up to Opus for complex requests" on, big requests still moved to Opus even with Claude's fader at 1. In Manual with Claude at 1 (or Off), they stay on your chosen model.
+
+**The usage report counts every agent's hand-offs per request.** Requests that handed work to Cline or the local model showed "0 hand-offs", since only Codex's were counted. The report now says "handed work off" rather than "used Codex".
+
 ## 0.15.3 (2026-11-16)
 
 **A request still running shows as running when you come back to its chat.** Going to Settings, Extensions or another project and back showed the chat so far, but not that the request was still going: no "working" line and no Stop button, so it looked finished or stuck. The chat now asks whether the project is still busy when it opens, and carries on showing the request's steps as they come.
