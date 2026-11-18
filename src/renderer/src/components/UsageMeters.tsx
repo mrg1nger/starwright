@@ -183,6 +183,12 @@ function UsageMeters({ statuses, children }: UsageMetersProps) {
             onClick={() => refresh(true)}
           >
             <span className="usage-meter-name">{name}</span>
+            {/* On a phone: the least left of its windows, next to the name (the bars lose their numbers). */}
+            {snapshot?.status === 'ok' && snapshot.windows.length > 0 && (
+              <span className={`usage-meter-least ${levelClass(Math.max(...snapshot.windows.map((w) => w.usedPercent)))}`}>
+                {Math.max(0, 100 - Math.round(Math.max(...snapshot.windows.map((w) => w.usedPercent))))}%
+              </span>
+            )}
             <span className="usage-meter-bars">
               {snapshot?.status === 'ok' ? (
                 snapshot.windows.map((w) => {

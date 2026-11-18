@@ -90,7 +90,7 @@ function Equalizer({ settings, statuses, onChange }: EqualizerProps) {
             <span key={r.id} style={{ height: `${mode === 'auto' ? 50 : 15 + (faders[r.id] / FADER_MAX) * 85}%` }} />
           ))}
         </span>
-        {label}
+        <span className="eq-label">{label}</span>
       </button>
 
       {open && (

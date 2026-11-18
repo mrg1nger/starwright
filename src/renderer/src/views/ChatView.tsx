@@ -231,6 +231,20 @@ function ChatView({ project, onBack, onOpenHistory, onOpenMemory, onError, think
   const [sidePane, setSidePaneState] = useState<SidePane>(readSidePref)
   // On a phone there's room for one pane at a time: the chat or the side pane.
   const phone = usePhone()
+  // On a phone the project's buttons fold into a ⋯ list, so the header is one line.
+  const [moreOpen, setMoreOpen] = useState(false)
+  const moreRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!moreOpen) return
+    const close = (e: PointerEvent): void => {
+      if (moreRef.current && !moreRef.current.contains(e.target as Node)) setMoreOpen(false)
+    }
+    document.addEventListener('pointerdown', close)
+    return () => document.removeEventListener('pointerdown', close)
+  }, [moreOpen])
+  useEffect(() => {
+    if (!phone) setMoreOpen(false)
+  }, [phone])
   const [phonePane, setPhonePane] = useState<'chat' | 'preview'>('chat')
   // A to-do sent to Plan mode: ticked off once its approved plan has been built.
   const planTodo = useRef<string | null>(null)
@@ -972,20 +986,44 @@ function ChatView({ project, onBack, onOpenHistory, onOpenMemory, onError, think
 
   return (
     <div className="chat-view">
-      <div className="chat-header">
-        <button onClick={onBack}>&larr; Projects</button>
+      <div className="chat-header" ref={moreRef}>
+        <button onClick={onBack} title="Back to Projects" aria-label="Back to Projects">
+          {phone ? '←' : <>&larr; Projects</>}
+        </button>
         <span className="chat-project-name">{project.name}</span>
-        <div className="chat-header-actions" data-scroll-x>
-          <button className={showPreview && sidePane === 'preview' ? 'active' : ''} onClick={() => toggleSide('preview')}>
-            Preview
-          </button>
+        {phone && (
           <button
-            className={showPreview && sidePane === 'notes' ? 'active' : ''}
-            onClick={() => toggleSide('notes')}
-            title="This project's to-do list and notes"
+            className={`chat-more${moreOpen ? ' active' : ''}`}
+            aria-expanded={moreOpen}
+            aria-label="More: secrets, publish, deploy, schedules, memory, history"
+            onClick={() => setMoreOpen((o) => !o)}
           >
-            📝 Notes
+            ⋯
           </button>
+        )}
+        <div
+          className={`chat-header-actions${moreOpen ? ' open' : ''}`}
+          data-scroll-x
+          onClick={(e) => {
+            // A plain button closes the list; Checkpoint and Go Nutz keep it while their dialog is open.
+            const button = (e.target as HTMLElement).closest('button')
+            if (phone && button?.parentElement === e.currentTarget) setMoreOpen(false)
+          }}
+        >
+          {!phone && (
+            <>
+              <button className={showPreview && sidePane === 'preview' ? 'active' : ''} onClick={() => toggleSide('preview')}>
+                Preview
+              </button>
+              <button
+                className={showPreview && sidePane === 'notes' ? 'active' : ''}
+                onClick={() => toggleSide('notes')}
+                title="This project's to-do list and notes"
+              >
+                📝 Notes
+              </button>
+            </>
+          )}
           <button onClick={() => setDialog('secrets')} title="API keys and passwords for this project">
             🔑 Secrets
           </button>

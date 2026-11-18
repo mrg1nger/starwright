@@ -1177,6 +1177,48 @@ try {
   })
 
   let previewUrl = ''
+  await step('on a phone-sized screen: nothing runs off the side, and each screen is captured', async () => {
+    await evaluate(`window.vibe.settings.update({ lmStudioHelpers: true })`)
+    await cdp('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true })
+    await sleep(800)
+    // A third plan meter, as with Cline: five things in the top row must still fit.
+    await evaluate(`(() => { const m = document.querySelector('.usage-meter:not(.local-model)'); if (!m) return; const c = m.cloneNode(true); c.classList.add('e2e-fake-meter'); c.querySelector('.usage-meter-name').textContent = 'Cline'; m.after(c) })()`)
+    // Anything wider than the screen (the page would scroll sideways), by its class.
+    const overflow = `[...document.querySelectorAll('body *')].filter((e) => { const r = e.getBoundingClientRect(); return r.width && (r.right > innerWidth + 1 || r.left < -1) && getComputedStyle(e).position !== 'fixed' && !e.closest('.app-nav-tabs, .chat-header-actions, pre, .md table') }).slice(0, 8).map((e) => (e.className || e.tagName) + ' ' + Math.round(e.getBoundingClientRect().right)).join(', ')`
+    const problems = []
+    try {
+      for (const [tab, open] of [['Projects', null], ['Chat', 'e2e-game'], ['Settings', null], ['Extensions', null]]) {
+        await click(tab === 'Chat' ? 'Projects' : tab, '.app-nav-tabs button')
+        if (open) {
+          await click(open, 'button.project-row')
+          await waitFor(`!!document.querySelector('textarea.chat-input')`, 'the chat')
+        }
+        await sleep(800)
+        await shot(`phone-${tab.toLowerCase()}`)
+        const wide = await evaluate(overflow)
+        if (wide) problems.push(`${tab}: ${wide}`)
+        if (tab === 'Chat') {
+          if (await evaluate(`getComputedStyle(document.querySelector('.chat-header-actions')).display !== 'none'`)) problems.push('Chat: the project buttons show without ⋯')
+          await click('⋯', 'button.chat-more')
+          await sleep(400)
+          await shot('phone-chat-more')
+          const menu = await evaluate(`(() => { const r = document.querySelector('.chat-header-actions.open')?.getBoundingClientRect(); return r ? [Math.round(r.left), Math.round(r.right), Math.round(r.bottom)] : null })()`)
+          if (!menu) problems.push('Chat: ⋯ opened no list')
+          else if (menu[0] < 0 || menu[1] > 390 || menu[2] > 844) problems.push(`Chat: the ⋯ list runs off the screen (${menu})`)
+          await click('History', '.chat-header-actions.open button')
+          await sleep(400)
+          if (await evaluate(`!!document.querySelector('.chat-header-actions.open')`)) problems.push('Chat: choosing from ⋯ left the list open')
+          await pressEscape()
+          await sleep(300)
+        }
+      }
+    } finally {
+      await cdp('Emulation.clearDeviceMetricsOverride', {})
+      await evaluate(`window.vibe.settings.update({ lmStudioHelpers: false })`)
+    }
+    if (problems.length) throw new Error(`wider than the screen: ${problems.join(' | ')}`)
+  })
+
   await step('a theme with a background picture: Codex paints it, the colors are picked from it, it shows behind the app, and Delete removes it', async () => {
     const themes = join(data, 'themes')
     await click('Settings', '.app-nav-tabs button')

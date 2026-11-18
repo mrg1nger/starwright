@@ -2,6 +2,14 @@
 
 The version goes up with each improvement that ships: the middle number for new features, the last for fixes only. Settings shows the version a computer is running. (Starwright was called VibeApp up to 0.10.0.)
 
+## 0.16.3 (2026-11-18)
+
+**A tidier phone screen through Remote access.**
+- The top bar's meters are small tiles: the name and the least left (like "Claude 73%") over its bars, so all of them fit on one line, Cline too. The equalizer shows as its bars, and the local model as its light (and "Local" when there's room); the details are in each one's tooltip, as before.
+- A project's header is one line: ←, its name, and ⋯, which lists Secrets, Publish, Deploy, Schedules, Memory, History, Checkpoint and Go Nutz. Preview and Notes are in the Chat / Preview / Notes switch under it, as before, rather than twice.
+- In a chat the footer links make way for the message box.
+- Nothing changes on a computer screen.
+
 ## 0.16.2 (2026-11-17)
 
 **Theme pictures work where Codex can't write files.** On some computers Codex drew the picture but wasn't allowed to save it into its folder, so the theme came out with colors only ("The read-only workspace blocked saving it"). Codex now only draws the picture, read-only, and Starwright takes it from the folder where Codex keeps every picture it makes (then removes Codex's copy).

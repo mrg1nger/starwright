@@ -1097,6 +1097,11 @@ textarea {
   gap: 0.6rem;
 }
 
+/* Shown on a phone only (the phone rules below). */
+.usage-meter-least {
+  display: none;
+}
+
 .usage-meter {
   display: flex;
   align-items: center;
@@ -3059,6 +3064,131 @@ textarea {
 
   .eq-toggle {
     padding: 4px 8px;
+  }
+
+  /* Each meter a small tile: name and the least left on top, its bars full width under them. */
+  .usage-meters {
+    align-items: stretch;
+  }
+
+  .usage-meter:not(.local-model) {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-rows: auto auto;
+    align-items: center;
+    gap: 3px 4px;
+    padding: 4px 7px;
+  }
+
+  .usage-meter:not(.local-model) .usage-meter-name {
+    font-size: 12px;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .usage-meter-least {
+    display: inline;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .usage-meter:not(.local-model) .usage-meter-bars {
+    grid-column: 1 / -1;
+    gap: 2px;
+  }
+
+  .usage-meter .usage-bar-label,
+  .usage-meter .usage-bar-value {
+    display: none;
+  }
+
+  .usage-meter .usage-bar-row {
+    gap: 0;
+  }
+
+  .usage-meter .usage-bar {
+    min-width: 0;
+  }
+
+  /* The equalizer as its bars alone, and the local model as its light and name. */
+  .eq-label {
+    display: none;
+  }
+
+  .usage-meter.local-model {
+    flex: none;
+    padding: 4px 8px;
+  }
+
+  .usage-meter.local-model .local-model-name {
+    display: none;
+  }
+
+  .usage-meter.local-model .usage-meter-name {
+    font-size: 12px;
+  }
+
+  /* With three plan meters (Cline too), the local model is its light alone. */
+  .usage-meters:has(.usage-meter:not(.local-model) ~ .usage-meter:not(.local-model) ~ .usage-meter:not(.local-model))
+    .local-model
+    .usage-meter-name {
+    display: none;
+  }
+
+  /* Chat header on one line: back, the project's name, and ⋯ for the rest. */
+  .chat-header {
+    position: relative;
+    flex-wrap: nowrap;
+  }
+
+  .chat-header .chat-project-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .chat-more {
+    display: inline-block;
+    font-size: 18px;
+    line-height: 1;
+    padding: 6px 12px;
+  }
+
+  .chat-header .chat-header-actions {
+    display: none;
+  }
+
+  .chat-header .chat-header-actions.open {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    position: absolute;
+    top: calc(100% + 4px);
+    right: 0;
+    z-index: 40;
+    min-width: 210px;
+    margin: 0;
+    padding: 6px;
+    gap: 4px;
+    overflow: visible;
+    background: var(--surface-raised);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  }
+
+  .chat-header-actions.open > *,
+  .chat-header-actions.open > * > button {
+    width: 100%;
+    text-align: left;
+  }
+
+  /* In a chat the footer's links give way to the message box. */
+  .app:has(.chat-view) .app-footer {
+    display: none;
   }
 
   .eq-panel {
