@@ -7,6 +7,7 @@ import { promisify } from 'util'
 import type { DelegationActivity } from '@shared/types'
 import { activeExtensions, extensionInstructions } from '../extensions/store'
 import { describeActivity, progressNote } from './codexActivity'
+import { codexHookArgs } from '../guard/codexHookSetup'
 
 const execFileAsync = promisify(execFile)
 
@@ -238,8 +239,11 @@ ${args.prompt}`
         .join('\n\n')
     : args.prompt
 
+  // Starwright's safety check before each of Codex's commands and edits: its own data folders are refused.
+  const hookArgs = await codexHookArgs()
   const cliArgs = [
     'exec',
+    ...hookArgs,
     ...(args.resumeThreadId ? [] : ['-']), // read the prompt from stdin; see resolveCodexLaunch
     '--json',
     ...(args.readOnly

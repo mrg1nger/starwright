@@ -2,6 +2,19 @@
 
 The version goes up with each improvement that ships: the middle number for new features, the last for fixes only. Settings shows the version a computer is running. (Starwright was called VibeApp up to 0.10.0.)
 
+## 0.16.4 (2026-11-18)
+
+Three fixes from a week of Lazarus's own usage records.
+
+**The agents can't look into Starwright's own data.** A Codex hand-off looking for a password listed Starwright's secrets, deploy and memory folders. Now Codex, Cline and the local model are refused anything that reaches into Starwright's data (`%APPDATA%\vibeapp`, `~\.vibeapp`), in Go Nutz too, and told to use the project's secrets from their environment instead. For Codex this is a safety check Starwright gives each run, before every command, edit and tool call; nothing is written to your own Codex settings. A project that happens to be called VibeApp isn't affected.
+
+**A failing Deploy isn't run over and over.** One request ran the same failing Deploy 9 times. Claude now gets one more try after fixing the cause; after two failures in a row Starwright won't run it again in that request, and Claude stops to tell you what failed and ask. Your next message starts over.
+
+**Cline finishes big jobs instead of leaving them half done.**
+- Every one of Cline's failures that week was its 10-minute limit running out on a large feature. Moderate and hard work now gets the full 15 minutes.
+- When Cline or the local model runs out of time after changing files, it gets one more go to finish (Cline keeps its conversation), instead of leaving a half-built change for Claude.
+- Hard work goes to Codex first when the faders are equal (it finished every hand-off it was given); moderate work is still shared by who was used least.
+
 ## 0.16.3 (2026-11-18)
 
 **A tidier phone screen through Remote access.**

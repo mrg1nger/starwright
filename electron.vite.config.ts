@@ -57,6 +57,16 @@ function bundleMemoryServerPlugin() {
         alias: { '@shared': resolve('shared') },
         logLevel: 'warning'
       })
+      // Codex's safety hook: refuses Starwright's own data folders before a command runs.
+      buildSync({
+        entryPoints: [resolve('src/main/guard/codexHookMain.ts')],
+        outfile: resolve('out/main/guard/codexHook.cjs'),
+        bundle: true,
+        platform: 'node',
+        format: 'cjs',
+        target: 'node18',
+        logLevel: 'warning'
+      })
       buildSync({
         entryPoints: [resolve('src/main/memory/memoryServer.mjs')],
         outfile: resolve('out/main/memory/memoryServer.cjs'),

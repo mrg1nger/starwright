@@ -10,6 +10,7 @@
 import { isAbsolute, relative, resolve } from 'path'
 import { staysInProject } from '../orchestrator/commandScope'
 import { githubDanger } from '../orchestrator/githubGuard'
+import { starwrightDataDanger } from '../guard/starwrightData'
 
 export type ClineMode = 'build' | 'review' | 'helper'
 
@@ -29,6 +30,8 @@ export interface ClinePolicy {
    * which Starwright answers (hosted Cline). One-off CLI runs can't ask, so they refuse.
    */
   askOutside?: boolean
+  /** Starwright's own data folder(s): never touched, Go Nutz or not (the usual names are refused anyway). */
+  dataPaths?: string[]
 }
 
 export interface ToolCall {
@@ -76,6 +79,9 @@ export const OUTSIDE_PROJECT = 'working outside the project folder'
 export function commandDanger(command: string, policy: ClinePolicy): string | null {
   const github = githubDanger(command)
   if (github) return github
+  // Starwright's secrets, deploy recipes and memory: never, Go Nutz or not, and not the user's to allow from a prompt.
+  const data = starwrightDataDanger(command, policy.dataPaths)
+  if (data) return data
   if (policy.goNutz) return null
   for (const rule of DESTRUCTIVE) if (rule.pattern.test(command)) return rule.what
   if (!staysInProject(command, policy.projectPath)) return OUTSIDE_PROJECT

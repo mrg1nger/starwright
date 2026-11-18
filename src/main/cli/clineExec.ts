@@ -130,7 +130,7 @@ export function vibeClineDir(): string {
 let nodePath: string | null | undefined
 
 /** The Node Cline runs the hook with: it calls "node", so its folder goes first on PATH. */
-async function findNode(): Promise<string | null> {
+export async function findNode(): Promise<string | null> {
   if (nodePath !== undefined) return nodePath
   try {
     const { stdout } = await execFileAsync(process.platform === 'win32' ? 'where' : 'which', ['node'], { timeout: 5_000, windowsHide: true })
@@ -489,7 +489,7 @@ export async function runCline(args: ClineRunArgs, onActivity?: (activity: Deleg
 
   const temp = mkdtempSync(join(tmpdir(), 'vibeapp-cline-'))
   const hookLog = join(temp, 'blocked.jsonl')
-  const policy: ClinePolicy = { mode: args.mode, projectPath: args.cwd, goNutz: !!args.goNutz, blockedNote: home.blockedNote, readFiles: [home.blockedNote] }
+  const policy: ClinePolicy = { mode: args.mode, projectPath: args.cwd, goNutz: !!args.goNutz, blockedNote: home.blockedNote, readFiles: [home.blockedNote], dataPaths: [app.getPath('userData')] }
   let prompt = args.prompt
   if (prompt.length > ARG_PROMPT_CHARS) {
     const taskFile = join(temp, 'task.md')

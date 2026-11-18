@@ -62,6 +62,7 @@ test('equal faders share the work: the agent used least lately goes first', () =
     chooseRoutes({ difficulty, kind: 'feature', available: all, codexLow: false, faders: even, used })
   assert.deepEqual(pick('moderate', { codex: 8, cline: 0 }), ['cline', 'codex', 'local'], '3/3/3 sent every hand-off to Codex before')
   assert.deepEqual(pick('hard', { codex: 2, cline: 5 }), ['codex', 'cline'])
+  assert.deepEqual(pick('hard', { codex: 9, cline: 0 }), ['codex', 'cline'], "hard work isn't shared out: Codex first (Cline ran out of time on it)")
   assert.deepEqual(pick('moderate'), ['codex', 'cline', 'local'], 'no record: the usual order')
   assert.deepEqual(pick('simple', { local: 9, cline: 1, codex: 4 }), ['cline', 'codex', 'local'])
   assert.deepEqual(

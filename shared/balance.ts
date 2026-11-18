@@ -172,10 +172,14 @@ export function orderByFaders(
   used: Partial<Record<HelperRoute, number>> = {}
 ): HelperRoute[] {
   const on = order.filter((r) => f[r] > 0)
+  // Equal faders share the work by who was used least, except hard work: that goes in the usual
+  // order (Codex first). On Lazarus, hard features shared out to Cline ran out of time; Codex
+  // finished every hand-off it was given.
+  const share = difficulty !== 'hard'
   const ranked = (list: HelperRoute[]): HelperRoute[] =>
     list
       .map((r, i) => ({ r, i }))
-      .sort((a, b) => f[b.r] - f[a.r] || (used[a.r] ?? 0) - (used[b.r] ?? 0) || a.i - b.i)
+      .sort((a, b) => f[b.r] - f[a.r] || (share ? (used[a.r] ?? 0) - (used[b.r] ?? 0) : 0) || a.i - b.i)
       .map((x) => x.r)
   if (difficulty === 'simple') return ranked(on)
   return [...ranked(on.filter((r) => r !== 'local')), ...on.filter((r) => r === 'local')]

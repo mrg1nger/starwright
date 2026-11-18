@@ -145,6 +145,7 @@ import { listClaudeModels } from '../cli/claudeModels'
 import { listCodexModels } from '../cli/codexModels'
 import { listThemes, deleteTheme, themesDir, themeImage } from '../themes/store'
 import { generateTheme } from '../themes/generate'
+import { deployRefusal, recordDeployResult, resetDeployTries } from '../deploy/deployTries'
 import { claudeBlockedUntil, claudeStandsDown, clearClaudeLimit, forgetUsage, getUsage, noteClaudeLimit } from '../usage/usage'
 import { clineUsageKeyStatus, fetchClineUsage, setClineUsageKey } from '../cline/clineUsage'
 import { helpersAllowed } from '../helpers/helperJob'
@@ -548,6 +549,7 @@ export function registerIpcHandlers(getSender: () => WebContents | undefined): v
           // bookkeeping only
         }
       }
+      resetDeployTries(projectId)
       beginTurn(projectId, { projectPath, request: text, snapshot, snapshotError, skipReview: route.skipReview || planning })
       startRequestLog({
         snapshot,
@@ -1886,12 +1888,16 @@ async function deployForClaude(
   projectPath: string,
   getSender: () => WebContents | undefined
 ): Promise<{ ok: boolean; text: string }> {
+  // Two failures in a row in this request: not run a third time (deployTries.ts).
+  const refusal = deployRefusal(projectId)
+  if (refusal) return { ok: false, text: refusal }
   try {
     const r = await deployNow(projectId, projectPath, 'claude', getSender)
+    const next = recordDeployResult(projectId, r)
     if (r.ok) return { ok: true, text: `Deployed with "${r.name}" in ${r.seconds}s${r.checkDetail ? ` (${r.checkDetail})` : ''}. The result is in the user's chat.` }
     return {
       ok: false,
-      text: `"${r.name}" ${r.stopped ? 'was stopped by the user' : `failed at "${r.failedStep}"`}${r.rolledBack ? '; the rollback steps ran, so the previous version is live' : ''}.${r.checkDetail ? ` ${r.checkDetail}.` : ''}${r.output ? `\nLast output:\n${r.output.slice(-1500)}` : ''}`
+      text: `"${r.name}" ${r.stopped ? 'was stopped by the user' : `failed at "${r.failedStep}"`}${r.rolledBack ? '; the rollback steps ran, so the previous version is live' : ''}.${r.checkDetail ? ` ${r.checkDetail}.` : ''}${next}${r.output ? `\nLast output:\n${r.output.slice(-1500)}` : ''}`
     }
   } catch (err) {
     const message = (err as Error).message

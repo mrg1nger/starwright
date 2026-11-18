@@ -1,3 +1,4 @@
+import { app } from 'electron'
 import { spawn, type ChildProcessWithoutNullStreams } from 'child_process'
 import { createHash } from 'crypto'
 import { mkdtempSync, readFileSync, rmSync } from 'fs'
@@ -199,7 +200,8 @@ async function startAgent(key: string, args: ClineRunArgs): Promise<Agent> {
     goNutz: !!args.goNutz,
     blockedNote: home.blockedNote,
     readFiles: [home.blockedNote],
-    askOutside: true
+    askOutside: true,
+    dataPaths: [app.getPath('userData')]
   }
   const mcpPath = join(temp, 'mcp.json')
   const memoryNote = writeMcpSettings(mcpPath, home, args.memory)

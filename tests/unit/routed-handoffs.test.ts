@@ -140,3 +140,28 @@ test('a hand-off passes to the next agent only when one fails without changing a
   await tryInOrder(['cline', 'codex'], async (route) => (tried.push(route), result(false, 0, true)), 'simple docs')
   assert.deepEqual(tried, ['cline'])
 })
+
+test('out of time part-way with files changed: the same agent gets one more go to finish (all of Cline\'s failures on Lazarus)', async () => {
+  const { tryInOrder, carryOnPrompt } = await import('../../src/main/delegation/codexTool')
+  const result = (ok: boolean, changed: number, text: string) => ({ content: [{ type: 'text' as const, text }], isError: !ok, outcome: { ok, stopped: false, changed } })
+  const calls: string[] = []
+  const done = await tryInOrder(['cline', 'codex'], async (route, _last, carryOn) => {
+    calls.push(`${route}${carryOn ? ' carry on' : ''}`)
+    return carryOn ? result(true, 21, 'Finished the dashboard; tests pass.') : result(false, 17, 'Cline timed out after 15 minutes')
+  }, 'hard feature')
+  assert.deepEqual(calls, ['cline', 'cline carry on'], 'Cline again, not Codex on top of a half-done change')
+  assert.equal(done.isError, false)
+  assert.match(done.content[0].text, /to Cline; it ran out of time part-way and was given one more go to finish/)
+  assert.match(carryOnPrompt('Build the agents page'), /Carry on from where you stopped[\s\S]*The task:\nBuild the agents page/)
+
+  // Only once, and only for running out of time with changes: other failures are as before.
+  calls.length = 0
+  await tryInOrder(['local', 'codex'], async (route, _l, carryOn) => (calls.push(`${route}${carryOn ? ' carry on' : ''}`), result(false, 3, 'The local model ran out of time.')), 'simple bugfix')
+  assert.deepEqual(calls, ['local', 'local carry on'])
+  calls.length = 0
+  await tryInOrder(['cline', 'codex'], async (route, _l, carryOn) => (calls.push(`${route}${carryOn ? ' carry on' : ''}`), result(false, 4, 'Cline stopped (refusal).')), 'moderate feature')
+  assert.deepEqual(calls, ['cline'], 'not out of time: no second go')
+  calls.length = 0
+  await tryInOrder(['codex'], async (route, _l, carryOn) => (calls.push(`${route}${carryOn ? ' carry on' : ''}`), result(false, 4, 'Codex timed out after 15 minutes')), 'hard feature')
+  assert.deepEqual(calls, ['codex'], 'Codex keeps its own behaviour')
+})

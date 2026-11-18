@@ -124,22 +124,42 @@ type HandOffResult = {
  */
 export async function tryInOrder(
   routes: HelperRoute[],
-  attempt: (route: HelperRoute, last: boolean) => Promise<HandOffResult>,
+  attempt: (route: HelperRoute, last: boolean, carryOn?: boolean) => Promise<HandOffResult>,
   task: string
 ): Promise<{ content: { type: 'text'; text: string }[]; isError: boolean }> {
   const passedOn: string[] = []
   for (let i = 0; i < routes.length; i++) {
     const last = i === routes.length - 1
     const agent = ROUTE_AGENT[routes[i]]
-    const result = await attempt(routes[i], last)
+    let result = await attempt(routes[i], last)
+    let carried = false
+    // Cline or the local model ran out of time part-way, with files already changed: nobody else can
+    // take a half-done change over, so it gets one more go to finish (on Lazarus all four of Cline's
+    // failures in a week were this, on 17-22 file features, left half-built for Claude).
+    if (!result.outcome.ok && !result.outcome.stopped && result.outcome.changed > 0 && routes[i] !== 'codex' && ranOutOfTime(result)) {
+      const first = result
+      result = await attempt(routes[i], last, true)
+      carried = true
+      if (result.outcome.changed === 0 && !result.outcome.ok) result = first // the second go did nothing: report the first
+    }
     const { ok, stopped, changed } = result.outcome
     if (ok || stopped || changed > 0 || last) {
-      const header = `[Starwright gave this ${task} task to ${agentName(agent)}${passedOn.length ? ` after ${passedOn.join('; ')}` : ''}.]`
+      const header = `[Starwright gave this ${task} task to ${agentName(agent)}${passedOn.length ? ` after ${passedOn.join('; ')}` : ''}${carried ? '; it ran out of time part-way and was given one more go to finish' : ''}.]`
       return { content: [{ type: 'text' as const, text: `${header}\n${result.content[0]?.text ?? ''}` }], isError: result.isError }
     }
     passedOn.push(`${agentName(agent)} couldn't do it (${(result.content[0]?.text ?? '').split('\n')[0].slice(0, 160)})`)
   }
   return { content: [{ type: 'text' as const, text: 'No agent could take the task.' }], isError: true }
+}
+
+/** The hand-off stopped at its time limit (Cline's or the local model's own words for it). */
+function ranOutOfTime(result: HandOffResult): boolean {
+  return /\b(timed out after|ran out of time)\b/i.test(result.content[0]?.text ?? '')
+}
+
+/** What the agent is told on its second go at a task it ran out of time on. */
+export function carryOnPrompt(prompt: string): string {
+  return `You ran out of time on this task and stopped part-way; the changes you made are still in the project. Carry on from where you stopped: look at what's already done (git diff, the files), finish what's left, run the checks the task names, and end with your report on the whole task. Work efficiently: you have one more go.\n\nThe task:\n${prompt}`
 }
 
 export function createCodexDelegationServer(
@@ -378,13 +398,17 @@ export function createCodexDelegationServer(
         isError: true
       }
     }
-    return tryInOrder(routes, (route, last) => {
+    return tryInOrder(routes, (route, last, carryOn) => {
       const agent = ROUTE_AGENT[route]
-      onProgress(routedNote(agent, args.difficulty, args.kind))
-      // A cheaper agent with another behind it gets less time: a stall shouldn't hold the request up.
-      const timeoutMs = !last && route !== 'codex' ? Math.min(args.timeoutMs ?? HANDOFF_TIMEOUT_MS, FALLBACK_TIMEOUT_MS) : args.timeoutMs
-      const work = route === 'codex' ? codexWork(args.prompt, timeoutMs) : route === 'cline' ? clineWork(args.prompt, timeoutMs) : localWork(args.prompt, timeoutMs)
-      return handOff(agent, args.prompt, work, { kind: args.kind, difficulty: args.difficulty })
+      onProgress(carryOn ? `${agentName(agent)} ran out of time part-way: carrying on to finish` : routedNote(agent, args.difficulty, args.kind))
+      // A cheaper agent with another behind it gets less time on simple work: a stall shouldn't hold
+      // the request up. Moderate and hard work gets the full time (Cline's 10 minutes ran out on
+      // every big feature it was given on Lazarus).
+      const capped = !last && route !== 'codex' && !carryOn && args.difficulty === 'simple'
+      const timeoutMs = capped ? Math.min(args.timeoutMs ?? HANDOFF_TIMEOUT_MS, FALLBACK_TIMEOUT_MS) : args.timeoutMs
+      const prompt = carryOn ? carryOnPrompt(args.prompt) : args.prompt
+      const work = route === 'codex' ? codexWork(prompt, timeoutMs) : route === 'cline' ? clineWork(prompt, timeoutMs) : localWork(prompt, timeoutMs)
+      return handOff(agent, prompt, work, { kind: args.kind, difficulty: args.difficulty })
     }, `${args.difficulty} ${args.kind}`)
   }
 

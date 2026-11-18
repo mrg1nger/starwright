@@ -1,4 +1,5 @@
 import { spawn } from 'child_process'
+import { app } from 'electron'
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'fs'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path'
 import { OUTSIDE_PROJECT, commandDanger } from '../cline/hookPolicy'
@@ -393,7 +394,7 @@ async function runTool(name: string, args: Record<string, unknown>, run: LocalAg
     case 'run_command': {
       const command = String(args.command ?? '').trim()
       if (!command) return { text: 'Give a command.', activity: { step: 'run', text: 'Command (empty)', ok: false } }
-      let danger = commandDanger(command, { mode: 'build', projectPath: cwd, goNutz: run.goNutz })
+      let danger = commandDanger(command, { mode: 'build', projectPath: cwd, goNutz: run.goNutz, dataPaths: [app.getPath('userData')] })
       // Only the folder check failed: the user decides, as for Claude's commands.
       if (danger === OUTSIDE_PROJECT && run.ask && (await run.ask(command).catch(() => false))) danger = null
       if (danger) {
