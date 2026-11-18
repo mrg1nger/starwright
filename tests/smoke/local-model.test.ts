@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { existsSync } from 'fs'
 import { join } from 'path'
 import type { VibeEvent } from '@shared/types'
-import { forgetLmStudioStatus, lmStudioStatus } from '../../src/main/cli/lmStudio'
+import { ensureModelLoaded, forgetLmStudioStatus, lmStudioStatus, unloadIdleModels } from '../../src/main/cli/lmStudio'
 import { memoryDb } from '../../src/main/memory/paths'
 import { usageSummary } from '../../src/main/memory/store'
 import { updateSettings } from '../../src/main/settings/store'
@@ -109,4 +109,25 @@ test("with the model not loaded, the hand-off loads it with Settings' context fi
   const loaded = after.models.filter((m) => m.loaded)
   assert.equal(loaded.length, 1, 'one model loaded')
   assert.equal(loaded[0].contextLength, 32_768, "with Settings' context")
+})
+
+test('a model Starwright loaded is unloaded again from the real LM Studio once unused, and not before', { timeout: 10 * MINUTES }, async (t) => {
+  const status = await lmStudioStatus('http://localhost:1234')
+  if (!status.running || !status.models.length) return t.skip('LM Studio is not running with a model downloaded')
+  // Starts from nothing loaded (an earlier test may have loaded it).
+  for (const m of status.models.filter((m) => m.loaded)) {
+    await fetch('http://localhost:1234/api/v1/models/unload', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ instance_id: m.id }) })
+  }
+  updateSettings({ lmStudioUrl: 'http://localhost:1234', lmStudioModel: null, lmStudioContextLength: 32_768, lmStudioUnloadMinutes: 60 })
+  forgetLmStudioStatus()
+  const model = status.models[0].id
+  forgetLmStudioStatus()
+  const ready = await ensureModelLoaded(model)
+  assert.equal(ready.loadedNow, true)
+  const loadedNow = async (): Promise<boolean> => (await lmStudioStatus('http://localhost:1234')).models.some((m) => m.id === model && m.loaded)
+  assert.ok(await loadedNow(), 'loaded')
+  assert.deepEqual(await unloadIdleModels(Date.now() + 30 * MINUTES), [], 'kept while recently used')
+  assert.ok(await loadedNow(), 'still loaded')
+  assert.deepEqual(await unloadIdleModels(Date.now() + 61 * MINUTES), [model])
+  assert.ok(!(await loadedNow()), 'unloaded from LM Studio')
 })

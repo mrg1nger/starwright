@@ -1,3 +1,6 @@
+import { app } from 'electron'
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import { join } from 'path'
 import { getSettings } from '../settings/store'
 import type { TokenCounts } from '../usage/tokens'
 import type { LmStudioModel, LmStudioStatus } from '@shared/types'
@@ -153,7 +156,12 @@ export function ensureModelLoaded(model: string, onLoading?: (contextLength: num
     const entry = findV1Model(list, model)
     if (!entry) return { loadedNow: false }
     const instance = entry.loaded_instances?.[0]
-    if (instance) return { loadedNow: false, contextLength: instance.config?.context_length }
+    if (instance) {
+      // Starwright's own copy, still there: used now, so its idle time starts again.
+      const own = readOwnLoads()[key]
+      if (own && entry.loaded_instances!.some((i) => i.id === own.instanceId)) touchModel(model)
+      return { loadedNow: false, contextLength: instance.config?.context_length }
+    }
     const wanted = Math.max(2_048, Math.floor(settings.lmStudioContextLength || DEFAULT_LOAD_CONTEXT))
     const contextLength = entry.max_context_length ? Math.min(wanted, entry.max_context_length) : wanted
     onLoading?.(contextLength)
@@ -180,16 +188,148 @@ export function ensureModelLoaded(model: string, onLoading?: (contextLength: num
       throw new Error(`LM Studio couldn't load ${model} with ${contextLength.toLocaleString()} tokens of context: ${reason || `HTTP ${res.status}`}. Try a smaller context in Settings → LM Studio.`)
     }
     forgetLmStudioStatus()
-    let loaded: { load_time_seconds?: number; load_config?: { context_length?: number } } = {}
+    let loaded: { instance_id?: string; load_time_seconds?: number; load_config?: { context_length?: number } } = {}
     try {
       loaded = JSON.parse(text)
     } catch {
       // loaded, but the answer wasn't JSON: go by what was asked for
     }
+    // Written down as Starwright's, so it can be unloaded once it's been unused a while.
+    const loads = readOwnLoads()
+    loads[key] = { base, model, instanceId: loaded.instance_id ?? entry.key, lastUsed: Date.now() }
+    writeOwnLoads(loads)
+    startIdleWatch()
     return { loadedNow: true, contextLength: loaded.load_config?.context_length ?? contextLength, seconds: loaded.load_time_seconds }
   })().finally(() => loading.delete(key))
   loading.set(key, work)
   return work
+}
+
+// ---- unloading it again ------------------------------------------------------------------
+//
+// A model loaded through the API has no idle timer in LM Studio (only ones it loads on demand do),
+// so it would stay in memory for good. Starwright unloads the copies it loaded itself once they've
+// gone unused for Settings' time, never while a job is using one, and never a copy loaded by hand.
+// The list is kept on disk so a restart doesn't lose track of what's Starwright's.
+
+interface OwnLoad {
+  base: string
+  model: string
+  instanceId: string
+  lastUsed: number
+}
+
+const ownLoadsFile = (): string => join(app.getPath('userData'), 'lmstudio-loads.json')
+
+function readOwnLoads(): Record<string, OwnLoad> {
+  try {
+    if (existsSync(ownLoadsFile())) return JSON.parse(readFileSync(ownLoadsFile(), 'utf-8')) as Record<string, OwnLoad>
+  } catch {
+    // unreadable: nothing known to be Starwright's
+  }
+  return {}
+}
+
+function writeOwnLoads(loads: Record<string, OwnLoad>): void {
+  try {
+    if (Object.keys(loads).length) writeFileSync(ownLoadsFile(), JSON.stringify(loads), 'utf-8')
+    else rmSync(ownLoadsFile(), { force: true })
+  } catch {
+    // not fatal: at worst it stays loaded
+  }
+}
+
+const inUse = new Map<string, number>()
+const modelKey = (model: string): string => `${lmStudioBase(getSettings().lmStudioUrl)} ${model}`
+
+/** The model was just used: its idle time starts again (only matters for a copy Starwright loaded). */
+export function touchModel(model: string): void {
+  const loads = readOwnLoads()
+  const own = loads[modelKey(model)]
+  if (!own) return
+  own.lastUsed = Date.now()
+  writeOwnLoads(loads)
+}
+
+/** A job is using the model: it isn't unloaded until the returned function is called. */
+export function holdModel(model: string): () => void {
+  const key = modelKey(model)
+  inUse.set(key, (inUse.get(key) ?? 0) + 1)
+  touchModel(model)
+  let released = false
+  return () => {
+    if (released) return
+    released = true
+    inUse.set(key, Math.max(0, (inUse.get(key) ?? 1) - 1))
+    touchModel(model)
+  }
+}
+
+/**
+ * Unloads Starwright's copies that have gone unused for Settings' time. Forgets ones that are gone
+ * (ejected in LM Studio). Returns the models unloaded.
+ */
+export async function unloadIdleModels(now = Date.now()): Promise<string[]> {
+  const minutes = getSettings().lmStudioUnloadMinutes
+  const loads = readOwnLoads()
+  const unloaded: string[] = []
+  for (const [key, own] of Object.entries(loads)) {
+    if ((inUse.get(key) ?? 0) > 0 || loading.has(key)) continue
+    let list: V1Model[]
+    try {
+      const res = await fetch(`${own.base}/api/v1/models`, { signal: AbortSignal.timeout(5_000) })
+      if (!res.ok) continue
+      list = ((await res.json()) as { models?: V1Model[] }).models ?? []
+    } catch {
+      continue // LM Studio isn't answering: try again later
+    }
+    const entry = findV1Model(list, own.model)
+    if (!entry?.loaded_instances?.some((i) => i.id === own.instanceId)) {
+      delete loads[key] // ejected (or LM Studio restarted): not Starwright's to unload any more
+      continue
+    }
+    if (!(minutes > 0) || now - own.lastUsed < minutes * 60_000) continue
+    try {
+      const res = await fetch(`${own.base}/api/v1/models/unload`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ instance_id: own.instanceId }),
+        signal: AbortSignal.timeout(60_000)
+      })
+      if (!res.ok) continue
+    } catch {
+      continue
+    }
+    delete loads[key]
+    unloaded.push(own.model)
+  }
+  // Written back over a fresh read: a load or use meanwhile is kept.
+  const latest = readOwnLoads()
+  for (const key of Object.keys(latest)) {
+    if (!(key in loads) && !(latest[key].lastUsed > now)) delete latest[key]
+  }
+  writeOwnLoads(latest)
+  if (unloaded.length) forgetLmStudioStatus()
+  return unloaded
+}
+
+let idleTimer: NodeJS.Timeout | undefined
+
+/** Checks every minute while Starwright has a copy loaded (started at launch and after each load). */
+export function startIdleWatch(): void {
+  if (idleTimer || !Object.keys(readOwnLoads()).length) return
+  idleTimer = setInterval(() => {
+    void unloadIdleModels()
+      .then((models) => {
+        if (models.length) console.log(`Unloaded ${models.join(', ')} from LM Studio (unused for ${getSettings().lmStudioUnloadMinutes} min).`)
+        if (!Object.keys(readOwnLoads()).length && idleTimer) {
+          clearInterval(idleTimer)
+          idleTimer = undefined
+        }
+      })
+      .catch(() => undefined)
+  }, 60_000)
+  idleTimer.unref?.()
 }
 
 /** Forget the last look at the server (after a failure or a settings change). */
@@ -246,6 +386,15 @@ export async function runLmStudio(run: LmStudioRun): Promise<LmStudioResult> {
   }
   // Loaded with the context Starwright plans for, rather than whatever LM Studio would pick.
   await ensureModelLoaded(model)
+  const release = holdModel(model)
+  try {
+    return await askLmStudio(run, base, model)
+  } finally {
+    release()
+  }
+}
+
+async function askLmStudio(run: LmStudioRun, base: string, model: string): Promise<LmStudioResult> {
   const body: Record<string, unknown> = {
     model,
     messages: [

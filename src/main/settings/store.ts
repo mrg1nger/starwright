@@ -44,6 +44,7 @@ const DEFAULTS: AppSettings = {
   lmStudioUrl: 'http://localhost:1234',
   lmStudioModel: null,
   lmStudioContextLength: 32_768,
+  lmStudioUnloadMinutes: 60,
   localHandoffs: false,
   updateChecks: true,
   skippedVersion: null,

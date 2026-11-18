@@ -22,6 +22,17 @@ function LmStudioSettings({ settings, onSettingsChange }: LmStudioSettingsProps)
   // Follow changes made elsewhere (another window, a phone).
   useEffect(() => setUrl(settings.lmStudioUrl), [settings.lmStudioUrl])
   useEffect(() => setContextText(String(settings.lmStudioContextLength)), [settings.lmStudioContextLength])
+  const [unloadText, setUnloadText] = useState(String(settings.lmStudioUnloadMinutes))
+  useEffect(() => setUnloadText(String(settings.lmStudioUnloadMinutes)), [settings.lmStudioUnloadMinutes])
+
+  const saveUnload = (): void => {
+    const n = Math.round(Number(unloadText.trim()))
+    if (!Number.isFinite(n) || n < 0) {
+      setUnloadText(String(settings.lmStudioUnloadMinutes))
+      return
+    }
+    if (n !== settings.lmStudioUnloadMinutes) onSettingsChange({ lmStudioUnloadMinutes: n }).catch(() => undefined)
+  }
 
   const saveContext = (): void => {
     const n = Math.round(Number(contextText.replace(/[,\s_]/g, '')))
@@ -172,6 +183,23 @@ function LmStudioSettings({ settings, onSettingsChange }: LmStudioSettingsProps)
           Tokens. When the model isn't loaded, Starwright loads it with this much context (or the most it supports)
           instead of LM Studio's default, which is often far smaller. More context fits longer hand-offs but needs more
           memory; 32,768 suits most work. A model you loaded yourself is used as it is.
+        </small>
+      </label>
+
+      <label className="settings-field">
+        <span>Unload it after (minutes unused)</span>
+        <input
+          className="lmstudio-unload"
+          inputMode="numeric"
+          value={unloadText}
+          onChange={(e) => setUnloadText(e.target.value)}
+          onBlur={saveUnload}
+          onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+        />
+        <small className="settings-hint">
+          A model Starwright loaded is unloaded once nothing has used it for this long, to give the memory back; the next
+          job loads it again (which takes a minute). 0 keeps it loaded. Never while a job is using it, and never a model
+          you loaded yourself.
         </small>
       </label>
 

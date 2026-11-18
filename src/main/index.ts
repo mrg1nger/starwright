@@ -7,6 +7,7 @@ import { registerRemoteHandlers } from './remote/ipc'
 import { applyRemoteSettings, stopRemote } from './remote/server'
 import { stopAllPreviews } from './preview/preview'
 import { stopLeftoverPreviews } from './preview/leftovers'
+import { startIdleWatch } from './cli/lmStudio'
 import { stopAllChildren } from './cli/codexExec'
 import { requestClassifier } from './orchestrator/classifier'
 import { getSettings } from './settings/store'
@@ -132,6 +133,8 @@ app.whenReady().then(() => {
 
   // A restore chosen last time goes in place before anything opens the data.
   applyPendingRestore()
+  // LM Studio models Starwright loaded: unloaded again once unused for a while.
+  startIdleWatch()
   // Previews left running by a crash or forced close last time (their ports would be taken).
   void stopLeftoverPreviews()
     .then((names) => names.length && console.log(`Stopped ${names.length} preview process(es) left running last time: ${names.join(', ')}`))

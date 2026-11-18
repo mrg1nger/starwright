@@ -4,7 +4,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'pat
 import { OUTSIDE_PROJECT, commandDanger } from '../cline/hookPolicy'
 import { killTree, trackChild } from '../cli/codexExec'
 import { bashPath } from '../deploy/deploy'
-import { countsFromChatUsage, ensureModelLoaded, lmStudioBase, lmStudioStatus, pickModel, type ModelReady } from '../cli/lmStudio'
+import { countsFromChatUsage, ensureModelLoaded, holdModel, lmStudioBase, lmStudioStatus, pickModel, type ModelReady } from '../cli/lmStudio'
 import { getSettings } from '../settings/store'
 import type { TokenCounts } from '../usage/tokens'
 import type { DelegationActivity } from '@shared/types'
@@ -39,6 +39,8 @@ export interface LocalAgentRun {
   /** Set by runLocalAgent: when the run must end, and what its commands left running in the background. */
   deadline?: number
   leftBehind?: RecordedProcess[]
+  /** Lets LM Studio's model be unloaded again once the run is over. */
+  releaseModel?: () => void
 }
 
 export interface LocalAgentResult {
@@ -452,6 +454,7 @@ export async function runLocalAgent(task: LocalAgentRun): Promise<LocalAgentResu
   try {
     return await runModel(run)
   } finally {
+    run.releaseModel?.()
     // Servers its commands started in the background end with the task.
     const stopped = await stopProcesses(run.leftBehind!).catch(() => [] as string[])
     if (stopped.length) run.onActivity?.({ id: 'local-cleanup', done: true, step: 'run', text: `Stopped what the task left running (${stopped.join(', ')})`, ok: true })
@@ -481,6 +484,8 @@ async function runModel(run: LocalAgentRun): Promise<LocalAgentResult> {
   } catch (err) {
     return fail((err as Error).message, 0, model)
   }
+  // Not unloaded for being idle while this task is using it.
+  run.releaseModel = holdModel(model)
   if (ready.loadedNow) {
     emit({ step: 'tool', text: `Loaded ${model} in LM Studio${ready.seconds ? ` in ${Math.round(ready.seconds)} s` : ''} (${(ready.contextLength ?? 0).toLocaleString()} tokens of context)`, ok: true })
   }

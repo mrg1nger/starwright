@@ -705,6 +705,8 @@ export interface AppSettings {
   lmStudioModel: string | null
   /** The context (tokens) Starwright loads the model with when it isn't loaded yet (capped at what the model supports). */
   lmStudioContextLength: number
+  /** A model Starwright loaded is unloaded after this many minutes unused (0 = kept loaded). Ones loaded by hand are never touched. */
+  lmStudioUnloadMinutes: number
   /** Claude may hand coding work to VibeApp's own agent on the LM Studio model. */
   localHandoffs: boolean
   /** Look for new versions on GitHub Releases (at start and every few hours). */

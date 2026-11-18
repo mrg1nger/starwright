@@ -2,6 +2,13 @@
 
 The version goes up with each improvement that ships: the middle number for new features, the last for fixes only. Settings shows the version a computer is running. (Starwright was called VibeApp up to 0.10.0.)
 
+## 0.15.11 (2026-11-17)
+
+**The local model is unloaded again when it isn't being used.** A model Starwright loads (0.15.10) doesn't get LM Studio's own idle timer, which only covers models LM Studio loads on demand, so it stayed in memory until ejected. Now Starwright unloads the copies it loaded itself once nothing has used them for **Settings → LM Studio → Unload it after (minutes unused)**: 60 to start with, 0 keeps it loaded. The next job loads it again.
+- Never while a hand-off or background job is using it; the time counts from when the last one finished.
+- Never a model you loaded yourself, including one you ejected and loaded again.
+- Starwright keeps track across restarts. While Starwright is closed, nothing unloads it.
+
 ## 0.15.10 (2026-11-17)
 
 **Starwright loads the local model itself, with enough room.** When the LM Studio model isn't loaded (after LM Studio restarts, or after it unloads an idle model), Starwright used to leave it to LM Studio to load it on the first request, with LM Studio's own default context, often only 4,096 tokens. Hand-offs then outgrew it, while Starwright thought the model had all 262,144 tokens it supports. Now:
