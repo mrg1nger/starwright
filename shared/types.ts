@@ -149,7 +149,13 @@ export interface RemoteStatus {
   error?: string
 }
 
-export type TalkAgent = 'claude' | 'codex'
+export type TalkAgent = 'claude' | 'codex' | 'cline' | 'local'
+
+/** Which of the optional Chat-tab agents are set up on this computer right now. */
+export interface TalkAgentsReady {
+  cline: boolean
+  local: boolean
+}
 
 export interface TalkMessage {
   role: 'user' | 'assistant'

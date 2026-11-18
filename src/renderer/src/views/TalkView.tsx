@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { TalkAgent, TalkConversation, TalkSummary } from '@shared/types'
+import type { TalkAgent, TalkAgentsReady, TalkConversation, TalkSummary } from '@shared/types'
 import Markdown from '../components/Markdown'
 
 interface TalkViewProps {
@@ -8,9 +8,12 @@ interface TalkViewProps {
 
 const AGENT_PREF_KEY = 'vibeapp.talkAgent'
 
+const ALL_AGENTS: TalkAgent[] = ['claude', 'codex', 'cline', 'local']
+
 function readAgentPref(): TalkAgent {
   try {
-    return localStorage.getItem(AGENT_PREF_KEY) === 'codex' ? 'codex' : 'claude'
+    const saved = localStorage.getItem(AGENT_PREF_KEY) as TalkAgent | null
+    return saved && ALL_AGENTS.includes(saved) ? saved : 'claude'
   } catch {
     return 'claude'
   }
@@ -20,14 +23,29 @@ function newId(): string {
   return crypto.randomUUID()
 }
 
-const AGENT_NAMES: Record<TalkAgent, string> = { claude: 'Claude', codex: 'Codex' }
+const AGENT_NAMES: Record<TalkAgent, string> = { claude: 'Claude', codex: 'Codex', cline: 'Cline', local: 'Local model' }
+/** The name inside a sentence ("Ask the local model anything…"). */
+const inSentence = (a: TalkAgent): string => (a === 'local' ? 'the local model' : AGENT_NAMES[a])
+const AGENT_TIPS: Record<TalkAgent, string> = {
+  claude: "Send your next message to Claude (your Claude plan)",
+  codex: 'Send your next message to Codex (your ChatGPT plan)',
+  cline: 'Send your next message to Cline (your ClinePass plan)',
+  local: 'Send your next message to the local model in LM Studio (free, on this computer)'
+}
 
-/** A general chat that isn't tied to any project, with Claude or Codex answering. */
+/** A general chat that isn't tied to any project, with Claude, Codex, Cline or the local model answering. */
 function TalkView({ onError }: TalkViewProps) {
   const [list, setList] = useState<TalkSummary[]>([])
   const [activeId, setActiveId] = useState<string>(newId)
   const [conversation, setConversation] = useState<TalkConversation | null>(null)
-  const [agent, setAgent] = useState<TalkAgent>(readAgentPref)
+  const [chosen, setAgent] = useState<TalkAgent>(readAgentPref)
+  // Cline and the local model are offered only when they're set up (null: still looking).
+  const [ready, setReady] = useState<TalkAgentsReady | null>(null)
+  useEffect(() => {
+    window.vibe.talk.agents().then(setReady).catch(() => setReady({ cline: false, local: false }))
+  }, [])
+  const offered = ALL_AGENTS.filter((a) => (a === 'cline' || a === 'local' ? (ready ? ready[a] : a === chosen) : true))
+  const agent: TalkAgent = offered.includes(chosen) ? chosen : 'claude'
   const [input, setInput] = useState('')
   const [pendingText, setPendingText] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -138,8 +156,9 @@ function TalkView({ onError }: TalkViewProps) {
             <div className="talk-empty">
               <h2>Ask anything</h2>
               <p>
-                A plain chat with no project attached, for questions, ideas and drafts. Pick Claude or Codex below,
-                and switch whenever you like: the conversation carries over.
+                A plain chat with no project attached, for questions, ideas and drafts. Pick who answers below
+                {offered.length > 2 ? ` (${offered.map((a) => AGENT_NAMES[a]).join(', ')})` : ' (Claude or Codex)'}, and switch
+                whenever you like: the conversation carries over.
               </p>
             </div>
           )}
@@ -156,17 +175,17 @@ function TalkView({ onError }: TalkViewProps) {
             )
           )}
           {pendingText && <div className="talk-msg talk-msg-user">{pendingText}</div>}
-          {busy && <div className="chat-item chat-item-thinking">{AGENT_NAMES[agent]} is thinking…</div>}
+          {busy && <div className="chat-item chat-item-thinking">{agent === 'local' ? 'The local model' : AGENT_NAMES[agent]} is thinking…</div>}
         </div>
 
         <div className="talk-compose">
           <div className="chat-mode-switch" role="group" aria-label="Who answers">
-            {(['claude', 'codex'] as const).map((a) => (
+            {offered.map((a) => (
               <button
                 key={a}
                 className={agent === a ? 'active' : ''}
                 onClick={() => chooseAgent(a)}
-                title={`Send your next message to ${AGENT_NAMES[a]}`}
+                title={AGENT_TIPS[a]}
               >
                 {AGENT_NAMES[a]}
               </button>
@@ -178,7 +197,7 @@ function TalkView({ onError }: TalkViewProps) {
               rows={1}
               value={input}
               disabled={busy}
-              placeholder={`Ask ${AGENT_NAMES[agent]} anything…`}
+              placeholder={`Ask ${inSentence(agent)} anything…`}
               title="Enter to send · Shift+Enter for a new line"
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {

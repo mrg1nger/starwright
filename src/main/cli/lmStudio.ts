@@ -346,6 +346,10 @@ export interface LmStudioRun {
   thinking?: boolean
   model?: string
   timeoutMs?: number
+  /** 0.2 unless said (background jobs want the steady answer). */
+  temperature?: number
+  /** Stops the request (the Chat tab's Stop). */
+  signal?: AbortSignal
 }
 
 export interface LmStudioResult {
@@ -401,7 +405,7 @@ async function askLmStudio(run: LmStudioRun, base: string, model: string): Promi
       { role: 'system', content: run.system },
       { role: 'user', content: run.prompt }
     ],
-    temperature: 0.2,
+    temperature: run.temperature ?? 0.2,
     stream: false,
     ...(run.schema ? { response_format: { type: 'json_schema', json_schema: { name: 'answer', strict: true, schema: run.schema } } } : {}),
     // Thinking models (Qwen3 and the like) spend most of their time thinking; "none" skips it.
@@ -412,7 +416,9 @@ async function askLmStudio(run: LmStudioRun, base: string, model: string): Promi
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(run.timeoutMs ?? 4 * 60_000)
+      signal: run.signal
+        ? AbortSignal.any([run.signal, AbortSignal.timeout(run.timeoutMs ?? 4 * 60_000)])
+        : AbortSignal.timeout(run.timeoutMs ?? 4 * 60_000)
     })
     const text = await res.text()
     let json: ChatResponse
@@ -432,6 +438,7 @@ async function askLmStudio(run: LmStudioRun, base: string, model: string): Promi
       reply = await send(rest)
     }
   } catch (err) {
+    if (run.signal?.aborted) throw new Error('Stopped.')
     forgetLmStudioStatus()
     if ((err as Error).name === 'TimeoutError') throw new Error('LM Studio took too long to answer.')
     throw new Error(`Couldn't reach LM Studio at ${base} (${(err as Error).message}).`)

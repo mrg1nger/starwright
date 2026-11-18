@@ -33,6 +33,7 @@ import type {
   SecretSummary,
   ExtensionInfo,
   TalkAgent,
+  TalkAgentsReady,
   TalkConversation,
   TalkSummary,
   ExtensionDraft,
@@ -345,6 +346,7 @@ export function createVibeApi(ipcRenderer: IpcLike, host: 'electron' | 'browser'
       load: (id: string): Promise<TalkConversation | null> => ipcRenderer.invoke('vibe:talk:load', id),
       send: (id: string, text: string, agent: TalkAgent): Promise<TalkConversation> =>
         ipcRenderer.invoke('vibe:talk:send', id, text, agent),
+      agents: (): Promise<TalkAgentsReady> => ipcRenderer.invoke('vibe:talk:agents'),
       stop: (id: string): Promise<void> => ipcRenderer.invoke('vibe:talk:stop', id),
       delete: (id: string): Promise<void> => ipcRenderer.invoke('vibe:talk:delete', id)
     },

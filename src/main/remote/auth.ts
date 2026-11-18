@@ -290,6 +290,7 @@ const READ_CHANNELS = new Set([
   'vibe:publish:status',
   'vibe:talk:list',
   'vibe:talk:load',
+  'vibe:talk:agents',
   'vibe:extensions:list',
   'vibe:remote:previewUrl',
   'vibe:fs:listDirs'

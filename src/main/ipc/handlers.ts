@@ -160,7 +160,7 @@ import { codexFailure, runCodexExec } from '../cli/codexExec'
 import { countsFromCodexEvents } from '../usage/tokens'
 import { askNoteText, isPlainQuestion, isTodoListRequest } from '../orchestrator/questions'
 import { askClaude, askCodex, ClaudeLimitError } from '../chat/ask'
-import { runTalk, stopTalk, getTalk } from '../chat/talk'
+import { runTalk, stopTalk, getTalk, talkAgentsReady } from '../chat/talk'
 import { deleteTalk, listTalks } from '../chat/talkStore'
 import { recordUsage } from '../usage/tokens'
 import { CATALOG } from '../extensions/catalog'
@@ -748,7 +748,8 @@ export function registerIpcHandlers(getSender: () => WebContents | undefined): v
   ipc.handle('vibe:talk:list', () => listTalks())
   ipc.handle('vibe:talk:load', (_event, id: string) => getTalk(id) ?? null)
   ipc.handle('vibe:talk:send', (_event, id: string, text: string, agent: TalkAgent) => runTalk(id, text, agent))
-  ipc.handle('vibe:talk:stop', (_event, id: string) => stopTalk(id))
+  ipc.handle('vibe:talk:agents', () => talkAgentsReady())
+  ipc.handle('vibe:talk:stop',(_event, id: string) => stopTalk(id))
   ipc.handle('vibe:talk:delete', (_event, id: string) => deleteTalk(id))
 
   // The user chose "Let Codex do it" after being offered a takeover.

@@ -2,6 +2,14 @@
 
 The version goes up with each improvement that ships: the middle number for new features, the last for fixes only. Settings shows the version a computer is running. (Starwright was called VibeApp up to 0.10.0.)
 
+## 0.18.0 (2026-11-18)
+
+The Chat tab can talk to Cline and the local model too, alongside Claude and Codex.
+
+- **Cline** answers on your ClinePass plan, with the Cline model chosen in Settings. **Local model** answers through LM Studio, free and on this computer.
+- Each button shows only when that agent is set up: Cline when it's installed, the local model when LM Studio is running with a model.
+- As before, switch whenever you like: whoever answers sees the whole conversation so far. Stop works for both, and their use is counted under Chat in Settings' usage.
+
 ## 0.17.0 (2026-11-18)
 
 The chat and the preview (or Notes) can be resized and folded away.

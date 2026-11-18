@@ -1071,6 +1071,19 @@ try {
     await waitFor(`/Codex[\\s\\S]*BANANA/i.test(document.querySelector('.talk-log').innerText)`, "Codex's reply", 180_000)
   })
 
+  await step('the Chat tab also talks to Cline and the local model, which see the conversation so far', async () => {
+    await click('Chat', '.app-nav-tabs button')
+    await waitFor(`[...document.querySelectorAll('.talk-compose .chat-mode-switch button')].length === 4`, 'Cline and Local model to be offered', 30_000)
+    await click('Cline', '.talk-compose .chat-mode-switch button')
+    await type('Which fruit word have we been talking about? Reply with that one word in capitals.')
+    await waitFor(`/Cline[\\s\\S]*BANANA[\\s\\S]*$/i.test([...document.querySelectorAll('.talk-msg')].at(-1)?.innerText ?? '')`, "Cline's reply", 300_000)
+    await waitFor(`!document.querySelector('.talk-compose .chat-stop')`, 'Cline to finish')
+    await click('Local model', '.talk-compose .chat-mode-switch button')
+    await type('And again: just that one word, in capitals.')
+    await waitFor(`/Local model[\\s\\S]*BANANA/i.test([...document.querySelectorAll('.talk-msg')].at(-1)?.innerText ?? '')`, "the local model's reply", 300_000)
+    await waitFor(`!document.querySelector('.talk-compose .chat-stop')`, 'the local model to finish')
+  })
+
   await step('settings changes are saved', async () => {
     await click('Settings', '.app-nav-tabs button')
     await click('Answer plain questions the cheap way', 'label')

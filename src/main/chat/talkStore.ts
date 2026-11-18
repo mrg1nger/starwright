@@ -74,7 +74,7 @@ export function historyText(conversation: TalkConversation, maxChars = 14_000): 
   const lines: string[] = []
   let used = 0
   for (const m of [...conversation.messages].reverse()) {
-    const who = m.role === 'user' ? 'User' : `Assistant (${m.agent === 'codex' ? 'Codex' : 'Claude'})`
+    const who = m.role === 'user' ? 'User' : `Assistant (${{ codex: 'Codex', cline: 'Cline', local: 'the local model', claude: 'Claude' }[m.agent ?? 'claude']})`
     const line = `${who}: ${m.text}`
     if (used + line.length > maxChars && lines.length > 0) break
     lines.unshift(line)
