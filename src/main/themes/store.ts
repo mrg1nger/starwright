@@ -1,5 +1,5 @@
 import { app } from 'electron'
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { THEME_VARS, type ThemeDefinition, type ThemeVar } from '@shared/types'
 import { BUILT_IN_THEMES } from './builtin'
@@ -37,7 +37,43 @@ export function validateTheme(raw: unknown, source: ThemeDefinition['source']): 
         ? t.thinkingLabel.trim().slice(0, 80)
         : undefined,
     source,
-    vars
+    vars,
+    ...(typeof t.imageDim === 'number' && Number.isFinite(t.imageDim) ? { imageDim: Math.min(0.85, Math.max(0, t.imageDim)) } : {})
+  }
+}
+
+// A theme's background picture is <id>.jpg next to its JSON, with a small <id>.thumb.jpg for its
+// card. It's handed to the screen as a data: URL that Starwright builds itself, so a theme file
+// still can't point at anything (url() stays refused above).
+const imageFile = (id: string): string => join(themesDir(), `${id}.jpg`)
+const thumbFile = (id: string): string => join(themesDir(), `${id}.thumb.jpg`)
+
+const imageCache = new Map<string, { mtime: number; url: string }>()
+
+/** The theme's background picture as a data: URL, or null when it has none. */
+export function themeImage(id: string): string | null {
+  if (typeof id !== 'string' || !/^[a-z0-9-]{1,60}$/.test(id)) return null
+  try {
+    const file = imageFile(id)
+    if (!existsSync(file)) return null
+    const mtime = statSync(file).mtimeMs
+    const cached = imageCache.get(id)
+    if (cached?.mtime === mtime) return cached.url
+    const url = `data:image/jpeg;base64,${readFileSync(file).toString('base64')}`
+    imageCache.set(id, { mtime, url })
+    return url
+  } catch {
+    return null
+  }
+}
+
+function withPicture(theme: ThemeDefinition): ThemeDefinition {
+  try {
+    if (!existsSync(imageFile(theme.id))) return theme
+    const thumb = existsSync(thumbFile(theme.id)) ? `data:image/jpeg;base64,${readFileSync(thumbFile(theme.id)).toString('base64')}` : undefined
+    return { ...theme, hasImage: true, imagePreview: thumb }
+  } catch {
+    return theme
   }
 }
 
@@ -51,7 +87,7 @@ export function listThemes(): ThemeDefinition[] {
     try {
       const raw = JSON.parse(readFileSync(join(themesDir(), file), 'utf-8'))
       const source = raw?.source === 'generated' ? 'generated' : 'custom'
-      custom.push({ ...validateTheme(raw, source), id: file.replace(/\.json$/, '') })
+      custom.push(withPicture({ ...validateTheme(raw, source), id: file.replace(/\.json$/, '') }))
     } catch {
       // Skip a broken extension rather than failing the whole list.
     }
@@ -60,18 +96,26 @@ export function listThemes(): ThemeDefinition[] {
   return [...BUILT_IN_THEMES, ...custom.filter((t) => !builtInIds.has(t.id))]
 }
 
-/** Saves a theme as an extension file, picking a unique id. */
-export function saveTheme(theme: ThemeDefinition): ThemeDefinition {
+/** Saves a theme as an extension file, picking a unique id, with its background picture (JPEG) if it has one. */
+export function saveTheme(theme: ThemeDefinition, picture?: { image: Buffer; thumb: Buffer }): ThemeDefinition {
   const taken = new Set(listThemes().map((t) => t.id))
   let id = theme.id
   for (let n = 2; taken.has(id); n++) id = `${theme.id}-${n}`
-  const saved = { ...theme, id }
+  const { hasImage: _h, imagePreview: _p, ...rest } = theme
+  const saved = { ...rest, id }
+  if (picture) {
+    writeFileSync(imageFile(id), picture.image)
+    writeFileSync(thumbFile(id), picture.thumb)
+  }
   writeFileSync(join(themesDir(), `${id}.json`), JSON.stringify(saved, null, 2), 'utf-8')
-  return saved
+  return withPicture(saved)
 }
 
 export function deleteTheme(id: string): void {
   if (BUILT_IN_THEMES.some((t) => t.id === id)) throw new Error("Built-in themes can't be deleted.")
   if (!/^[a-z0-9-]+$/.test(id)) throw new Error('Invalid theme id.')
   rmSync(join(themesDir(), `${id}.json`), { force: true })
+  rmSync(imageFile(id), { force: true })
+  rmSync(thumbFile(id), { force: true })
+  imageCache.delete(id)
 }

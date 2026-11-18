@@ -143,7 +143,7 @@ import { checkForUpdate, installUpdate, updateState } from '../updates/updates'
 import { workingProjects } from '../tray'
 import { listClaudeModels } from '../cli/claudeModels'
 import { listCodexModels } from '../cli/codexModels'
-import { listThemes, deleteTheme, themesDir } from '../themes/store'
+import { listThemes, deleteTheme, themesDir, themeImage } from '../themes/store'
 import { generateTheme } from '../themes/generate'
 import { claudeBlockedUntil, claudeStandsDown, clearClaudeLimit, forgetUsage, getUsage, noteClaudeLimit } from '../usage/usage'
 import { clineUsageKeyStatus, fetchClineUsage, setClineUsageKey } from '../cline/clineUsage'
@@ -1173,7 +1173,8 @@ export function registerIpcHandlers(getSender: () => WebContents | undefined): v
 
   ipc.handle('vibe:themes:list', () => listThemes())
   ipc.handle('vibe:themes:delete', (_event, id: string) => deleteTheme(id))
-  ipc.handle('vibe:themes:generate', (_event, description: string) => generateTheme(description))
+  ipc.handle('vibe:themes:generate', (_event, description: string, withPicture?: boolean) => generateTheme(description, withPicture === true))
+  ipc.handle('vibe:themes:image', (_event, id: string) => themeImage(id))
   ipc.handle('vibe:themes:openFolder', () => shell.openPath(themesDir()))
 
   ipc.handle('vibe:usage:summary', (_event, days: number, projectId?: string) =>

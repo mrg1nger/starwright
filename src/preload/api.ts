@@ -304,9 +304,12 @@ export function createVibeApi(ipcRenderer: IpcLike, host: 'electron' | 'browser'
     themes: {
       list: (): Promise<ThemeDefinition[]> => ipcRenderer.invoke('vibe:themes:list'),
       delete: (id: string): Promise<void> => ipcRenderer.invoke('vibe:themes:delete', id),
-      generate: (description: string): Promise<ThemeDefinition> =>
-        ipcRenderer.invoke('vibe:themes:generate', description),
-      openFolder: (): Promise<string> => ipcRenderer.invoke('vibe:themes:openFolder')
+      /** withPicture: Codex draws a background picture first and the colors are picked from it. */
+      generate: (description: string, withPicture = false): Promise<ThemeDefinition & { pictureError?: string }> =>
+        ipcRenderer.invoke('vibe:themes:generate', description, withPicture),
+      openFolder: (): Promise<string> => ipcRenderer.invoke('vibe:themes:openFolder'),
+      /** The theme's background picture as a data: URL, or null when it has none. */
+      image: (id: string): Promise<string | null> => ipcRenderer.invoke('vibe:themes:image', id)
     },
 
     preview: {

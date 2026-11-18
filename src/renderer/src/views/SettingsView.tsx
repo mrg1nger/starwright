@@ -27,6 +27,7 @@ function SettingsView({ settings, themes, onSettingsChange, onThemesChange, onEr
   const [codexList, setCodexList] = useState<CodexModelList | null>(null)
   const [codexListError, setCodexListError] = useState(false)
   const [themePrompt, setThemePrompt] = useState('')
+  const [themePicture, setThemePicture] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [usageRows, setUsageRows] = useState<UsageSummaryRow[] | null>(null)
 
@@ -58,16 +59,17 @@ function SettingsView({ settings, themes, onSettingsChange, onThemesChange, onEr
     if (!description) return
     setGenerating(true)
     try {
-      const theme = await window.vibe.themes.generate(description)
+      const theme = await window.vibe.themes.generate(description, themePicture)
       await onThemesChange()
       await onSettingsChange({ themeId: theme.id })
       setThemePrompt('')
+      if (theme.pictureError) onError(`The theme was made with colors only: ${theme.pictureError}`)
     } catch (err) {
       onError(`Couldn't generate that theme: ${(err as Error).message}`)
     } finally {
       setGenerating(false)
     }
-  }, [themePrompt, onThemesChange, onSettingsChange, onError])
+  }, [themePrompt, themePicture, onThemesChange, onSettingsChange, onError])
 
   const handleDelete = useCallback(
     async (theme: ThemeDefinition) => {
@@ -508,7 +510,9 @@ function SettingsView({ settings, themes, onSettingsChange, onThemesChange, onEr
               key={theme.id}
               className={`theme-card${settings.themeId === theme.id ? ' active' : ''}`}
               style={{
-                background: `${theme.vars['bg-image']}, ${theme.vars.bg}`,
+                background: theme.imagePreview
+                  ? `linear-gradient(color-mix(in srgb, ${theme.vars.bg} ${Math.round((theme.imageDim ?? 0.4) * 100)}%, transparent), color-mix(in srgb, ${theme.vars.bg} ${Math.round((theme.imageDim ?? 0.4) * 100)}%, transparent)), url("${theme.imagePreview}") center / cover no-repeat, ${theme.vars.bg}`
+                  : `${theme.vars['bg-image']}, ${theme.vars.bg}`,
                 color: theme.vars.text,
                 fontFamily: theme.vars.font
               }}
@@ -540,6 +544,16 @@ function SettingsView({ settings, themes, onSettingsChange, onThemesChange, onEr
           <p className="memory-hint">
             Describe a vibe and Claude will design a theme for it. It's saved as a theme extension you can reuse.
           </p>
+          <label className="settings-toggle theme-picture-toggle">
+            <input type="checkbox" checked={themePicture} disabled={generating} onChange={(e) => setThemePicture(e.target.checked)} />
+            <span>
+              Draw a background picture with Codex
+              <small>
+                Codex paints a detailed picture of it for the background (about a minute, from your Codex plan's usage), and
+                the colors are picked to match it. If Codex can't, the theme is made with colors only.
+              </small>
+            </span>
+          </label>
           <div className="memory-add-row">
             <input
               value={themePrompt}
@@ -551,7 +565,7 @@ function SettingsView({ settings, themes, onSettingsChange, onThemesChange, onEr
               }}
             />
             <button onClick={handleGenerate} disabled={generating || !themePrompt.trim()}>
-              {generating ? 'Designing…' : 'Generate'}
+              {generating ? (themePicture ? 'Painting and designing…' : 'Designing…') : 'Generate'}
             </button>
           </div>
         </div>

@@ -2,6 +2,15 @@
 
 The version goes up with each improvement that ships: the middle number for new features, the last for fixes only. Settings shows the version a computer is running. (Starwright was called VibeApp up to 0.10.0.)
 
+## 0.16.0 (2026-11-17)
+
+**Themes with a background picture.** In **Settings → Themes → Generate a theme**, tick **Draw a background picture with Codex**: Codex paints a detailed picture of what you describe (about a minute, from your Codex plan's usage), and Claude picks the theme's colors while looking at it, so the accent, panels and text match the picture.
+- The picture fills the window behind everything, with the theme's own color laid lightly over it so text stays readable; panels are slightly see-through.
+- The theme's card shows a small copy of its picture. Deleting the theme deletes the picture too.
+- It works over Remote access as well.
+- If Codex can't draw (signed out or out of usage), the theme is made with colors only and says why.
+- A theme file still can't point at anything outside Starwright: the picture is kept beside it in the themes folder and shown by Starwright itself.
+
 ## 0.15.11 (2026-11-17)
 
 **The local model is unloaded again when it isn't being used.** A model Starwright loads (0.15.10) doesn't get LM Studio's own idle timer, which only covers models LM Studio loads on demand, so it stayed in memory until ejected. Now Starwright unloads the copies it loaded itself once nothing has used them for **Settings → LM Studio → Unload it after (minutes unused)**: 60 to start with, 0 keeps it loaded. The next job loads it again.

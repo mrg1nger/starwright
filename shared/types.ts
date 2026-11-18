@@ -624,6 +624,12 @@ export interface ThemeDefinition {
   vars: Record<ThemeVar, string>
   /** Optional replacement for "Claude is working…". */
   thinkingLabel?: string
+  /** How much the theme's color (bg) is laid over its background picture so text reads, 0 to 0.85. */
+  imageDim?: number
+  /** Set when listed: the theme has a background picture (<id>.jpg in the themes folder). */
+  hasImage?: boolean
+  /** Set when listed: a small copy of the picture, for the theme card. */
+  imagePreview?: string
 }
 
 export interface AppSettings {

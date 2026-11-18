@@ -278,6 +278,7 @@ const READ_CHANNELS = new Set([
   'vibe:backup:inspect',
   'vibe:notes:get',
   'vibe:themes:list',
+  'vibe:themes:image',
   'vibe:usage:get',
   'vibe:usage:summary',
   'vibe:usage:requests',

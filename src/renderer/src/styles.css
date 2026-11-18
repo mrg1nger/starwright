@@ -45,6 +45,23 @@ body {
   color: var(--text);
 }
 
+/* A theme's background picture (lib/theme.ts), behind everything, with the theme's bg laid over it. */
+:root {
+  --theme-picture: none;
+  --theme-picture-dim: 40%;
+}
+:root[data-picture] body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    linear-gradient(color-mix(in srgb, var(--bg) var(--theme-picture-dim), transparent), color-mix(in srgb, var(--bg) var(--theme-picture-dim), transparent)),
+    var(--theme-picture) center / cover no-repeat,
+    var(--bg);
+}
+
 .app-nav h1 {
   background: var(--title);
   -webkit-background-clip: text;
