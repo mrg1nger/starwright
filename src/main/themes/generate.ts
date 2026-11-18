@@ -83,24 +83,61 @@ Be creative and make it match the request, while keeping everything readable.`
 
 /** The picture prompt Codex is given (the user's description is the subject). */
 export function picturePrompt(description: string): string {
-  return `Generate exactly one image with your image generation tool, then save it in the current folder as background.png (PNG).
+  return `Generate exactly one image with your image generation tool.
 
 It is a wide 16:9 desktop wallpaper for a chat app's background: ${description}
 
 Make it detailed and atmospheric, with no text, letters, signatures, logos, watermarks, borders or user interface in it. Keep the very centre free of harsh, high-contrast detail, since chat text sits over it.
 
-Don't do anything else: no other files, no commands beyond saving the image. Reply with just the file name.`
+Don't do anything else: don't save, copy or convert it (Starwright collects it itself), and run no commands. Reply with just "done".`
 }
 
 const PICTURE_TIMEOUT_MS = 6 * 60_000
 
+/** Where Codex keeps the pictures it makes: <CODEX_HOME>/generated_images/<run id>/. */
+export const codexPicturesDir = (): string => join(process.env.CODEX_HOME || join(homedir(), '.codex'), 'generated_images')
+
 /**
- * Codex draws the picture (its built-in image generation) in a throwaway folder. Returns it as a
- * JPEG of at most 1920 px wide, and a small copy for the theme card.
+ * The picture a run made: the biggest PNG or JPEG in its own folder under Codex's pictures, or if the
+ * run's id wasn't seen, in any run folder changed since it started. A file Codex saved in the working
+ * folder anyway is taken too.
+ */
+export function findPicture(picturesDir: string, threadId: string | undefined, since: number, workDir?: string): string | undefined {
+  const images = (folder: string): string[] => {
+    try {
+      return readdirSync(folder)
+        .filter((f) => /\.(png|jpe?g)$/i.test(f))
+        .map((f) => join(folder, f))
+    } catch {
+      return []
+    }
+  }
+  let candidates: string[] = []
+  if (threadId) candidates = images(join(picturesDir, threadId))
+  if (!candidates.length && !threadId) {
+    try {
+      for (const run of readdirSync(picturesDir)) {
+        const folder = join(picturesDir, run)
+        if (statSync(folder).mtimeMs >= since) candidates.push(...images(folder).filter((f) => statSync(f).mtimeMs >= since))
+      }
+    } catch {
+      // no pictures folder yet
+    }
+  }
+  if (!candidates.length && workDir) candidates = images(workDir)
+  return candidates.sort((a, b) => statSync(b).size - statSync(a).size)[0]
+}
+
+/**
+ * Codex draws the picture with its built-in image generation, read-only: it can't write anywhere
+ * (on Lazarus it couldn't save into its folder even when allowed to). Starwright takes the picture
+ * from Codex's own pictures folder. Returns it as a JPEG of at most 1920 px wide, and a small copy
+ * for the theme card.
  */
 export async function drawPicture(description: string): Promise<{ image: Buffer; thumb: Buffer }> {
   const dir = mkdtempSync(join(tmpdir(), 'starwright-picture-'))
   let threadId: string | undefined
+  const started = Date.now() - 5_000
   try {
     const launch = await resolveCodexLaunch()
     const args = [
@@ -112,7 +149,7 @@ export async function drawPicture(description: string): Promise<{ image: Buffer;
       '--color',
       'never',
       '-s',
-      'workspace-write',
+      'read-only',
       '-C',
       dir,
       '-'
@@ -155,10 +192,7 @@ export async function drawPicture(description: string): Promise<{ image: Buffer;
       })
       child.stdin.end(picturePrompt(description))
     })
-    const file = readdirSync(dir)
-      .filter((f) => /\.(png|jpe?g)$/i.test(f))
-      .map((f) => join(dir, f))
-      .sort((a, b) => statSync(b).size - statSync(a).size)[0]
+    const file = findPicture(codexPicturesDir(), threadId, started, dir)
     if (!file) {
       const why = said.at(-1) ?? stderr.trim().split(/\r?\n/).at(-1) ?? `it stopped (exit ${code})`
       throw new Error(`Codex didn't make a picture: ${why.slice(0, 300)}`)
@@ -170,10 +204,7 @@ export async function drawPicture(description: string): Promise<{ image: Buffer;
   } finally {
     rmSync(dir, { recursive: true, force: true })
     // Codex keeps its own copy of every picture it makes; this one lives in the theme now.
-    if (threadId && /^[0-9a-f-]{8,}$/i.test(threadId)) {
-      const codexHome = process.env.CODEX_HOME || join(homedir(), '.codex')
-      rmSync(join(codexHome, 'generated_images', threadId), { recursive: true, force: true })
-    }
+    if (threadId && /^[0-9a-f-]{8,}$/i.test(threadId)) rmSync(join(codexPicturesDir(), threadId), { recursive: true, force: true })
   }
 }
 

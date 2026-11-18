@@ -1,7 +1,10 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { THEME_VARS } from '@shared/types'
-import { cleanGenerated } from '../../src/main/themes/generate'
+import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
+import { cleanGenerated, findPicture } from '../../src/main/themes/generate'
 import { validateTheme } from '../../src/main/themes/store'
 
 function answer(bgImage: string): { name: string; vars: Record<string, string> } {
@@ -35,4 +38,29 @@ test('other refused values still refuse the theme (Claude is asked again)', () =
   const raw = answer('none')
   raw.vars.accent = 'url(x)'
   assert.throws(() => validateTheme(cleanGenerated(raw, true), 'generated'), /accent/)
+})
+
+test("the picture is taken from Codex's own pictures folder: this run's, or one made since it started", () => {
+  const pictures = mkdtempSync(join(tmpdir(), 'codex-pictures-'))
+  try {
+    const old = join(pictures, 'old-run')
+    mkdirSync(old)
+    writeFileSync(join(old, 'exec-a.png'), 'x'.repeat(50))
+    const hourAgo = new Date(Date.now() - 3_600_000)
+    utimesSync(join(old, 'exec-a.png'), hourAgo, hourAgo)
+    utimesSync(old, hourAgo, hourAgo)
+    const since = Date.now()
+    const run = join(pictures, '01a1ecd6-59e9-7210-bde6-ebac6e3822f9')
+    mkdirSync(run)
+    writeFileSync(join(run, 'exec-b.png'), 'x'.repeat(10))
+    assert.equal(findPicture(pictures, '01a1ecd6-59e9-7210-bde6-ebac6e3822f9', since), join(run, 'exec-b.png'), "this run's")
+    assert.equal(findPicture(pictures, undefined, since), join(run, 'exec-b.png'), 'id not seen: one made since it started, not an old one')
+    assert.equal(findPicture(pictures, 'another-run', since), undefined, "never another run's picture")
+    const work = mkdtempSync(join(tmpdir(), 'picture-work-'))
+    writeFileSync(join(work, 'background.png'), 'x')
+    assert.equal(findPicture(join(pictures, 'none'), undefined, since, work), join(work, 'background.png'), 'saved in the working folder anyway')
+    rmSync(work, { recursive: true, force: true })
+  } finally {
+    rmSync(pictures, { recursive: true, force: true })
+  }
 })
