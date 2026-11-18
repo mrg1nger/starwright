@@ -105,9 +105,29 @@ test('the Chat tab replays the latest messages within its budget, labelled by ag
   addTalkMessage(id, { role: 'assistant', text: 'OK', agent: 'claude' })
   const c = addTalkMessage(id, { role: 'user', text: 'What is it?' })
   const history = historyText(c)
-  assert.match(history, /Assistant \(Claude\): OK/)
+  assert.match(history, /Reply from Claude: OK/)
   assert.ok(history.endsWith('User: What is it?'))
-  assert.ok(historyText(c, 30).includes('What is it?'), 'always keeps the newest message')
+  assert.ok(historyText(c, undefined, 30).includes('What is it?'), 'always keeps the newest message')
+  // From the answering agent's side: its own replies are "you", the others' are not.
+  assert.match(historyText(c, 'claude'), /Reply from Claude \(you\): OK/)
+  assert.match(historyText(c, 'cline'), /Reply from Claude \(another agent, not you\): OK/)
+})
+
+test("each Chat-tab agent is told who it is and that the chat is shared (Cline once said it was Claude)", async () => {
+  const { talkIdentity, talkPrompt } = await import('../../src/main/chat/talk')
+  const cline = talkIdentity('cline', 'cline-pass/deepseek-v4-pro')
+  assert.match(cline, /You are Cline[^.]*cline-pass\/deepseek-v4-pro/)
+  assert.match(cline, /not Claude or Codex/)
+  assert.match(cline, /shared between four different AI agents/)
+  assert.match(talkIdentity('local', 'recursivesi/flint'), /You are the local model: recursivesi\/flint/)
+  assert.match(talkIdentity('claude', null), /^You are Claude, made by Anthropic\./)
+  assert.match(talkIdentity('codex', 'gpt-5.5'), /You are Codex[^.]*gpt-5\.5/)
+  const id = 'aaaaaaaa-1111-2222-3333-555555555555'
+  addTalkMessage(id, { role: 'assistant', text: "I'm Claude (Sonnet 5).", agent: 'claude' })
+  const c = addTalkMessage(id, { role: 'user', text: 'what model are you?' })
+  const prompt = talkPrompt(c, 'cline')
+  assert.match(prompt, /Reply from Claude \(another agent, not you\): I'm Claude/)
+  assert.match(prompt, /Reply to the last User message, as Cline\.$/)
 })
 
 test('an extension that needs keys stays off until they are supplied', () => {

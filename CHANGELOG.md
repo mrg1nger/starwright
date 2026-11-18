@@ -2,6 +2,13 @@
 
 The version goes up with each improvement that ships: the middle number for new features, the last for fixes only. Settings shows the version a computer is running. (Starwright was called VibeApp up to 0.10.0.)
 
+## 0.18.1 (2026-11-18)
+
+In the Chat tab, each agent now answers as itself. Cline had replied "I'm Claude" right after Claude had said who it was.
+
+- Each agent is told who it is and which model it runs (for example "You are Cline, running cline-pass/deepseek-v4-pro on the user's ClinePass plan"). It's also told that this chat is shared between four different AI agents and the user can switch between them.
+- Earlier replies in the conversation now say who wrote them, either "you" or "another agent, not you". So an agent doesn't take on another's name, or repeat another's mistaken claim that the names are only labels.
+
 ## 0.18.0 (2026-11-18)
 
 The Chat tab can talk to Cline and the local model too, alongside Claude and Codex.

@@ -69,12 +69,22 @@ export function addTalkMessage(
   return conversation
 }
 
-/** The most recent messages that fit, oldest first, as plain text for the next prompt. */
-export function historyText(conversation: TalkConversation, maxChars = 14_000): string {
+export const TALK_AGENT_NAMES: Record<TalkAgent, string> = { claude: 'Claude', codex: 'Codex', cline: 'Cline', local: 'the local model' }
+
+/**
+ * The most recent messages that fit, oldest first, as plain text for the next prompt. Each reply
+ * says which agent wrote it, and whether that was the agent now answering ("you") or another one,
+ * so an agent doesn't take on another's name (Cline once answered "I'm Claude" after Claude had).
+ */
+export function historyText(conversation: TalkConversation, self?: TalkAgent, maxChars = 14_000): string {
   const lines: string[] = []
   let used = 0
   for (const m of [...conversation.messages].reverse()) {
-    const who = m.role === 'user' ? 'User' : `Assistant (${{ codex: 'Codex', cline: 'Cline', local: 'the local model', claude: 'Claude' }[m.agent ?? 'claude']})`
+    const author = m.agent ?? 'claude'
+    const who =
+      m.role === 'user'
+        ? 'User'
+        : `Reply from ${TALK_AGENT_NAMES[author]}${self ? (author === self ? ' (you)' : ' (another agent, not you)') : ''}`
     const line = `${who}: ${m.text}`
     if (used + line.length > maxChars && lines.length > 0) break
     lines.unshift(line)

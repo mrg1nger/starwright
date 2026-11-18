@@ -1082,6 +1082,22 @@ try {
     await type('And again: just that one word, in capitals.')
     await waitFor(`/Local model[\\s\\S]*BANANA/i.test([...document.querySelectorAll('.talk-msg')].at(-1)?.innerText ?? '')`, "the local model's reply", 300_000)
     await waitFor(`!document.querySelector('.talk-compose .chat-stop')`, 'the local model to finish')
+
+    // Each answers for itself, even right after Claude has said who it is (Cline once answered "I'm Claude").
+    const lastReply = `([...document.querySelectorAll('.talk-msg')].at(-1)?.innerText ?? '')`
+    const ask = async (agent, label) => {
+      await click(agent, '.talk-compose .chat-mode-switch button')
+      await type('What are you? One short sentence.')
+      await waitFor(`${lastReply}.startsWith(${JSON.stringify(label)}) && !document.querySelector('.talk-compose .chat-stop')`, `${agent}'s answer`, 300_000)
+      return (await evaluate(lastReply)).slice(label.length).trim()
+    }
+    const claude = await ask('Claude', 'Claude')
+    if (!/claude/i.test(claude)) throw new Error(`Claude said: ${claude}`)
+    const cline = await ask('Cline', 'Cline')
+    if (!/cline/i.test(cline) || /\bI(?:'|’)?m Claude\b|\bI am Claude\b/i.test(cline)) throw new Error(`Cline said: ${cline}`)
+    const local = await ask('Local model', 'Local model')
+    if (/\bI(?:'|’)?m (Claude|Cline|Codex)\b|\bI am (Claude|Cline|Codex)\b/i.test(local)) throw new Error(`the local model said: ${local}`)
+    console.log(`   Cline: ${cline}\n   Local model: ${local}`)
   })
 
   await step('settings changes are saved', async () => {
