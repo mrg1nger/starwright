@@ -2,6 +2,10 @@
 
 The version goes up with each improvement that ships: the middle number for new features, the last for fixes only. Settings shows the version a computer is running. (Starwright was called VibeApp up to 0.10.0.)
 
+## 0.16.1 (2026-11-17)
+
+**A theme with a picture no longer fails with "Theme value for bg-image isn't allowed".** Claude sometimes pointed the theme's decorative background layer at the picture with url(), which a theme may never contain, so the whole theme was refused after the picture was already drawn. The picture takes that layer's place anyway, so Starwright now sets it itself; in a theme without a picture an unusable decoration is just left out. If any other value is refused, Claude is asked once more (told what was wrong) with the same picture, rather than drawing a new one.
+
 ## 0.16.0 (2026-11-17)
 
 **Themes with a background picture.** In **Settings → Themes → Generate a theme**, tick **Draw a background picture with Codex**: Codex paints a detailed picture of what you describe (about a minute, from your Codex plan's usage), and Claude picks the theme's colors while looking at it, so the accent, panels and text match the picture.

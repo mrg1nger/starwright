@@ -177,6 +177,21 @@ export async function drawPicture(description: string): Promise<{ image: Buffer;
   }
 }
 
+/**
+ * Claude's answer made safe to save where it can be: bg-image is only decoration, so a value the
+ * theme check would refuse (url(), image-set()) is dropped rather than losing the whole theme; with a
+ * picture it's always "none", since the picture takes its place.
+ */
+export function cleanGenerated(raw: unknown, withPicture: boolean): unknown {
+  if (!raw || typeof raw !== 'object') return raw
+  const theme = raw as { vars?: Record<string, unknown> }
+  if (!theme.vars || typeof theme.vars !== 'object') return raw
+  const bgImage = theme.vars['bg-image']
+  const unsafe = typeof bgImage !== 'string' || !bgImage.trim() || /url\s*\(|image-set\s*\(|expression\s*\(|@import|[;{}<>\\]/i.test(bgImage)
+  if (withPicture || unsafe) return { ...theme, vars: { ...theme.vars, 'bg-image': 'none' } }
+  return raw
+}
+
 /** A generated theme, and why it has no picture when one was asked for and Codex couldn't draw it. */
 export type GeneratedTheme = ThemeDefinition & { pictureError?: string }
 
@@ -203,7 +218,29 @@ export async function generateTheme(description: string, withPicture = false): P
   // picking up any project's CLAUDE.md or settings.
   const cwd = mkdtempSync(join(tmpdir(), 'vibeapp-theme-'))
   try {
-    const text = buildPrompt(request, !!picture)
+    let retryNote = ''
+    for (let attempt = 1; ; attempt++) {
+      const raw = await askForTheme(cwd, buildPrompt(request, !!picture) + retryNote, picture)
+      let theme: ThemeDefinition
+      try {
+        theme = validateTheme(cleanGenerated(raw, !!picture), 'generated')
+      } catch (err) {
+        // One more go, told what was wrong (the picture is kept, not drawn again).
+        if (attempt >= 2) throw err
+        retryNote = `\n\nYour last answer was refused: ${(err as Error).message} Follow the value rules exactly this time.`
+        continue
+      }
+      const saved = saveTheme(picture ? { ...theme, imageDim: theme.imageDim ?? 0.4 } : theme, picture)
+      return pictureError ? { ...saved, pictureError } : saved
+    }
+  } finally {
+    rmSync(cwd, { recursive: true, force: true })
+  }
+}
+
+/** One request to Claude for a theme (with the picture attached, if there is one); returns its JSON answer. */
+async function askForTheme(cwd: string, text: string, picture: { image: Buffer } | undefined): Promise<unknown> {
+  {
     const prompt: string | AsyncIterable<SDKUserMessage> = picture
       ? (async function* () {
           yield {
@@ -236,12 +273,8 @@ export async function generateTheme(description: string, withPicture = false): P
         throw new Error(`Theme generation failed (${message.subtype}).`)
       }
       if (!message.structured_output) throw new Error('Claude didn\'t return a theme.')
-      const theme = validateTheme(message.structured_output, 'generated')
-      const saved = saveTheme(picture ? { ...theme, imageDim: theme.imageDim ?? 0.4 } : theme, picture)
-      return pictureError ? { ...saved, pictureError } : saved
+      return message.structured_output
     }
     throw new Error('Theme generation ended without a result.')
-  } finally {
-    rmSync(cwd, { recursive: true, force: true })
   }
 }
