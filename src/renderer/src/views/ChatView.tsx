@@ -208,6 +208,23 @@ function readSidePref(): SidePane {
   }
 }
 
+/** How wide the chat is beside the preview or notes (percent of the space), dragged on the divider. */
+const CHAT_WIDTH_KEY = 'vibeapp.chatWidth'
+const CHAT_WIDTH_DEFAULT = 42
+const CHAT_WIDTH_MIN = 20
+const CHAT_WIDTH_MAX = 80
+const clampChatWidth = (pct: number): number =>
+  Number.isFinite(pct) ? Math.round(Math.min(CHAT_WIDTH_MAX, Math.max(CHAT_WIDTH_MIN, pct)) * 10) / 10 : CHAT_WIDTH_DEFAULT
+
+function readChatWidth(): number {
+  try {
+    const saved = localStorage.getItem(CHAT_WIDTH_KEY)
+    return saved ? clampChatWidth(Number(saved)) : CHAT_WIDTH_DEFAULT
+  } catch {
+    return CHAT_WIDTH_DEFAULT
+  }
+}
+
 function readPreviewPref(): boolean {
   try {
     return localStorage.getItem(PREVIEW_PREF_KEY) !== 'false'
@@ -246,6 +263,58 @@ function ChatView({ project, onBack, onOpenHistory, onOpenMemory, onError, think
     if (!phone) setMoreOpen(false)
   }, [phone])
   const [phonePane, setPhonePane] = useState<'chat' | 'preview'>('chat')
+  // On a computer: how wide the chat is beside the side pane, and either side folded away.
+  const [chatWidth, setChatWidthState] = useState(readChatWidth)
+  const [collapsed, setCollapsed] = useState<'chat' | 'side' | null>(null)
+  const [resizing, setResizing] = useState(false)
+  const bodyRef = useRef<HTMLDivElement>(null)
+  const setChatWidth = useCallback((pct: number) => {
+    const next = clampChatWidth(pct)
+    setChatWidthState(next)
+    try {
+      localStorage.setItem(CHAT_WIDTH_KEY, String(next))
+    } catch {
+      // Only a remembered preference; fine to lose.
+    }
+  }, [])
+  const startResize = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (e.button !== 0 || (e.target as HTMLElement).closest('button')) return
+      const body = bodyRef.current
+      if (!body) return
+      e.preventDefault()
+      const handle = e.currentTarget
+      handle.setPointerCapture(e.pointerId)
+      setResizing(true)
+      setCollapsed(null)
+      const move = (ev: PointerEvent): void => {
+        const rect = body.getBoundingClientRect()
+        if (rect.width > 0) setChatWidth(((ev.clientX - rect.left) / rect.width) * 100)
+      }
+      const end = (): void => {
+        setResizing(false)
+        handle.removeEventListener('pointermove', move)
+        handle.removeEventListener('pointerup', end)
+        handle.removeEventListener('pointercancel', end)
+      }
+      handle.addEventListener('pointermove', move)
+      handle.addEventListener('pointerup', end)
+      handle.addEventListener('pointercancel', end)
+    },
+    [setChatWidth]
+  )
+  const resizeByKey = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      const step = e.shiftKey ? 10 : 2
+      if (e.key === 'ArrowLeft') setChatWidth(chatWidth - step)
+      else if (e.key === 'ArrowRight') setChatWidth(chatWidth + step)
+      else if (e.key === 'Home') setChatWidth(CHAT_WIDTH_DEFAULT)
+      else return
+      e.preventDefault()
+      setCollapsed(null)
+    },
+    [chatWidth, setChatWidth]
+  )
   // A to-do sent to Plan mode: ticked off once its approved plan has been built.
   const planTodo = useRef<string | null>(null)
   // Ask: answer a question without changing anything. Build: the normal coding flow.
@@ -332,14 +401,17 @@ function ChatView({ project, onBack, onOpenHistory, onOpenMemory, onError, think
   /** The Preview and Notes buttons: open that pane, or close it if it's already showing. */
   const toggleSide = useCallback(
     (pane: SidePane) => {
-      if (showPreview && sidePane === pane) {
+      if (showPreview && sidePane === pane && collapsed !== 'side') {
         setSideOpen(false)
+        setCollapsed(null)
       } else {
+        // A folded-away side pane opens again rather than closing.
+        if (collapsed === 'side') setCollapsed(null)
         setSidePane(pane)
         setSideOpen(true)
       }
     },
-    [showPreview, sidePane, setSideOpen, setSidePane]
+    [showPreview, sidePane, collapsed, setSideOpen, setSidePane]
   )
 
   const handleGoNutzChange = useCallback(
@@ -1095,9 +1167,15 @@ function ChatView({ project, onBack, onOpenHistory, onOpenMemory, onError, think
         </div>
       )}
 
-      <div className={`chat-body${showPreview ? ' with-preview' : ''}${phone ? ` phone-pane-${showPreview ? phonePane : 'chat'}` : ''}`}>
+      <div
+        ref={bodyRef}
+        className={`chat-body${showPreview ? ' with-preview' : ''}${phone ? ` phone-pane-${showPreview ? phonePane : 'chat'}` : ''}${
+          showPreview && !phone && collapsed ? ` collapsed-${collapsed}` : ''
+        }${resizing ? ' resizing' : ''}`}
+      >
         <div
           className={`chat-main${dragging ? ' dragging' : ''}`}
+          style={showPreview && !phone && !collapsed ? { flexBasis: `${chatWidth}%` } : undefined}
           onDragOver={(e) => {
             if (!e.dataTransfer.types.includes('Files')) return
             e.preventDefault()
@@ -1634,9 +1712,50 @@ function ChatView({ project, onBack, onOpenHistory, onOpenMemory, onError, think
           </div>
         </div>
 
+        {showPreview && !phone && (
+          <div
+            className="split-handle"
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Chat width"
+            aria-valuemin={CHAT_WIDTH_MIN}
+            aria-valuemax={CHAT_WIDTH_MAX}
+            aria-valuenow={collapsed === 'chat' ? 0 : collapsed === 'side' ? 100 : chatWidth}
+            tabIndex={0}
+            title="Drag to resize · double-click for the usual width"
+            onPointerDown={startResize}
+            onKeyDown={resizeByKey}
+            onDoubleClick={(e) => {
+              if ((e.target as HTMLElement).closest('button')) return
+              setCollapsed(null)
+              setChatWidth(CHAT_WIDTH_DEFAULT)
+            }}
+          >
+            {collapsed !== 'chat' && (
+              <button
+                className="split-fold"
+                aria-label={collapsed === 'side' ? 'Show the side pane again' : 'Fold away the chat'}
+                title={collapsed === 'side' ? `Show the ${sidePane === 'notes' ? 'notes' : 'preview'} again` : 'Fold away the chat'}
+                onClick={() => setCollapsed(collapsed === 'side' ? null : 'chat')}
+              >
+                ‹
+              </button>
+            )}
+            {collapsed !== 'side' && (
+              <button
+                className="split-fold"
+                aria-label={collapsed === 'chat' ? 'Show the chat again' : 'Fold away the side pane'}
+                title={collapsed === 'chat' ? 'Show the chat again' : `Fold away the ${sidePane === 'notes' ? 'notes' : 'preview'}`}
+                onClick={() => setCollapsed(collapsed === 'chat' ? null : 'side')}
+              >
+                ›
+              </button>
+            )}
+          </div>
+        )}
         {showPreview && (
-          // Kept running behind the Notes tab, so switching back doesn't reload the app.
-          <div style={{ display: sidePane === 'preview' ? 'contents' : 'none' }}>
+          // Kept running behind the Notes tab (and while folded away), so switching back doesn't reload the app.
+          <div style={{ display: sidePane === 'preview' && !(collapsed === 'side' && !phone) ? 'contents' : 'none' }}>
             <PreviewPane
               projectId={project.id}
               projectPath={project.path}

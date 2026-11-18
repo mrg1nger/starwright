@@ -2,6 +2,14 @@
 
 The version goes up with each improvement that ships: the middle number for new features, the last for fixes only. Settings shows the version a computer is running. (Starwright was called VibeApp up to 0.10.0.)
 
+## 0.17.0 (2026-11-18)
+
+The chat and the preview (or Notes) can be resized and folded away.
+
+- **Drag the divider** between them to make either side wider. Starwright remembers the width. Double-click the divider for the usual width again, or use the arrow keys when it's selected.
+- **Fold a side away** with the small ‹ › buttons on the divider: ‹ hides the chat so the preview gets the whole width, › hides the preview so the chat does. The other button brings it back, and so does the Preview or Notes button. A folded-away preview keeps running, so it doesn't reload.
+- Phones are unchanged: they still show one side at a time.
+
 ## 0.16.4 (2026-11-18)
 
 Three fixes from a week of Lazarus's own usage records.

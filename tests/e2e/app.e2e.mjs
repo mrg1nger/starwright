@@ -344,6 +344,50 @@ try {
     await click('✕', '.picked-chip button')
   })
 
+  await step('the divider between the chat and the preview drags to resize, folds either side away, and remembers the width', async () => {
+    await waitFor(`!!document.querySelector('.split-handle')`, 'the divider')
+    const widthOf = (sel) => evaluate(`Math.round(document.querySelector(${JSON.stringify(sel)})?.getBoundingClientRect().width ?? -1)`)
+    const body = await evaluate(`(() => { const r = document.querySelector('.chat-body').getBoundingClientRect(); return { x: r.x, w: r.width } })()`)
+    const handle = await evaluate(`(() => { const r = document.querySelector('.split-handle').getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + 12 } })()`)
+    // Drag across the preview (a webview) to 65%: the pointer stays with the divider.
+    const to = body.x + body.w * 0.65
+    await cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', x: handle.x, y: handle.y })
+    await cdp('Input.dispatchMouseEvent', { type: 'mousePressed', x: handle.x, y: handle.y, button: 'left', clickCount: 1 })
+    for (let i = 1; i <= 8; i++) {
+      await cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', x: handle.x + ((to - handle.x) * i) / 8, y: handle.y, button: 'left', buttons: 1 })
+    }
+    await cdp('Input.dispatchMouseEvent', { type: 'mouseReleased', x: to, y: handle.y, button: 'left', clickCount: 1 })
+    await sleep(300)
+    const chatW = await widthOf('.chat-main')
+    if (Math.abs(chatW / body.w - 0.65) > 0.03) throw new Error(`the chat is ${chatW}px of ${body.w}px after dragging to 65%`)
+    const saved = Number(await evaluate(`localStorage.getItem('vibeapp.chatWidth')`))
+    if (Math.abs(saved - 65) > 3) throw new Error(`saved width ${saved}`)
+
+    // Fold the preview away: the chat takes the room, and the preview keeps running behind it.
+    await click('›', '.split-fold')
+    await sleep(300)
+    if ((await widthOf('.chat-main')) < body.w * 0.9) throw new Error('the chat did not take the room')
+    if (!(await evaluate(`!!document.querySelector('webview')`))) throw new Error('the preview was closed, not folded away')
+    // The Preview button brings it back.
+    await click('Preview', '.chat-header-actions button')
+    await sleep(300)
+    if (Math.abs((await widthOf('.chat-main')) / body.w - 0.65) > 0.03) throw new Error('the Preview button did not unfold it at its width')
+
+    // Fold the chat away: the preview takes the room; › brings the chat back.
+    await click('‹', '.split-fold')
+    await sleep(300)
+    if ((await widthOf('.chat-main')) > 0) throw new Error('the chat is still showing')
+    if ((await widthOf('.preview-pane')) < body.w * 0.9) throw new Error('the preview did not take the room')
+    await click('›', '.split-fold')
+    await sleep(300)
+    if ((await widthOf('.chat-main')) <= 0) throw new Error('the chat did not come back')
+
+    // Double-click puts the usual width back.
+    await evaluate(`document.querySelector('.split-handle').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))`)
+    await sleep(300)
+    if (Math.abs((await widthOf('.chat-main')) / body.w - 0.42) > 0.03) throw new Error('double-click did not reset the width')
+  })
+
   await step('an error in the page shows the "Something broke" banner', async () => {
     if (!preview) throw new Error('no preview page')
     writeFileSync(join(project, 'index.html'), PAGE.replace('</body>', '<script>throw new Error("e2e boom")</script></body>'))

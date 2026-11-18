@@ -1238,6 +1238,87 @@ textarea {
   flex: 0 0 42%;
 }
 
+/* The divider between the chat and the preview / notes: drag to resize, ‹ › fold a side away. */
+.chat-body.with-preview {
+  gap: 0;
+}
+
+.split-handle {
+  flex: 0 0 14px;
+  margin: 0 3px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+  outline: none;
+}
+
+.split-handle::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  transform: translateX(-50%);
+  border-radius: 2px;
+  background: var(--border);
+  transition: background 0.15s;
+}
+
+.split-handle:hover::before,
+.split-handle:focus-visible::before,
+.chat-body.resizing .split-handle::before {
+  background: var(--accent);
+}
+
+.split-fold {
+  position: relative;
+  width: 18px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.75;
+}
+
+.split-fold:hover,
+.split-fold:focus-visible {
+  opacity: 1;
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.chat-body.collapsed-chat .chat-main,
+.chat-body.collapsed-side .notes-pane {
+  display: none;
+}
+
+.chat-body.collapsed-side .chat-main {
+  flex: 1 1 auto;
+}
+
+/* While dragging, the preview's page mustn't swallow the pointer. */
+.chat-body.resizing,
+.chat-body.resizing * {
+  cursor: col-resize !important;
+}
+
+.chat-body.resizing iframe,
+.chat-body.resizing webview {
+  pointer-events: none;
+}
+
 .chat-body.with-preview .chat-item-user_text p,
 .chat-body.with-preview .chat-item-assistant_text .md {
   max-width: 88%;
