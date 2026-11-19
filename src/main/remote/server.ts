@@ -446,11 +446,16 @@ function onSocket(ws: WebSocket, device: Device): void {
   })
 }
 
+/** Events a read-only device never gets: what's typed and shown in a project's terminal. */
+const PRIVATE_EVENTS = new Set(['vibe:term:data'])
+
 function broadcast(channel: string, args: unknown[]): void {
   if (!sockets.size && !sseClients.size) return
+  const hidden = PRIVATE_EVENTS.has(channel)
+  const allowed = (device: Device): boolean => !hidden || !(device.readOnly || getSettings().remoteReadOnly)
   const data = JSON.stringify({ type: 'event', channel, args })
-  for (const { ws } of sockets) if (ws.readyState === ws.OPEN) ws.send(data)
-  for (const { res } of sseClients) res.write(`data: ${JSON.stringify({ channel, args })}\n\n`)
+  for (const { ws, device } of sockets) if (ws.readyState === ws.OPEN && allowed(device)) ws.send(data)
+  for (const { res, device } of sseClients) if (allowed(device)) res.write(`data: ${JSON.stringify({ channel, args })}\n\n`)
 }
 
 // ---- the preview relay ----------------------------------------------------------------

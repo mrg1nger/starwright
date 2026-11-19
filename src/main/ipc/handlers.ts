@@ -41,6 +41,7 @@ import {
   disposeInstallSession
 } from '../pty/installSession'
 import type { PtySession } from '../pty/ptySession'
+import { closeProjectTerminal, openTerminal, resizeTerminal, writeTerminal } from '../pty/projectTerminal'
 import {
   listProjects,
   recordProjectOpened,
@@ -749,6 +750,26 @@ export function registerIpcHandlers(getSender: () => WebContents | undefined): v
   ipc.handle('vibe:talk:load', (_event, id: string) => getTalk(id) ?? null)
   ipc.handle('vibe:talk:send', (_event, id: string, text: string, agent: TalkAgent) => runTalk(id, text, agent))
   ipc.handle('vibe:talk:agents', () => talkAgentsReady())
+
+  // ---- the command line under a project's preview ----
+  const terminalEvents = {
+    data: (id: string, data: string) => getSender()?.send('vibe:term:data', id, data),
+    exit: (id: string, exitCode: number) => getSender()?.send('vibe:term:exit', id, exitCode)
+  }
+  ipc.handle('vibe:term:open', (_event, projectId: string, cols?: number, rows?: number) => {
+    const project = getProject(String(projectId))
+    if (!project) throw new Error("That project isn't in Starwright.")
+    if (!existsSync(project.path)) throw new Error(`The project folder isn't there: ${project.path}`)
+    return openTerminal(project.id, project.path, terminalEvents, { cols, rows })
+  })
+  ipc.handle('vibe:term:restart', (_event, projectId: string, cols?: number, rows?: number) => {
+    const project = getProject(String(projectId))
+    if (!project) throw new Error("That project isn't in Starwright.")
+    closeProjectTerminal(project.id)
+    return openTerminal(project.id, project.path, terminalEvents, { cols, rows })
+  })
+  ipc.on('vibe:term:write', (_event, id: string, data: string) => writeTerminal(String(id), String(data)))
+  ipc.on('vibe:term:resize', (_event, id: string, cols: number, rows: number) => resizeTerminal(String(id), Number(cols), Number(rows)))
   ipc.handle('vibe:talk:stop',(_event, id: string) => stopTalk(id))
   ipc.handle('vibe:talk:delete', (_event, id: string) => deleteTalk(id))
 

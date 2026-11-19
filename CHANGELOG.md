@@ -2,6 +2,14 @@
 
 The version goes up with each improvement that ships: the middle number for new features, the last for fixes only. Settings shows the version a computer is running. (Starwright was called VibeApp up to 0.10.0.)
 
+## 0.19.0 (2026-11-18)
+
+There's now a command line under the preview or notes.
+
+- **Terminal** at the bottom of the preview opens a real command line in the project's folder (PowerShell on Windows). Click it again to fold it away. Drag its top bar to make it taller or shorter. Starwright remembers whether it's open and how tall it is.
+- It keeps running while it's folded away or you're on another screen, and coming back shows what was there. Each project has its own. If it ends (say, after `exit`), "Start a new one" opens a fresh one. Closing Starwright ends it and anything it started.
+- It works over Remote access too. A read-only connection can't open it or type into it, and doesn't get what it shows.
+
 ## 0.18.1 (2026-11-18)
 
 In the Chat tab, each agent now answers as itself. Cline had replied "I'm Claude" right after Claude had said who it was.

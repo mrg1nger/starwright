@@ -388,6 +388,44 @@ try {
     if (Math.abs((await widthOf('.chat-main')) / body.w - 0.42) > 0.03) throw new Error('double-click did not reset the width')
   })
 
+  await step('the Terminal drawer under the preview runs commands in the project folder, folds away and keeps its output', async () => {
+    const screenText = `(document.querySelector('.project-terminal .xterm-rows')?.innerText ?? '')`
+    const typeInTerminal = async (text) => {
+      await evaluate(`document.querySelector('.project-terminal .xterm-helper-textarea').focus()`)
+      await cdp('Input.insertText', { text })
+      await cdp('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 })
+      await cdp('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 })
+    }
+    if (await evaluate(`document.querySelector('.terminal-drawer')?.classList.contains('open')`)) await click('Terminal', '.terminal-toggle')
+    await click('Terminal', '.terminal-toggle')
+    await waitFor(`/PS .*>/.test(${screenText})`, 'the PowerShell prompt', 30_000)
+    await typeInTerminal("'TERM' + '_OK'; (Get-Location).Path")
+    await waitFor(`/TERM_OK/.test(${screenText})`, 'the command output', 15_000)
+    const lines = (await evaluate(screenText)).split('\n').map((l) => l.trim().toLowerCase())
+    if (!lines.includes(project.toLowerCase())) throw new Error(`the command line isn't in the project folder:\n${await evaluate(screenText)}`)
+    // The preview is still there above it.
+    if ((await evaluate(`Math.round(document.querySelector('.preview-pane').getBoundingClientRect().height)`)) < 150) throw new Error('the preview was squeezed out')
+
+    // Folded away and opened again: the same shell, output kept.
+    await click('Terminal', '.terminal-toggle')
+    if (await evaluate(`document.querySelector('.project-terminal').offsetParent !== null`)) throw new Error('still showing after folding away')
+    await click('Terminal', '.terminal-toggle')
+    await sleep(500)
+    if (!/TERM_OK/.test(await evaluate(screenText))) throw new Error('the output was lost after folding away')
+
+    // Another screen and back: the shell kept running and its output comes back.
+    await typeInTerminal('$starwrightMark = 41 + 1')
+    await sleep(500)
+    await click('Settings', '.app-nav-tabs button')
+    await click('Projects', '.app-nav-tabs button')
+    await click('e2e-game', 'button.project-row')
+    await waitFor(`/TERM_OK/.test(${screenText})`, 'the earlier output', 15_000)
+    await typeInTerminal("'MARK=' + $starwrightMark")
+    await waitFor(`/MARK=42/.test(${screenText})`, 'the same shell (its variable kept)', 15_000)
+    await shot('terminal-open')
+    await click('Terminal', '.terminal-toggle')
+  })
+
   await step('an error in the page shows the "Something broke" banner', async () => {
     if (!preview) throw new Error('no preview page')
     writeFileSync(join(project, 'index.html'), PAGE.replace('</body>', '<script>throw new Error("e2e boom")</script></body>'))

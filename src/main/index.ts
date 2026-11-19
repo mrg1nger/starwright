@@ -9,6 +9,7 @@ import { stopAllPreviews } from './preview/preview'
 import { stopLeftoverPreviews } from './preview/leftovers'
 import { startIdleWatch } from './cli/lmStudio'
 import { stopAllChildren } from './cli/codexExec'
+import { closeAllTerminals } from './pty/projectTerminal'
 import { requestClassifier } from './orchestrator/classifier'
 import { getSettings } from './settings/store'
 import { applyLoginItem, noteStillRunning, setupTray } from './tray'
@@ -183,6 +184,7 @@ app.on('will-quit', () => {
   stopUpdateChecks()
   // Codex jobs, test runs and tool checks still going: nothing keeps working after VibeApp is closed.
   stopAllChildren()
+  closeAllTerminals()
   stopMemorySearch()
   void stopRemote()
   requestClassifier.dispose()

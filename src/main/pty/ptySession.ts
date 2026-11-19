@@ -54,6 +54,10 @@ export class PtySession extends EventEmitter {
     this.ptyProcess.resize(cols, rows)
   }
 
+  get pid(): number {
+    return this.ptyProcess.pid
+  }
+
   dispose(): void {
     this.ptyProcess.kill()
   }

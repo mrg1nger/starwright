@@ -19,6 +19,7 @@ import type {
 import CheckpointButton from '../components/CheckpointButton'
 import GoNutzToggle from '../components/GoNutzToggle'
 import PreviewPane from '../components/PreviewPane'
+import ProjectTerminal from '../components/ProjectTerminal'
 import NotesPane from '../components/NotesPane'
 import DeployDialog from '../components/DeployDialog'
 import ScheduleDialog from '../components/ScheduleDialog'
@@ -225,6 +226,27 @@ function readChatWidth(): number {
   }
 }
 
+const TERMINAL_OPEN_KEY = 'vibeapp.terminalOpen'
+const TERMINAL_HEIGHT_KEY = 'vibeapp.terminalHeight'
+const TERMINAL_HEIGHT_DEFAULT = 240
+const TERMINAL_HEIGHT_MIN = 90
+
+function readPref(key: string): string | null {
+  try {
+    return localStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+
+function writePref(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value)
+  } catch {
+    // Only a remembered preference; fine to lose.
+  }
+}
+
 function readPreviewPref(): boolean {
   try {
     return localStorage.getItem(PREVIEW_PREF_KEY) !== 'false'
@@ -314,6 +336,46 @@ function ChatView({ project, onBack, onOpenHistory, onOpenMemory, onError, think
       setCollapsed(null)
     },
     [chatWidth, setChatWidth]
+  )
+  // The command line under the preview / notes: folded away or open, and how tall.
+  const sideRef = useRef<HTMLDivElement>(null)
+  const [terminalOpen, setTerminalOpenState] = useState(() => readPref(TERMINAL_OPEN_KEY) === 'true')
+  const [terminalHeight, setTerminalHeightState] = useState(() => Number(readPref(TERMINAL_HEIGHT_KEY)) || TERMINAL_HEIGHT_DEFAULT)
+  const [termResizing, setTermResizing] = useState(false)
+  const setTerminalOpen = useCallback((open: boolean) => {
+    setTerminalOpenState(open)
+    writePref(TERMINAL_OPEN_KEY, String(open))
+  }, [])
+  const startTerminalResize = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (!terminalOpen || e.button !== 0 || (e.target as HTMLElement).closest('button')) return
+      const column = sideRef.current
+      if (!column) return
+      e.preventDefault()
+      const bar = e.currentTarget
+      bar.setPointerCapture(e.pointerId)
+      setTermResizing(true)
+      const move = (ev: PointerEvent): void => {
+        const rect = column.getBoundingClientRect()
+        // Room left for the preview above it, and at least a few lines of terminal.
+        const height = Math.round(Math.min(rect.height - 120, Math.max(TERMINAL_HEIGHT_MIN, rect.bottom - ev.clientY)))
+        setTerminalHeightState(height)
+      }
+      const end = (): void => {
+        setTermResizing(false)
+        bar.removeEventListener('pointermove', move)
+        bar.removeEventListener('pointerup', end)
+        bar.removeEventListener('pointercancel', end)
+        setTerminalHeightState((h) => {
+          writePref(TERMINAL_HEIGHT_KEY, String(h))
+          return h
+        })
+      }
+      bar.addEventListener('pointermove', move)
+      bar.addEventListener('pointerup', end)
+      bar.addEventListener('pointercancel', end)
+    },
+    [terminalOpen]
   )
   // A to-do sent to Plan mode: ticked off once its approved plan has been built.
   const planTodo = useRef<string | null>(null)
@@ -1754,7 +1816,8 @@ function ChatView({ project, onBack, onOpenHistory, onOpenMemory, onError, think
           </div>
         )}
         {showPreview && (
-          // Kept running behind the Notes tab (and while folded away), so switching back doesn't reload the app.
+        <div className="side-column" ref={sideRef}>
+          {/* Kept running behind the Notes tab (and while folded away), so switching back doesn't reload the app. */}
           <div style={{ display: sidePane === 'preview' && !(collapsed === 'side' && !phone) ? 'contents' : 'none' }}>
             <PreviewPane
               projectId={project.id}
@@ -1766,8 +1829,7 @@ function ChatView({ project, onBack, onOpenHistory, onOpenMemory, onError, think
               onProblem={handleProblem}
             />
           </div>
-        )}
-        {showPreview && sidePane === 'notes' && (
+          {sidePane === 'notes' && (
           <NotesPane
             projectId={project.id}
             busy={busy}
@@ -1784,6 +1846,31 @@ function ChatView({ project, onBack, onOpenHistory, onOpenMemory, onError, think
             onOpenSecrets={() => setDialog('secrets')}
             onError={onError}
           />
+          )}
+          <div
+            className={`terminal-drawer${terminalOpen ? ' open' : ''}${termResizing ? ' resizing' : ''}`}
+            style={terminalOpen ? { height: terminalHeight } : undefined}
+          >
+            <div
+              className="terminal-drawer-bar"
+              onPointerDown={startTerminalResize}
+              title={terminalOpen ? 'Drag to make the command line taller or shorter' : undefined}
+            >
+              <button
+                className="terminal-toggle"
+                aria-expanded={terminalOpen}
+                onClick={() => setTerminalOpen(!terminalOpen)}
+                title={terminalOpen ? 'Fold the command line away (it keeps running)' : `A command line in ${project.path}`}
+              >
+                <span aria-hidden="true">{terminalOpen ? '▾' : '▸'}</span> Terminal
+              </button>
+              <span className="terminal-drawer-path" title={project.path}>
+                {project.path}
+              </span>
+            </div>
+            <ProjectTerminal projectId={project.id} open={terminalOpen} onError={onError} />
+          </div>
+        </div>
         )}
       </div>
 

@@ -103,6 +103,26 @@ export function createVibeApi(ipcRenderer: IpcLike, host: 'electron' | 'browser'
       dispose: (sessionId: string): void => ipcRenderer.send('vibe:login:dispose', sessionId)
     },
 
+    /** The command line under a project's preview: one shell per project, kept running. */
+    terminal: {
+      open: (projectId: string, cols?: number, rows?: number): Promise<{ id: string; backlog: string }> =>
+        ipcRenderer.invoke('vibe:term:open', projectId, cols, rows),
+      restart: (projectId: string, cols?: number, rows?: number): Promise<{ id: string; backlog: string }> =>
+        ipcRenderer.invoke('vibe:term:restart', projectId, cols, rows),
+      onData: (cb: (id: string, data: string) => void): (() => void) => {
+        const listener = (_event: Electron.IpcRendererEvent, id: string, data: string): void => cb(id, data)
+        ipcRenderer.on('vibe:term:data', listener)
+        return () => ipcRenderer.removeListener('vibe:term:data', listener)
+      },
+      onExit: (cb: (id: string, exitCode: number) => void): (() => void) => {
+        const listener = (_event: Electron.IpcRendererEvent, id: string, exitCode: number): void => cb(id, exitCode)
+        ipcRenderer.on('vibe:term:exit', listener)
+        return () => ipcRenderer.removeListener('vibe:term:exit', listener)
+      },
+      write: (id: string, data: string): void => ipcRenderer.send('vibe:term:write', id, data),
+      resize: (id: string, cols: number, rows: number): void => ipcRenderer.send('vibe:term:resize', id, cols, rows)
+    },
+
     install: {
       onData: (cb: (sessionId: string, data: string) => void): (() => void) => {
         const listener = (_event: Electron.IpcRendererEvent, sessionId: string, data: string): void =>
