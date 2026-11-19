@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { askNoteText, isPlainQuestion, isTodoListRequest } from '../../src/main/orchestrator/questions'
+import { askNoteText, isPlainQuestion, isTodoListRequest, liveQuestionRule, needsBuild } from '../../src/main/orchestrator/questions'
 import { parseClassification } from '../../src/main/orchestrator/classifier'
 import { routeMessage } from '../../src/main/orchestrator/routing'
 import type { AppSettings } from '@shared/types'
@@ -35,6 +35,16 @@ test('requests to change things stay Build requests', () => {
   ]) {
     assert.equal(isPlainQuestion(text), false, text)
   }
+})
+
+test('a question about live state goes on as a build request; an answer that only mentions the marker does not', () => {
+  assert.match(liveQuestionRule(true), /\[needs a build request\]/)
+  assert.doesNotMatch(liveQuestionRule(false), /\[needs a build request\]/, 'in Ask mode, the answer says Build will do it')
+  assert.match(liveQuestionRule(false), /Build mode/)
+  assert.equal(needsBuild('[needs a build request]'), true)
+  assert.equal(needsBuild('  [Needs a build request]\n'), true)
+  assert.equal(needsBuild('There are 6 VMs.'), false)
+  assert.equal(needsBuild(`The app has three screens. ${'More detail. '.repeat(20)} (Starwright writes [needs a build request] when a command is needed.)`), false, 'a long answer is an answer')
 })
 
 test('putting something on the to-do list takes the cheap path; building a to-do feature does not', () => {

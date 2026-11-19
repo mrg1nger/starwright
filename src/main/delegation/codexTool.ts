@@ -25,7 +25,7 @@ import { fadersOf, fadersText, workModeOf } from '@shared/balance'
 import type { AgentInstallRequest } from '../extensions/install'
 import { saveRecipe } from '../deploy/deploy'
 import { listSchedules, saveSchedule, summarize as summarizeSchedule } from '../schedule/scheduler'
-import { agentSecretEnv, helperSecretsNote } from '../secrets/vault'
+import { agentSecretEnv, helperSecretsNote, maskProjectSecrets } from '../secrets/vault'
 
 export type DelegationProgressListener = (note: string) => void
 
@@ -198,6 +198,8 @@ export function createCodexDelegationServer(
   // ones: Starwright's own keys stay hidden), and the task names them, so the helper knows they're there.
   const secrets = (): Record<string, string> | undefined => (memory ? attempt(() => agentSecretEnv(memory.projectId)) : undefined)
   const secretsNote = (): string | undefined => (memory ? attempt(() => helperSecretsNote(memory.projectId)) || undefined : undefined)
+  // A helper's command can print one of those values: what's kept of its work doesn't show it.
+  const maskReport = (text: string): string => (memory ? maskProjectSecrets(memory.projectId, text) : text)
 
   // What each agent does with a hand-off; handOff() wraps it with snapshots, the record and the checks.
   const codexWork =
@@ -657,7 +659,8 @@ export function createCodexDelegationServer(
         attempt(() =>
           finishHandoff(memoryDb(), handoffId, {
             status,
-            report: [report, checks].filter(Boolean).join('\n\n'),
+            // Kept in memory, where later agents and the user read it: no secret values.
+            report: maskReport([report, checks].filter(Boolean).join('\n\n')),
             files: changes?.map((c) => c.path) ?? null,
             checksOk
           })

@@ -607,7 +607,10 @@ function readBlocked(path: string): string[] {
     return readFileSync(path, 'utf8')
       .split('\n')
       .filter(Boolean)
-      .map((l) => (JSON.parse(l) as { reason: string }).reason)
+      .map((l) => JSON.parse(l) as { reason: string; quiet?: boolean })
+      // Sent back for Cline to try again (an edit with no path): not something refused.
+      .filter((e) => !e.quiet)
+      .map((e) => e.reason)
   } catch {
     return []
   }

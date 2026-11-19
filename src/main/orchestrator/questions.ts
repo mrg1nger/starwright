@@ -53,6 +53,28 @@ export function isPlainQuestion(text: string): boolean {
   return questions > 0
 }
 
+/** What the question path answers when the question needs a command run, so the message goes on as a build request. */
+export const NEEDS_BUILD = '[needs a build request]'
+
+const LIVE = "something live that the project's files can't tell you (a server's or VM's state, a database's contents, a running app, what a command or script would print)"
+
+/**
+ * For the question path, which can only read: a question about live state ("how many VMs are on the
+ * server?") isn't answered with "I have no access". Sent from Build (auto), it goes on as a build
+ * request; asked in Ask mode, the answer says Build will do it.
+ */
+export function liveQuestionRule(auto: boolean): string {
+  return auto
+    ? `You can't run commands. If answering needs ${LIVE}, don't say you have no access and don't guess: reply with exactly ${NEEDS_BUILD} and nothing else. Starwright then sends the message on as a build request, where commands can be run.`
+    : `You can't run commands. If answering needs ${LIVE}, don't say you have no access: say in one line that it needs a command run, and that sending it in Build mode will do that.`
+}
+
+/** The question path's answer says the message needs a build request (only a short answer: never one that just mentions it). */
+export function needsBuild(answer: string): boolean {
+  const trimmed = answer.trim()
+  return trimmed.length <= 200 && trimmed.toLowerCase().includes(NEEDS_BUILD)
+}
+
 /** The note that tells Claude (or Codex) about questions answered the cheap way just before a Build or Plan message. */
 export function askNoteText(asks: { question: string; answer: string }[]): string | undefined {
   if (!asks.length) return undefined

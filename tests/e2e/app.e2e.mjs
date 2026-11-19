@@ -889,6 +889,34 @@ try {
     await waitFor(`[...document.querySelectorAll('button')].some((b) => b.textContent.includes('Do it in Build instead'))`, 'the Build-instead button', 5000)
   })
 
+  await step("a project secret a command prints is masked in the chat and its saved history", async () => {
+    const value = 'shh-e2e-token-4821'
+    await evaluate(`window.vibe.secrets.set(${JSON.stringify(PROJECT_ID)}, 'E2E_SHOP_TOKEN', ${JSON.stringify(value)})`)
+    try {
+      await send(`Run exactly this command and tell me exactly what it printed, character for character: node -e "console.log('TOKEN=' + process.env.E2E_SHOP_TOKEN)". Change no files.`)
+      await idle(300_000)
+      const transcript = readFileSync(join(data, 'transcripts', `${PROJECT_ID}.jsonl`), 'utf-8')
+      const text = await chatText()
+      if (text.includes(value) || transcript.includes(value)) throw new Error('the value is in the chat or its history')
+      if (!transcript.includes('[secret E2E_SHOP_TOKEN]')) throw new Error("the command's output never showed the label: did it run with the secret?")
+    } finally {
+      await evaluate(`window.vibe.secrets.delete(${JSON.stringify(PROJECT_ID)}, 'E2E_SHOP_TOKEN')`)
+    }
+  })
+
+  await step('a question about something live (what a command prints) goes on as a build request and gets answered', async () => {
+    const version = process.version // the same Node runs the app's commands here
+    await send('What version does `node --version` print on this computer?')
+    await idle(600_000)
+    const text = await chatText()
+    if (!/Answered as a question/.test(text.slice(text.lastIndexOf('What version does')))) throw new Error('it skipped the cheap path, so this checks nothing')
+    if (!/went on as a build request/.test(text)) throw new Error('the question path answered it instead of handing it on')
+    const reply = await lastReply()
+    if (!/v?\d+\.\d+\.\d+/.test(reply)) throw new Error(`no version in the answer: ${reply.slice(0, 200)}`)
+    if (/no access|can't access|cannot access|don't have access/i.test(reply)) throw new Error(`answered "no access": ${reply.slice(0, 200)}`)
+    console.log(`    (answered: ${reply.match(/v?\d+\.\d+\.\d+/)[0]}; this Node is ${version})`)
+  })
+
   await step('"make it cheaper" in Build knows what was just asked in Ask', async () => {
     await click('Ask', '.chat-mode-switch button')
     try {

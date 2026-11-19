@@ -69,6 +69,22 @@ test('building: anything reaching outside the project is refused', () => {
   assert.ok(!edit.allow && 'cancel' in edit, 'an edit outside stops the run')
 })
 
+test("an edit with no path (arguments that didn't parse) goes back to Cline instead of ending the run", () => {
+  // Cline 3.0.74 passes arguments it couldn't parse on as { arguments: "…" }.
+  const cut = decideToolCall(build, { name: 'editor', input: { arguments: '{"new_text":"<body>\\n<main>' } })
+  assert.ok(!cut.allow && !('cancel' in cut), 'not a reason to stop the run')
+  assert.deepEqual(hookOutput(cut), { overrideInput: { arguments: '{"new_text":"<body>\\n<main>', path: '' } }, "an empty path: Cline's editor turns it down")
+  assert.ok(!cut.allow && 'quiet' in cut && cut.quiet, 'not reported as something refused')
+  const missing = decideToolCall(build, { name: 'editor', input: { new_text: 'x' } })
+  assert.ok(!missing.allow && !('cancel' in missing))
+
+  // The path is still read from text that was cut short: outside stops the run, inside is allowed.
+  const outside = decideToolCall(build, { name: 'editor', input: { arguments: '{"path":"C:\\\\Windows\\\\win.ini","new_text":"x' } })
+  assert.ok(!outside.allow && 'cancel' in outside)
+  const inside = decideToolCall(build, { name: 'editor', input: { arguments: JSON.stringify({ path: `${project}\\web\\index.html`, new_text: 'x' }) } })
+  assert.ok(inside.allow)
+})
+
 test('Go Nutz lets commands reach outside the project, but GitHub account changes stay refused', () => {
   const nuts = { ...build, goNutz: true }
   assert.ok(run(nuts, 'git push origin main').allow)

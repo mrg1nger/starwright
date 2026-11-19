@@ -159,7 +159,7 @@ import { approvedPlanNote,codexPlanBuildNote, looksBig, matchTodosToSteps, parse
 import { briefBlock } from '../memory/brief'
 import { codexFailure, runCodexExec } from '../cli/codexExec'
 import { countsFromCodexEvents } from '../usage/tokens'
-import { askNoteText, isPlainQuestion, isTodoListRequest } from '../orchestrator/questions'
+import { askNoteText, isPlainQuestion, isTodoListRequest, liveQuestionRule, needsBuild } from '../orchestrator/questions'
 import { askClaude, askCodex, ClaudeLimitError } from '../chat/ask'
 import { runTalk, stopTalk, getTalk, talkAgentsReady } from '../chat/talk'
 import { deleteTalk, listTalks } from '../chat/talkStore'
@@ -198,7 +198,7 @@ import { getPreview, findPreview, previewEvents } from '../preview/preview'
 import { beginTurn, handleSessionEvent, skipReview, takeReviewNote } from '../review/reviewFlow'
 import { isPlanFile } from '../orchestrator/planGuard'
 import { prepareImages, imagesNote } from '../attachments/images'
-import { listSecrets, setSecret, deleteSecret } from '../secrets/vault'
+import { listSecrets, setSecret, deleteSecret, maskProjectSecrets } from '../secrets/vault'
 import {
   publishStatus,
   publishToGitHub,
@@ -667,8 +667,7 @@ export function registerIpcHandlers(getSender: () => WebContents | undefined): v
   // every screen, and for when it's reopened), and leave plan mode when it's cancelled.
   ipc.handle('vibe:chat:planDecided', async (_event, projectId: string, toolUseId: string, decision: 'approved' | 'revised' | 'cancelled') => {
     const event: VibeEvent = { type: 'plan_decided', toolUseId, decision }
-    appendEvent(projectId, event)
-    getSender()?.send('vibe:chat:event', projectId, event)
+    postChatEvent(projectId, event, getSender)
     if (decision === 'cancelled') {
       await getSession(projectId)?.setPlanning(false)
       clearPlanFile(projectId)
@@ -928,12 +927,12 @@ export function registerIpcHandlers(getSender: () => WebContents | undefined): v
   })
 
   // One-click Deploy: the project's recipe, run by VibeApp with no AI.
-  deployEvents.on('event', (projectId: string, event: DeployEvent) => getSender()?.send('vibe:deploy:event', projectId, event))
+  // Deploy steps run with the project's secrets, so their output is masked like the chat's.
+  deployEvents.on('event', (projectId: string, event: DeployEvent) => getSender()?.send('vibe:deploy:event', projectId, maskProjectSecrets(projectId, event)))
   deployEvents.on('changed', (projectId: string) => getSender()?.send('vibe:deploy:changed', projectId))
   deployEvents.on('recipe-ready', (projectId: string, recipe: DeployRecipe) => {
     const event: VibeEvent = { type: 'deploy_recipe_ready', name: recipe.name, steps: recipe.steps.length }
-    appendEvent(projectId, event)
-    getSender()?.send('vibe:chat:event', projectId, event)
+    postChatEvent(projectId, event, getSender)
   })
   ipc.handle('vibe:deploy:get', (_event, projectId: string) => ({ recipe: getRecipe(projectId), running: isDeploying(projectId) }))
   ipc.handle('vibe:deploy:save', (_event, projectId: string, recipe: Partial<DeployRecipe>) => saveRecipe(projectId, recipe, 'user', true))
@@ -949,8 +948,7 @@ export function registerIpcHandlers(getSender: () => WebContents | undefined): v
 
   // Schedules: requests, the next to-do, Deploy or a site check at set times (or after each Deploy).
   const scheduleChat = (projectId: string, event: VibeEvent): void => {
-    appendEvent(projectId, event)
-    getSender()?.send('vibe:chat:event', projectId, event)
+    postChatEvent(projectId, event, getSender)
   }
   deployEvents.on('event', (projectId: string, event: DeployEvent) => watchDeployEvent(projectId, event))
   addEventSink((channel, args) => {
@@ -1003,8 +1001,7 @@ export function registerIpcHandlers(getSender: () => WebContents | undefined): v
   const githubChanged = (projectId: string): void => getSender()?.send('vibe:github:changed', projectId)
   const githubNote = (projectId: string, text: string): void => {
     const event: VibeEvent = { type: 'github_note', text }
-    appendEvent(projectId, event)
-    getSender()?.send('vibe:chat:event', projectId, event)
+    postChatEvent(projectId, event, getSender)
   }
   async function backupToGitHub(projectId: string, projectPath: string): Promise<string> {
     if (!(await githubUrl(projectPath))) throw new Error('This project has no GitHub copy yet: make one in Publish.')
@@ -1687,8 +1684,7 @@ function runAsk(
   auto: boolean
 ): void {
   const emit = (event: VibeEvent): void => {
-    appendEvent(projectId, event)
-    getSender()?.send('vibe:chat:event', projectId, event)
+    postChatEvent(projectId, event, getSender)
   }
   if (asks.has(projectId) || takeovers.has(projectId)) {
     // Say so and end the turn, or the chat would wait for an answer that never comes.
@@ -1706,11 +1702,12 @@ function runAsk(
       : { type: 'route', label: 'Question', reason: 'answered without changing any files' }
   )
   void (async () => {
+    let rerouted = false
     try {
       const keyFacts = keyFactsBlock(memoryDb(), projectId)
       const relevant = await prefetchBlock(projectId, text)
       const chosen = getSettings().claudeModel
-      const system = `You are answering a question about the user's software project inside Starwright. You can't change the project's files: you can only read and search them and look things up in the project's memory. You can look at and update the user's to-do list for this project (add items, tick them off) and read their notes, when they ask. Answer directly in plain, friendly language and keep it short unless asked for depth. If the question turns out to need changes to the project, say so and suggest they switch to Build mode.\n\n## Key facts\n${keyFacts}`
+      const system = `You are answering a question about the user's software project inside Starwright. You can't change the project's files: you can only read and search them and look things up in the project's memory. You can look at and update the user's to-do list for this project (add items, tick them off) and read their notes, when they ask. Answer directly in plain, friendly language and keep it short unless asked for depth. If the question turns out to need changes to the project, say so and suggest they switch to Build mode.\n\n${liveQuestionRule(auto)}\n\n## Key facts\n${keyFacts}`
       const prompt = [relevant, text].filter(Boolean).join('\n\n')
       let answer
       const blocked = claudeBlockedUntil() !== null || claudeStandsDown()
@@ -1762,15 +1759,29 @@ ${prompt}`,
         recordUsage(projectId, 'chat', 'codex', answer.counts)
         emit({ type: 'route', label: 'Answered by Codex', reason: claudeStandsDown() ? "Claude's fader is at Off" : 'Claude is out right now' })
       }
-      recordAssistantMessage(projectId, answer.text)
-      noteAsk(projectId, text, answer.text)
-      emit({ type: 'assistant_text', text: answer.text, partial: false })
+      if (auto && needsBuild(answer.text)) {
+        // It needs a command run (a server's state, say): it goes on as a build request below.
+        rerouted = true
+      } else {
+        recordAssistantMessage(projectId, answer.text)
+        noteAsk(projectId, text, answer.text)
+        emit({ type: 'assistant_text', text: answer.text, partial: false })
+      }
     } catch (err) {
       if (abort.signal.aborted) emit({ type: 'stopped' })
       else emit({ type: 'error', message: `Couldn't answer that: ${(err as Error).message}` })
     } finally {
       asks.delete(projectId)
       emit({ type: 'turn_complete' })
+    }
+    if (rerouted && !abort.signal.aborted) {
+      // After the question's turn has ended, so the chat shows the build request as running.
+      emit({ type: 'ask_rerouted', text })
+      // As Build for sure: no "plan it first?" or question detour again.
+      await invoke('vibe:chat:send', [projectId, projectPath, text, undefined, undefined, true]).catch((err: Error) => {
+        emit({ type: 'error', message: `Couldn't send it as a build request: ${err.message}` })
+        emit({ type: 'turn_complete' })
+      })
     }
   })()
 }
@@ -1868,8 +1879,7 @@ async function deployNow(
   if (!recipe.confirmed) throw new Error('Check the deploy recipe and save it before running it.')
   if (isDeploying(projectId)) throw new Error('A deploy is already running for this project.')
   const post = (event: VibeEvent): void => {
-    appendEvent(projectId, event)
-    getSender()?.send('vibe:chat:event', projectId, event)
+    postChatEvent(projectId, event, getSender)
   }
   let result: DeployResult
   try {
@@ -1933,6 +1943,17 @@ async function deployForClaude(
   }
 }
 
+/**
+ * Keeps a chat event (in the transcript) and shows it, with the project's secret values masked:
+ * agents have the secrets as environment variables, and a command's output can print one.
+ */
+function postChatEvent(projectId: string, event: VibeEvent, getSender: () => WebContents | undefined): VibeEvent {
+  const shown = maskProjectSecrets(projectId, event)
+  appendEvent(projectId, shown)
+  getSender()?.send('vibe:chat:event', projectId, shown)
+  return shown
+}
+
 const wiredSessions = new WeakSet<object>()
 
 function wireSessionEvents(
@@ -1966,9 +1987,8 @@ function wireSessionEvents(
       clearClaudeLimit() // a Claude request just ran fine
     }
     handleSessionEvent(projectId, session, event, (forwarded) => {
-      appendEvent(projectId, forwarded)
-      getSender()?.send('vibe:chat:event', projectId, forwarded)
-      if (forwarded.type === 'assistant_text') recordAssistantMessage(projectId, forwarded.text)
+      const shown = postChatEvent(projectId, forwarded, getSender)
+      if (shown.type === 'assistant_text') recordAssistantMessage(projectId, shown.text)
 
       // Plans: remember the latest one, and while one is being built, keep its checklist
       // moving from whichever signal arrives: the progress tool, Claude's own to-do list,

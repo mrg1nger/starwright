@@ -7,7 +7,7 @@
 // something it can't read, so every failure here refuses the call instead.
 
 import { appendFileSync } from 'fs'
-import { decideToolCall, hookOutput, type ClinePolicy } from './hookPolicy'
+import { decideToolCall, editorPath, hookOutput, type ClinePolicy } from './hookPolicy'
 
 let raw = ''
 process.stdin.setEncoding('utf8')
@@ -26,7 +26,17 @@ process.stdin.on('end', () => {
       const decision = decideToolCall(policy, payload.tool_call ?? {})
       out = hookOutput(decision)
       if (!decision.allow && process.env.VIBEAPP_CLINE_HOOK_LOG) {
-        appendFileSync(process.env.VIBEAPP_CLINE_HOOK_LOG, `${JSON.stringify({ at: new Date().toISOString(), tool: name, reason: decision.reason })}\n`)
+        // The path too, for an edit: what it was for is the first question when one is turned down.
+        const input = (payload.tool_call?.input ?? {}) as Record<string, unknown>
+        const path = name === 'editor' ? editorPath(input) : undefined
+        const entry = {
+          at: new Date().toISOString(),
+          tool: name,
+          reason: decision.reason,
+          ...(path !== undefined ? { path: String(path).slice(0, 300) } : name === 'editor' ? { path: null, keys: Object.keys(input).slice(0, 10) } : {}),
+          ...('quiet' in decision && decision.quiet ? { quiet: true } : {})
+        }
+        appendFileSync(process.env.VIBEAPP_CLINE_HOOK_LOG, `${JSON.stringify(entry)}\n`)
       }
     }
   } catch (err) {

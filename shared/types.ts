@@ -96,6 +96,8 @@ export type VibeEvent =
   | { type: 'deploy_recipe_ready'; name: string; steps: number }
   /** A schedule started (a request's own message follows in the chat as usual). */
   | { type: 'scheduled_run'; scheduleId: string; name: string; what: string; text?: string }
+  /** A message sent the cheap question way turned out to need a command run (a server's state, say): it goes on as a build request. */
+  | { type: 'ask_rerouted'; text: string }
   /** A schedule ran something with no AI (Deploy, a site check) or was skipped: a line in the chat. */
   | { type: 'schedule_note'; name: string; text: string }
   /** Claude wrote a schedule: the user should check it and turn it on. */

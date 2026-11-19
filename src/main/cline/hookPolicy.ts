@@ -42,8 +42,11 @@ export interface ToolCall {
 export type HookDecision =
   /** ask: allowed by the hook, but the permission answer must ask the user first (why). */
   | { allow: true; ask?: string }
-  /** Swap the tool's input for this one (a refused command becomes an echo that says why). */
-  | { allow: false; reason: string; overrideInput: unknown }
+  /**
+   * Swap the tool's input for this one (a refused command becomes an echo that says why). quiet: not
+   * something refused that the user needs to hear about (logged for diagnosis only).
+   */
+  | { allow: false; reason: string; overrideInput: unknown; quiet?: true }
   /** Stop the whole run: the tool can't be made harmless. */
   | { allow: false; reason: string; cancel: true }
 
@@ -66,6 +69,31 @@ const DESTRUCTIVE: { pattern: RegExp; what: string }[] = [
   { pattern: /\b(curl|wget|Invoke-WebRequest|iwr|Invoke-RestMethod|irm)\b[^\n]*\|\s*(sh|bash|iex|Invoke-Expression|powershell|pwsh)\b/i, what: 'running a script straight from the internet' },
   { pattern: /\b(reg(\.exe)?\s+(add|delete)|Set-ItemProperty\s+-Path\s+['"]?HK)/i, what: 'changing the Windows registry' }
 ]
+
+/**
+ * The file an editor call is for. When the model's arguments didn't parse, Cline passes the raw text
+ * on as { arguments: "…" } (seen in Cline 3.0.74): the path may still be in there.
+ */
+export function editorPath(input: Record<string, unknown>): unknown {
+  if (input.path !== undefined) return input.path
+  if (typeof input.arguments === 'string') {
+    try {
+      const parsed = JSON.parse(input.arguments) as { path?: unknown }
+      if (parsed && typeof parsed === 'object') return parsed.path
+    } catch {
+      // Cut short: look for the path at the start of the text.
+      const match = /"path"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(input.arguments)
+      if (match) {
+        try {
+          return JSON.parse(`"${match[1]}"`) as string
+        } catch {
+          return undefined
+        }
+      }
+    }
+  }
+  return undefined
+}
 
 function inside(path: string, folder: string): boolean {
   const rel = relative(resolve(folder), resolve(folder, path))
@@ -129,9 +157,15 @@ export function decideToolCall(policy: ClinePolicy, call: ToolCall): HookDecisio
       return policy.mode === 'helper' ? refuse('This job has no tools.') : { allow: true }
     case 'editor': {
       if (policy.mode !== 'build') return refuse('This run may not change files.')
-      const path = input.path
-      if (typeof path === 'string' && inside(path, policy.projectPath)) return { allow: true }
-      return refuse('Changing files outside the project is not allowed.')
+      const path = editorPath(input)
+      if (typeof path === 'string' && path.trim()) {
+        if (inside(path, policy.projectPath)) return { allow: true }
+        return refuse('Changing files outside the project is not allowed.')
+      }
+      // No path: the model's call was cut short or malformed (a big write whose arguments didn't
+      // parse). It can't change anything, so it isn't a reason to stop the run: an empty path makes
+      // Cline's editor turn it down with an error the model can correct (it requires a path).
+      return { allow: false, reason: 'an edit with no file path (sent back for Cline to try again)', overrideInput: { ...input, path: '' }, quiet: true }
     }
     case 'run_commands': {
       if (policy.mode !== 'build') return refuse('This run may not run commands.')

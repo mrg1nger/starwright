@@ -2,6 +2,15 @@
 
 The version goes up with each improvement that ships: the middle number for new features, the last for fixes only. Settings shows the version a computer is running. (Starwright was called VibeApp up to 0.10.0.)
 
+## 0.19.2 (2026-11-19)
+
+Fixes from a look at a week of use on another computer.
+
+- **Secrets stay out of the chat.** Every agent has a project's secrets so its commands work, and a command can print one (`env`, a config dump, an error). The value is now shown as `[secret NAME]` in the chat, its saved history, the Deploy window and hand-off reports. The local model sees the label too, but only in what a command prints, so an edit never writes the label into a file.
+- **The local model stops going round in circles.** With a small context it could drop files it had read, read them again, and keep doing that until its 15 minutes were up. Now it's warned on the third read of the same part of a file, and stopped on the fourth (or after 8 re-reads in all), so another agent gets the time. Reading a file again after changing it doesn't count. When older output is dropped, the note says which file it was.
+- **A broken edit no longer ends a Cline run.** When the model's edit came through without a file path (a big write cut short), Starwright treated it as an edit outside the project and stopped Cline. Now the edit goes back to Cline, which can try again. An edit really outside the project still stops the run, and the log now says which file an edit was for.
+- **Questions about live things get answered.** A question like "how many VMs are on the server?" went the cheap question way, which can't run commands, so it answered that it had no access. Now it goes on as a build request by itself (the chat says so), and the command gets run. In Ask mode, the answer says Build will do it.
+
 ## 0.19.1 (2026-11-18)
 
 Starwright fits on an iPad (and in a narrow window). Before, the top bar and a project's buttons ran past the right edge, held either way round.

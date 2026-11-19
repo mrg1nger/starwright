@@ -201,6 +201,66 @@ test("the project's secrets reach the local model's commands, and the hand-off n
   assert.equal(helperSecretsNote('helper-secrets-project'), '', 'no secrets, no note')
 })
 
+test("a secret a command prints is masked in what the model and the chat see (the command still has it)", async () => {
+  const cwd = project({})
+  script = [
+    { calls: [['run_command', { command: 'node -e "console.log(\'HYPERV_PASSWORD=\' + process.env.HYPERV_PASSWORD)"' }]] },
+    { say: 'Printed it.' }
+  ]
+  requests.length = 0
+  const activity: DelegationActivity[] = []
+  const result = await runLocalAgent({ task: 'Show the env.', cwd, env: { HYPERV_PASSWORD: 'Dragon-test-99!' }, onActivity: (a) => activity.push(a) })
+  assert.equal(result.ok, true, result.error)
+  const toolResults = requests.at(-1)!.messages.filter((m) => m.role === 'tool').map((m) => m.content)
+  assert.match(toolResults[0], /HYPERV_PASSWORD=\[secret HYPERV_PASSWORD\]/, 'the command saw the value; the model sees the label')
+  assert.doesNotMatch(JSON.stringify(activity), /Dragon-test-99/, 'nor does the chat')
+})
+
+test('a model going round the same files is stopped early, with a warning first; reading after an edit is fine', async () => {
+  const cwd = project({ 'a.js': 'a\n', 'b.js': 'b\n', 'c.js': 'c\n' })
+  const read = (path: string): Turn => ({ calls: [['read_file', { path }]] })
+  // A, B, C, A, B, C…: never the same call twice in a row, so the repeat check alone wouldn't stop it.
+  script = Array.from({ length: 12 }, (_, i) => read(['a.js', 'b.js', 'c.js'][i % 3]))
+  requests.length = 0
+  let result = await runLocalAgent({ task: 'Change a, b and c.', cwd })
+  assert.equal(result.ok, false)
+  assert.match(result.error ?? '', /kept reading the same files again \(a\.js 4×, b\.js 3×, c\.js 3×\)/)
+  assert.match(result.error ?? '', /32,000 tokens of context/)
+  assert.equal(result.steps, 10, 'stopped at the fourth read of a.js, not at the time limit')
+  const warned = requests.at(-1)!.messages.filter((m) => m.role === 'tool').map((m) => m.content)
+  assert.match(warned[6], /read this 3 times/, 'the third read of a part comes with a warning')
+
+  // Read, change, read again to check: each change starts the count again.
+  script = [
+    read('a.js'),
+    { calls: [['edit_file', { path: 'a.js', old_text: 'a', new_text: 'a1' }]] },
+    read('a.js'),
+    { calls: [['edit_file', { path: 'a.js', old_text: 'a1', new_text: 'a2' }]] },
+    read('a.js'),
+    { calls: [['edit_file', { path: 'a.js', old_text: 'a2', new_text: 'a3' }]] },
+    read('a.js'),
+    read('b.js'),
+    read('a.js'),
+    { say: 'Done.' }
+  ]
+  result = await runLocalAgent({ task: 'Change a.', cwd })
+  assert.equal(result.ok, true, result.error)
+})
+
+test('trimmed output says what was removed', () => {
+  const messages = [
+    { role: 'system' as const, content: 's' },
+    { role: 'tool' as const, content: 'file text', tool_call_id: 'c1' },
+    { role: 'tool' as const, content: 'more text', tool_call_id: 'c2' },
+    { role: 'tool' as const, content: 'latest', tool_call_id: 'c3' }
+  ]
+  const labels = new Map([['c1', 'read_file src/vms.ts'], ['c2', 'read_file src/vms.ts from line 401']])
+  assert.equal(trimConversation(messages, 1, labels), 2)
+  assert.match(messages[1].content, /^\[Earlier output removed to save room: read_file src\/vms\.ts\./)
+  assert.match(messages[2].content, /from line 401/)
+  assert.equal(trimConversation(messages, 1, labels), 0, 'a labelled note is not trimmed again')
+})
+
 test('a command outside the project goes to the user, as for Claude: Allow runs it, Deny refuses it', async () => {
   const cwd = project({ 'a.txt': 'hello\n' })
   const asked: string[] = []

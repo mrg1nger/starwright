@@ -7,6 +7,7 @@ import { killTree, trackChild } from '../cli/codexExec'
 import { bashPath } from '../deploy/deploy'
 import { countsFromChatUsage, ensureModelLoaded, holdModel, lmStudioBase, lmStudioStatus, pickModel, type ModelReady } from '../cli/lmStudio'
 import { getSettings } from '../settings/store'
+import { maskText } from '../secrets/maskSecrets'
 import type { TokenCounts } from '../usage/tokens'
 import type { DelegationActivity } from '@shared/types'
 import { fileTimeOf, listProcesses, startedBy, stopProcesses, type RecordedProcess } from '../preview/leftovers'
@@ -408,6 +409,9 @@ async function runTool(name: string, args: Record<string, unknown>, run: LocalAg
       const left = Math.floor(((run.deadline ?? Infinity) - Date.now()) / 1000)
       const timeout = Math.max(5, Math.min(600, left, Math.floor(Number(args.timeout_seconds) || 120)))
       const result = await runShell(command, cwd, timeout, run.signal, run.env, run.leftBehind)
+      // The command has the project's secrets; what it printed doesn't show them (`env`, a config dump).
+      // Only here: a file's contents stay as they are, or an edit could write the label into the file.
+      result.output = maskText(result.output, Object.entries(run.env ?? {}).map(([name, value]) => ({ name, value })))
       const output = clip(result.output.trim() || '(no output)')
       const status = result.timedOut
         ? `Stopped after ${timeout} s (still running).`
@@ -438,15 +442,68 @@ interface ChatReply {
 
 const TRIMMED = '[Earlier output removed to save room. Read or run it again if you still need it.]'
 
-/** Shrinks older tool results once the conversation fills much of the model's context. */
-export function trimConversation(messages: Message[], keepRecent = 6): number {
-  const tools = messages.map((m, i) => (m.role === 'tool' && m.content !== TRIMMED ? i : -1)).filter((i) => i >= 0)
+/**
+ * Shrinks older tool results once the conversation fills much of the model's context. With labels
+ * (tool call id → "read_file src/a.js"), the note says what was removed, so the model knows what it
+ * has lost instead of reading everything again.
+ */
+export function trimConversation(messages: Message[], keepRecent = 6, labels?: Map<string, string>): number {
+  const tools = messages.map((m, i) => (m.role === 'tool' && !m.content.startsWith('[Earlier output ') ? i : -1)).filter((i) => i >= 0)
   let trimmed = 0
   for (const i of tools.slice(0, Math.max(0, tools.length - keepRecent))) {
-    messages[i] = { ...messages[i], content: TRIMMED }
+    const label = messages[i].tool_call_id ? labels?.get(messages[i].tool_call_id!) : undefined
+    messages[i] = { ...messages[i], content: label ? trimmedNote(label) : TRIMMED }
     trimmed++
   }
   return trimmed
+}
+
+function trimmedNote(label: string): string {
+  return `[Earlier output removed to save room: ${label}. Read again only the lines you still need, and get on with the change: reading the same files over and over ends the run.]`
+}
+
+/** How often the same part of a file may be read before the run is stopped (an edit to the file resets it). */
+export const MAX_READS_OF_A_PART = 3
+/** Re-reads in all before the run is stopped: the task needs more than fits in the model's context. */
+export const MAX_REREADS = 8
+
+/**
+ * Counts the model's reads, to spot it cycling through files it has already read (A, B, C, A, B, C):
+ * each read is new to the check for one call in a row, so that alone never stops it, and it would
+ * read until the time ran out. Reading a file again after changing it is fine.
+ */
+export class ReadTracker {
+  private parts = new Map<string, number>()
+  private rereads = 0
+
+  private static key(path: unknown, startLine: unknown): string {
+    return `${String(path ?? '').replace(/\\/g, '/').replace(/^\.\//, '').toLowerCase()}:${Math.max(1, Math.floor(Number(startLine) || 1))}`
+  }
+
+  /** A read of the file from start_line: how many times that part has now been read, and whether it's time to stop. */
+  read(path: unknown, startLine: unknown): { times: number; stop: boolean } {
+    const key = ReadTracker.key(path, startLine)
+    const times = (this.parts.get(key) ?? 0) + 1
+    this.parts.set(key, times)
+    if (times > 1) this.rereads++
+    return { times, stop: times > MAX_READS_OF_A_PART || this.rereads > MAX_REREADS }
+  }
+
+  /** The file changed: reading it again is checking the change, not going round in circles. */
+  changed(path: unknown): void {
+    const prefix = ReadTracker.key(path, 1).replace(/:1$/, ':')
+    for (const key of [...this.parts.keys()]) if (key.startsWith(prefix)) this.parts.delete(key)
+  }
+
+  /** The files read most often, for the message when the run is stopped. */
+  mostRead(): string {
+    const byFile = new Map<string, number>()
+    for (const [key, times] of this.parts) {
+      const file = key.replace(/:\d+$/, '')
+      byFile.set(file, (byFile.get(file) ?? 0) + times)
+    }
+    return [...byFile].filter(([, n]) => n > 1).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([f, n]) => `${f} ${n}×`).join(', ')
+  }
 }
 
 /** Runs one task to the end on LM Studio's model. Never throws: failures come back in the result. */
@@ -503,6 +560,9 @@ async function runModel(run: LocalAgentRun): Promise<LocalAgentResult> {
   let lastCall = ''
   let repeats = 0
   let nudged = false
+  const reads = new ReadTracker()
+  /** What each tool result was, for the note that replaces it when it's trimmed. */
+  const labels = new Map<string, string>()
 
   for (let step = 1; step <= maxSteps; step++) {
     if (run.signal?.aborted) return fail('The local model run was cancelled.', step - 1, model)
@@ -571,11 +631,27 @@ async function runModel(run: LocalAgentRun): Promise<LocalAgentResult> {
       const outcome = await runTool(call.function.name, args, run)
       if (outcome.blocked) blocked.push(outcome.blocked)
       emit(outcome.activity)
-      messages.push({
-        role: 'tool',
-        tool_call_id: call.id,
-        content: repeats === 2 ? `${outcome.text}\n(You have made this exact call three times. Try something different.)` : outcome.text
-      })
+      let note = repeats === 2 ? '\n(You have made this exact call three times. Try something different.)' : ''
+      const name = call.function.name
+      if (name === 'read_file' && outcome.activity.ok) {
+        const seen = reads.read(args.path, args.start_line)
+        if (seen.stop) {
+          return fail(
+            `The local model kept reading the same files again (${reads.mostRead()}) instead of making the change: the task needs more than fits in its ${context.toLocaleString()} tokens of context. Hand it to another agent, or split it into smaller tasks.`,
+            step,
+            model
+          )
+        }
+        if (seen.times === MAX_READS_OF_A_PART) note += `\n(You have now read this ${seen.times} times. Don't read it again: write down in your next reply what you need from it, then make the change.)`
+        labels.set(call.id, `read_file ${String(args.path)}${Number(args.start_line) > 1 ? ` from line ${Math.floor(Number(args.start_line))}` : ''}`)
+      } else if ((name === 'edit_file' || name === 'write_file') && outcome.activity.ok) {
+        reads.changed(args.path)
+      } else if (name === 'run_command') {
+        labels.set(call.id, `the output of run_command ${String(args.command ?? '').split('\n')[0].slice(0, 80)}`)
+      } else if (name === 'search' || name === 'list_files') {
+        labels.set(call.id, `${name} ${String(args.query ?? args.path ?? '.').slice(0, 80)}`)
+      }
+      messages.push({ role: 'tool', tool_call_id: call.id, content: `${outcome.text}${note}` })
     }
 
     // Keep the conversation inside the model's context.
@@ -585,8 +661,8 @@ async function runModel(run: LocalAgentRun): Promise<LocalAgentResult> {
       if (now?.loaded && now.contextLength) context = now.contextLength
     }
     const prompt = counts.fresh + counts.cached
-    if (prompt > context * 0.6) trimConversation(messages)
-    if (prompt > context * 0.9 && !trimConversation(messages, 2)) {
+    if (prompt > context * 0.6) trimConversation(messages, 6, labels)
+    if (prompt > context * 0.9 && !trimConversation(messages, 2, labels)) {
       return fail('The task outgrew the local model\'s context. Load the model with a longer context, or hand over a smaller task.', step, model)
     }
   }

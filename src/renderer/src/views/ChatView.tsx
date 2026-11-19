@@ -665,6 +665,10 @@ function ChatView({ project, onBack, onOpenHistory, onOpenMemory, onError, think
             setBusy(true)
             return [...prev, notice, { kind: 'user_text', text: event.text }]
           }
+          case 'ask_rerouted':
+            // The build request that follows is running now (live); reopened, it follows from the history.
+            if (!isReplay) setBusy(true)
+            return [...prev, { kind: 'notice', text: '⚡ Answering that needs a command run, so it went on as a build request.' }]
           case 'schedule_note':
           case 'github_note':
           case 'note':

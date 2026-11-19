@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import type { SecretSummary } from '@shared/types'
 import { HIDDEN_FROM_AGENTS, RESERVED_ENV_NAMES, SECRET_NAME } from '@shared/secretPatterns'
+import { maskDeep, type SecretValue } from './maskSecrets'
 
 // Per-project secrets, encrypted with the OS user account's key (DPAPI on
 // Windows) and stored outside the project, so they can't end up in git, a
@@ -25,7 +26,11 @@ function load(projectId: string): Record<string, string> {
   }
 }
 
+/** Each project's values for masking, so a busy chat doesn't decrypt the vault per event. */
+const maskCache = new Map<string, SecretValue[]>()
+
 function save(projectId: string, secrets: Record<string, string>): void {
+  maskCache.delete(projectId)
   if (!safeStorage.isEncryptionAvailable()) {
     throw new Error("This computer can't encrypt secrets right now, so they weren't saved.")
   }
@@ -93,4 +98,18 @@ export function secretValues(projectId: string): { name: string; value: string }
   return Object.entries(secretEnv(projectId))
     .filter(([, value]) => value.length >= 8)
     .map(([name, value]) => ({ name, value }))
+}
+
+/** The value (a chat event, a result) with the project's secret values replaced by `[secret NAME]`. */
+export function maskProjectSecrets<T>(projectId: string, value: T): T {
+  let secrets = maskCache.get(projectId)
+  if (!secrets) {
+    try {
+      secrets = secretValues(projectId)
+    } catch {
+      return value
+    }
+    maskCache.set(projectId, secrets)
+  }
+  return maskDeep(value, secrets)
 }
