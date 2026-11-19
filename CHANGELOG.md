@@ -2,6 +2,15 @@
 
 The version goes up with each improvement that ships: the middle number for new features, the last for fixes only. Settings shows the version a computer is running. (Starwright was called VibeApp up to 0.10.0.)
 
+## 0.19.1 (2026-11-18)
+
+Starwright fits on an iPad (and in a narrow window). Before, the top bar and a project's buttons ran past the right edge, held either way round.
+
+- **The top bar.** When everything doesn't fit on one line, the usage meters move to a row of small tiles under the tabs, as on a phone. This is measured rather than guessed from the screen size, because Safari on an iPad has none of Windows' fonts. That makes a monospace theme much wider there.
+- **A project's buttons.** When they don't fit, Preview and Notes stay, and the rest (Secrets, Publish, Deploy, Schedules, Memory, History, Checkpoint, Go Nutz) go into the ⋯ list.
+- **The chat.** The chat keeps at least 360px beside the preview, and its Build/Plan/Ask row wraps rather than pushing Compact into the divider.
+- Full-width computer screens are unchanged.
+
 ## 0.19.0 (2026-11-18)
 
 There's now a command line under the preview or notes.

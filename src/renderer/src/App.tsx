@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AppSettings, CliName, CliStatus, ProjectRecord, ThemeDefinition } from '@shared/types'
 import AccountsView from './views/AccountsView'
 import ProjectPickerView from './views/ProjectPickerView'
@@ -14,6 +14,8 @@ import Equalizer from './components/Equalizer'
 import UpdateBanner from './components/UpdateBanner'
 import { AppFooter, BrandTitle } from './components/Brand'
 import { useToasts } from './lib/useToasts'
+import { useCompactWhenCrowded } from './lib/useCompactWhenCrowded'
+import { usePhone } from './lib/usePhone'
 import { applyTheme } from './lib/theme'
 
 type Screen = 'accounts' | 'projects' | 'chat' | 'history' | 'memory' | 'extensions' | 'talk' | 'settings'
@@ -98,12 +100,17 @@ function App() {
     [showError]
   )
 
+  // Too much for one line (an iPad, a narrow window, a wide font): the meters go to a row of small tiles.
+  const navRef = useRef<HTMLDivElement>(null)
+  const phone = usePhone()
+  const navCompact = useCompactWhenCrowded(navRef, !phone) || phone
+
   const claudeReady = statuses.claude.status === 'logged_in'
   const claudeChecking = statuses.claude.status === 'checking'
 
   return (
     <div className="app">
-      <div className="app-nav">
+      <div className={`app-nav${navCompact ? ' compact' : ''}`} ref={navRef}>
         <BrandTitle />
         <div className="app-nav-tabs" data-scroll-x>
           <button

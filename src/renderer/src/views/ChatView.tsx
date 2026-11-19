@@ -33,6 +33,7 @@ import CodexFeed from '../components/CodexFeed'
 import Markdown from '../components/Markdown'
 import { detectSecrets, type DetectedSecret } from '@shared/secretPatterns'
 import { usePhone } from '../lib/usePhone'
+import { useCompactWhenCrowded } from '../lib/useCompactWhenCrowded'
 import PlanCard from '../components/PlanCard'
 
 interface ChatViewProps {
@@ -281,9 +282,12 @@ function ChatView({ project, onBack, onOpenHistory, onOpenMemory, onError, think
     document.addEventListener('pointerdown', close)
     return () => document.removeEventListener('pointerdown', close)
   }, [moreOpen])
+  // Not a phone, but the buttons don't fit on the line (an iPad, a narrow window): ⋯ as well.
+  const crowded = useCompactWhenCrowded(moreRef, !phone)
+  const headerCompact = phone || crowded
   useEffect(() => {
-    if (!phone) setMoreOpen(false)
-  }, [phone])
+    if (!headerCompact) setMoreOpen(false)
+  }, [headerCompact])
   const [phonePane, setPhonePane] = useState<'chat' | 'preview'>('chat')
   // On a computer: how wide the chat is beside the side pane, and either side folded away.
   const [chatWidth, setChatWidthState] = useState(readChatWidth)
@@ -1120,12 +1124,27 @@ function ChatView({ project, onBack, onOpenHistory, onOpenMemory, onError, think
 
   return (
     <div className="chat-view">
-      <div className="chat-header" ref={moreRef}>
+      <div className={`chat-header${headerCompact ? ' compact' : ''}`} ref={moreRef}>
         <button onClick={onBack} title="Back to Projects" aria-label="Back to Projects">
           {phone ? '←' : <>&larr; Projects</>}
         </button>
         <span className="chat-project-name">{project.name}</span>
-        {phone && (
+        {crowded && !phone && (
+          // The side-pane switches stay out; the rest is in ⋯.
+          <span className="chat-header-side">
+            <button className={showPreview && sidePane === 'preview' ? 'active' : ''} onClick={() => toggleSide('preview')}>
+              Preview
+            </button>
+            <button
+              className={showPreview && sidePane === 'notes' ? 'active' : ''}
+              onClick={() => toggleSide('notes')}
+              title="This project's to-do list and notes"
+            >
+              📝 Notes
+            </button>
+          </span>
+        )}
+        {headerCompact && (
           <button
             className={`chat-more${moreOpen ? ' active' : ''}`}
             aria-expanded={moreOpen}
@@ -1141,10 +1160,10 @@ function ChatView({ project, onBack, onOpenHistory, onOpenMemory, onError, think
           onClick={(e) => {
             // A plain button closes the list; Checkpoint and Go Nutz keep it while their dialog is open.
             const button = (e.target as HTMLElement).closest('button')
-            if (phone && button?.parentElement === e.currentTarget) setMoreOpen(false)
+            if (headerCompact && button?.parentElement === e.currentTarget) setMoreOpen(false)
           }}
         >
-          {!phone && (
+          {!headerCompact && (
             <>
               <button className={showPreview && sidePane === 'preview' ? 'active' : ''} onClick={() => toggleSide('preview')}>
                 Preview

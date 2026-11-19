@@ -517,7 +517,8 @@ button.active,
   gap: 0.5rem;
 }
 
-.chat-header-actions button {
+.chat-header-actions button,
+.chat-header-side button {
   padding: 0.4rem 0.8rem;
   border-radius: 6px;
   border: none;
@@ -1215,7 +1216,8 @@ textarea {
   color: var(--text-muted);
 }
 
-.chat-header-actions button.active {
+.chat-header-actions button.active,
+.chat-header-side button.active {
   background: var(--accent);
   color: var(--accent-text);
 }
@@ -1236,6 +1238,8 @@ textarea {
 
 .chat-body.with-preview .chat-main {
   flex: 0 0 42%;
+  /* Room for the message box and its buttons, even at 42% of an iPad held upright. */
+  min-width: min(360px, 55%);
 }
 
 /* The divider between the chat and the preview / notes: drag to resize, ‹ › fold a side away. */
@@ -3173,6 +3177,171 @@ textarea {
   display: none;
 }
 
+/* ---- Crowded headers (a phone, an iPad, a narrow window, a wide font) ----------------------
+   The top bar gets .compact when its contents don't fit on one line, the project's header when
+   its buttons don't: measured in useCompactWhenCrowded, and always on a phone. */
+
+.app-nav.compact {
+  flex-wrap: wrap;
+  gap: 8px 14px;
+}
+
+/* The usage meters share one compact row under the name and tabs. */
+.app-nav.compact .usage-meters {
+  order: 2;
+  flex-basis: 100%;
+  margin-left: 0;
+  gap: 6px;
+  flex-wrap: nowrap;
+  min-width: 0;
+  align-items: stretch;
+}
+
+.app-nav.compact .usage-meter {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  padding: 4px 8px;
+  gap: 6px;
+}
+
+.app-nav.compact .usage-meter-bars {
+  flex: 1;
+  min-width: 0;
+}
+
+.app-nav.compact .usage-bar {
+  width: auto;
+  flex: 1;
+  min-width: 0;
+}
+
+.app-nav.compact .eq-toggle {
+  padding: 4px 8px;
+}
+
+/* Each meter a small tile: name and the least left on top, its bars full width under them. */
+.app-nav.compact .usage-meter:not(.local-model) {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-rows: auto auto;
+  align-items: center;
+  gap: 3px 4px;
+  padding: 4px 7px;
+}
+
+.app-nav.compact .usage-meter:not(.local-model) .usage-meter-name {
+  font-size: 12px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.app-nav.compact .usage-meter-least {
+  display: inline;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.app-nav.compact .usage-meter:not(.local-model) .usage-meter-bars {
+  grid-column: 1 / -1;
+  gap: 2px;
+}
+
+.app-nav.compact .usage-meter .usage-bar-label,
+.app-nav.compact .usage-meter .usage-bar-value {
+  display: none;
+}
+
+.app-nav.compact .usage-meter .usage-bar-row {
+  gap: 0;
+}
+
+/* The equalizer as its bars alone, and the local model as its light and name. */
+.app-nav.compact .eq-label {
+  display: none;
+}
+
+.app-nav.compact .usage-meter.local-model {
+  flex: none;
+  padding: 4px 8px;
+}
+
+.app-nav.compact .usage-meter.local-model .local-model-name {
+  display: none;
+}
+
+.app-nav.compact .usage-meter.local-model .usage-meter-name {
+  font-size: 12px;
+}
+
+/* On a phone with three plan meters (Cline too), the local model is its light alone. */
+@media (max-width: 760px) {
+  .app-nav.compact
+    .usage-meters:has(.usage-meter:not(.local-model) ~ .usage-meter:not(.local-model) ~ .usage-meter:not(.local-model))
+    .local-model
+    .usage-meter-name {
+    display: none;
+  }
+}
+
+/* The project's header on one line: back, the name, Preview and Notes (not on a phone), and ⋯ for the rest. */
+.chat-header.compact {
+  position: relative;
+  flex-wrap: nowrap;
+}
+
+.chat-header.compact .chat-project-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-header-side {
+  display: flex;
+  flex: none;
+  gap: 0.5rem;
+}
+
+.chat-header.compact .chat-more {
+  display: inline-block;
+  flex: none;
+  font-size: 18px;
+  line-height: 1;
+  padding: 6px 12px;
+}
+
+.chat-header.compact .chat-header-actions {
+  display: none;
+}
+
+.chat-header.compact .chat-header-actions.open {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 40;
+  min-width: 210px;
+  margin: 0;
+  padding: 6px;
+  gap: 4px;
+  overflow: visible;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+.chat-header.compact .chat-header-actions.open > *,
+.chat-header.compact .chat-header-actions.open > * > button {
+  width: 100%;
+  text-align: left;
+}
+
 @media (max-width: 760px) {
   html,
   body {
@@ -3224,159 +3393,6 @@ textarea {
   .app-nav-tabs button {
     flex: none;
     padding: 8px 12px;
-  }
-
-  /* The two usage meters share one compact row under the name. */
-  .usage-meters {
-    order: 2;
-    flex-basis: 100%;
-    margin-left: 0;
-    gap: 6px;
-    flex-wrap: nowrap;
-    min-width: 0;
-  }
-
-  .usage-meter {
-    flex: 1 1 0;
-    min-width: 0;
-    min-height: 0;
-    padding: 4px 8px;
-    gap: 6px;
-  }
-
-  .usage-meter-bars {
-    flex: 1;
-    min-width: 0;
-  }
-
-  .usage-bar {
-    width: auto;
-    flex: 1;
-    min-width: 24px;
-  }
-
-  .eq-toggle {
-    padding: 4px 8px;
-  }
-
-  /* Each meter a small tile: name and the least left on top, its bars full width under them. */
-  .usage-meters {
-    align-items: stretch;
-  }
-
-  .usage-meter:not(.local-model) {
-    display: grid;
-    grid-template-columns: 1fr auto;
-    grid-template-rows: auto auto;
-    align-items: center;
-    gap: 3px 4px;
-    padding: 4px 7px;
-  }
-
-  .usage-meter:not(.local-model) .usage-meter-name {
-    font-size: 12px;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .usage-meter-least {
-    display: inline;
-    font-size: 12px;
-    font-variant-numeric: tabular-nums;
-  }
-
-  .usage-meter:not(.local-model) .usage-meter-bars {
-    grid-column: 1 / -1;
-    gap: 2px;
-  }
-
-  .usage-meter .usage-bar-label,
-  .usage-meter .usage-bar-value {
-    display: none;
-  }
-
-  .usage-meter .usage-bar-row {
-    gap: 0;
-  }
-
-  .usage-meter .usage-bar {
-    min-width: 0;
-  }
-
-  /* The equalizer as its bars alone, and the local model as its light and name. */
-  .eq-label {
-    display: none;
-  }
-
-  .usage-meter.local-model {
-    flex: none;
-    padding: 4px 8px;
-  }
-
-  .usage-meter.local-model .local-model-name {
-    display: none;
-  }
-
-  .usage-meter.local-model .usage-meter-name {
-    font-size: 12px;
-  }
-
-  /* With three plan meters (Cline too), the local model is its light alone. */
-  .usage-meters:has(.usage-meter:not(.local-model) ~ .usage-meter:not(.local-model) ~ .usage-meter:not(.local-model))
-    .local-model
-    .usage-meter-name {
-    display: none;
-  }
-
-  /* Chat header on one line: back, the project's name, and ⋯ for the rest. */
-  .chat-header {
-    position: relative;
-    flex-wrap: nowrap;
-  }
-
-  .chat-header .chat-project-name {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .chat-more {
-    display: inline-block;
-    font-size: 18px;
-    line-height: 1;
-    padding: 6px 12px;
-  }
-
-  .chat-header .chat-header-actions {
-    display: none;
-  }
-
-  .chat-header .chat-header-actions.open {
-    display: flex;
-    flex-direction: column;
-    align-items: stretch;
-    position: absolute;
-    top: calc(100% + 4px);
-    right: 0;
-    z-index: 40;
-    min-width: 210px;
-    margin: 0;
-    padding: 6px;
-    gap: 4px;
-    overflow: visible;
-    background: var(--surface-raised);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
-  }
-
-  .chat-header-actions.open > *,
-  .chat-header-actions.open > * > button {
-    width: 100%;
-    text-align: left;
   }
 
   /* In a chat the footer's links give way to the message box. */
@@ -3914,8 +3930,9 @@ textarea {
 
 .chat-compose-bar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
+  gap: 6px 10px;
   margin: 0 0 6px;
   min-width: 0;
 }

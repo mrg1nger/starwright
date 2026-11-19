@@ -1330,6 +1330,57 @@ try {
     if (problems.length) throw new Error(`wider than the screen: ${problems.join(' | ')}`)
   })
 
+  await step('on tablet-sized screens (iPads, both ways round): nothing runs off the side', async () => {
+    await evaluate(`window.vibe.settings.update({ lmStudioHelpers: true })`)
+    // The widest things that run off the side: each reported once, where it starts (not everything inside it).
+    const overflow = `(() => {
+      const off = (e) => { const r = e.getBoundingClientRect(); return r.width > 0 && (r.right > innerWidth + 1 || r.left < -1) && getComputedStyle(e).position !== 'fixed' }
+      const scrolls = (e) => { const s = getComputedStyle(e); return /auto|scroll|hidden/.test(s.overflowX) && e !== document.body && e !== document.documentElement }
+      const found = [...document.querySelectorAll('body *')].filter((e) => off(e) && !e.closest('pre, .md table') && ![...ancestors(e)].some((a) => scrolls(a) || (off(a) && a !== document.body)))
+      function* ancestors(e) { for (let a = e.parentElement; a && a !== document.body; a = a.parentElement) yield a }
+      const page = document.documentElement.scrollWidth > innerWidth + 1 ? 'page ' + document.documentElement.scrollWidth + 'px; ' : ''
+      // Rows that hold their buttons on one line: anything past their edge is cut off or pushes the page.
+      const rows = ['.app-nav', '.chat-header', '.chat-main', '.chat-compose-bar', '.chat-input-row'].map((s) => document.querySelector(s)).filter((e) => e && e.scrollWidth > e.clientWidth + 1).map((e) => e.className + ' needs ' + e.scrollWidth + ' of ' + e.clientWidth + 'px; ').join('')
+      return page + rows + found.slice(0, 6).map((e) => (typeof e.className === 'string' && e.className ? e.className.split(' ')[0] : e.tagName) + ' to ' + Math.round(e.getBoundingClientRect().right)).join(', ')
+    })()`
+    const problems = []
+    try {
+      // A Cline meter and the Remote badge, as on a computer reached through Remote access.
+      await evaluate(`(() => {
+        const m = document.querySelector('.usage-meter:not(.local-model)')
+        if (m) { const c = m.cloneNode(true); c.classList.add('e2e-fake-meter'); c.querySelector('.usage-meter-name').textContent = 'Cline'; m.after(c) }
+        const tabs = document.querySelector('.app-nav-tabs')
+        const badge = document.createElement('span'); badge.className = 'remote-indicator e2e-fake-meter'; badge.textContent = '📡 Remote'; tabs.after(badge)
+      })()`)
+      const sizes = [[768, 1024, 'iPad mini'], [820, 1180, 'iPad Air'], [1024, 1366, 'iPad Pro 12.9'], [1180, 820, 'iPad Air sideways'], [1366, 1024, 'iPad Pro sideways']]
+      for (const font of ['', 'wide font']) {
+        // Safari on an iPad has no Consolas or Cascadia: a monospace theme falls back to the much wider Courier.
+        if (font) await evaluate(`(() => { const s = document.createElement('style'); s.id = 'e2e-wide-font'; s.textContent = "* { font-family: 'Courier New', Courier, monospace !important; }"; document.head.append(s) })()`)
+        for (const [w, h, device] of sizes) {
+        const name = font ? `${device} (${font})` : device
+        await cdp('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 2, mobile: true })
+        await sleep(600)
+        for (const [tab, open] of [['Projects', null], ['Chat', 'e2e-game'], ['Chat', null], ['Settings', null], ['Extensions', null]]) {
+          await click(tab === 'Chat' && open ? 'Projects' : tab, '.app-nav-tabs button')
+          if (open) {
+            await click(open, 'button.project-row')
+            await waitFor(`!!document.querySelector('textarea.chat-input')`, 'the chat')
+          }
+          await sleep(700)
+          const wide = await evaluate(overflow)
+          if (wide) problems.push(`${name} ${w}x${h} ${open ? 'project' : tab}: ${wide}`)
+          if (open) await shot(`tablet-${w}x${h}${font ? '-wide-font' : ''}-project`)
+        }
+        }
+      }
+    } finally {
+      await cdp('Emulation.clearDeviceMetricsOverride', {})
+      await evaluate(`document.querySelectorAll('.e2e-fake-meter, #e2e-wide-font').forEach((e) => e.remove())`)
+      await evaluate(`window.vibe.settings.update({ lmStudioHelpers: false })`)
+    }
+    if (problems.length) throw new Error(`wider than the screen:\n  ${problems.join('\n  ')}`)
+  })
+
   await step('a theme with a background picture: Codex paints it, the colors are picked from it, it shows behind the app, and Delete removes it', async () => {
     const themes = join(data, 'themes')
     await click('Settings', '.app-nav-tabs button')
