@@ -41,6 +41,8 @@ export interface LocalAgentRun {
   /** Set by runLocalAgent: when the run must end, and what its commands left running in the background. */
   deadline?: number
   leftBehind?: RecordedProcess[]
+  /** A step slower than this, with the context more than half full, hands the task over (for tests; SLOW_STEP_MS otherwise). */
+  slowStepMs?: number
   /** Lets LM Studio's model be unloaded again once the run is over. */
   releaseModel?: () => void
 }
@@ -479,6 +481,13 @@ export const MAX_REREADS = 8
  * again until the time ran out).
  */
 export const MAX_DROPPED_REREADS = 3
+/**
+ * A step taking longer than this while the context is more than half full means the model is
+ * wading through more than it can handle: on Lazarus (2026-11-19) such steps took 2-2½ minutes,
+ * so only a few fit before the time ran out, and Cline then did the whole task in 30 seconds.
+ * The first step doesn't count: it may include loading the model.
+ */
+export const SLOW_STEP_MS = 90_000
 
 /**
  * Counts the model's reads, to spot it cycling through files it has already read (A, B, C, A, B, C):
@@ -601,6 +610,7 @@ async function runModel(run: LocalAgentRun): Promise<LocalAgentResult> {
     const left = deadline - Date.now()
     if (left <= 0) return fail('The local model ran out of time.', step - 1, model)
     let reply: ChatReply
+    const stepStarted = Date.now()
     try {
       const res = await fetch(`${base}/v1/chat/completions`, {
         method: 'POST',
@@ -633,6 +643,15 @@ async function runModel(run: LocalAgentRun): Promise<LocalAgentResult> {
     const choice = reply.choices?.[0]
     const said = (choice?.message?.content ?? '').trim()
     const calls = choice?.message?.tool_calls ?? []
+    const took = Date.now() - stepStarted
+    const full = (counts.fresh + counts.cached) / context
+    if (calls.length && step > 1 && took > (run.slowStepMs ?? SLOW_STEP_MS) && full > 0.5) {
+      return fail(
+        `The local model's steps got slow (${Math.round(took / 1000)} s for the last one, with its ${context.toLocaleString()} tokens of context ${Math.round(full * 100)}% full): the task needs more than it can work through in time. Hand it to another agent, or split it into smaller tasks.`,
+        step,
+        model
+      )
+    }
 
     if (!calls.length) {
       if (said) {

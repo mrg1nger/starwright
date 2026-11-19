@@ -15,7 +15,9 @@ import { conventionsFor } from '../memory/meaning'
 import { digestDiff } from './diffDigest'
 import { briefBlock } from '../memory/brief'
 import { handoffContext } from '../memory/context'
-import { changeStats, diffSnapshots, takeSnapshot, type FileChange } from '../git/snapshots'
+import { changeStats, diffSnapshots, restoreSnapshot, takeSnapshot, type FileChange } from '../git/snapshots'
+import { estimateReadTokens, fitsLocalContext } from './taskSize'
+import { DEFAULT_LOAD_CONTEXT } from '../cli/lmStudio'
 import { verifyChanges } from '../review/checks'
 import { countsFromCodexEvents, recordUsage } from '../usage/tokens'
 import type { DelegationActivity, TaskDifficulty, TaskKind } from '@shared/types'
@@ -114,40 +116,61 @@ function describeChanges(changes: FileChange[]): string {
 type HandOffResult = {
   content: { type: 'text'; text: string }[]
   isError: boolean
-  outcome: { ok: boolean; stopped: boolean; changed: number }
+  /** before: the snapshot taken just before the hand-off, so a failed one's changes can be undone. */
+  outcome: { ok: boolean; stopped: boolean; changed: number; before?: string }
 }
 
 /**
- * Tries the routes in order: the next one gets the task when one fails without changing anything
- * (a half-done change, a Stop, or the last route ends it). The result says who did it, and who
- * passed it on and why.
+ * Tries the routes in order: the next one gets the task when one fails (a Stop, or the last route,
+ * ends it). One that failed after changing files has its changes undone first (with `undo`), so the
+ * next agent starts from a clean project, and is told what the failed one reported; without `undo`,
+ * or if undoing fails, a half-done change ends it there. The result says who did it, and who passed
+ * it on and why.
  */
 export async function tryInOrder(
   routes: HelperRoute[],
-  attempt: (route: HelperRoute, last: boolean, carryOn?: boolean) => Promise<HandOffResult>,
-  task: string
+  attempt: (route: HelperRoute, last: boolean, carryOn?: boolean, note?: string) => Promise<HandOffResult>,
+  task: string,
+  options: {
+    /** Agents left out before trying, in the header's words ("skipping the local model (…)"). */
+    skipped?: string[]
+    /** Puts the project back to a snapshot; true when it did. */
+    undo?: (snapshot: string) => Promise<boolean>
+  } = {}
 ): Promise<{ content: { type: 'text'; text: string }[]; isError: boolean }> {
-  const passedOn: string[] = []
+  const passedOn: string[] = [...(options.skipped ?? [])]
+  /** For the next agent, after one that failed was undone: what it reported. */
+  let note: string | undefined
   for (let i = 0; i < routes.length; i++) {
     const last = i === routes.length - 1
     const agent = ROUTE_AGENT[routes[i]]
-    let result = await attempt(routes[i], last)
+    let result = await attempt(routes[i], last, false, note)
+    const before = result.outcome.before
     let carried = false
     // Cline or the local model ran out of time part-way, with files already changed: nobody else can
     // take a half-done change over, so it gets one more go to finish (on Lazarus all four of Cline's
     // failures in a week were this, on 17-22 file features, left half-built for Claude).
     if (!result.outcome.ok && !result.outcome.stopped && result.outcome.changed > 0 && routes[i] !== 'codex' && ranOutOfTime(result)) {
       const first = result
-      result = await attempt(routes[i], last, true)
+      result = await attempt(routes[i], last, true, note)
       carried = true
       if (result.outcome.changed === 0 && !result.outcome.ok) result = first // the second go did nothing: report the first
     }
     const { ok, stopped, changed } = result.outcome
+    const why = (result.content[0]?.text ?? '').split('\n')[0].slice(0, 160)
+    // Failed after changing files, with another agent to go: put the project back so that one
+    // starts clean rather than on a half-done change (on Lazarus the local model's timeout left
+    // nine scratch scripts in RAL-Command), and pass on what the failed one found.
+    if (!ok && !stopped && changed > 0 && !last && before && options.undo && (await options.undo(before).catch(() => false))) {
+      passedOn.push(`${agentName(agent)} couldn't finish (${why}) and its changes were undone`)
+      note = `[Starwright: ${agentName(agent)} tried this task first and couldn't finish; its changes were undone, so the project is as it was before. What it reported, for what it found (don't assume any of it was done):\n${(result.content[0]?.text ?? '').slice(0, 1500)}]`
+      continue
+    }
     if (ok || stopped || changed > 0 || last) {
       const header = `[Starwright gave this ${task} task to ${agentName(agent)}${passedOn.length ? ` after ${passedOn.join('; ')}` : ''}${carried ? '; it ran out of time part-way and was given one more go to finish' : ''}.]`
       return { content: [{ type: 'text' as const, text: `${header}\n${result.content[0]?.text ?? ''}` }], isError: result.isError }
     }
-    passedOn.push(`${agentName(agent)} couldn't do it (${(result.content[0]?.text ?? '').split('\n')[0].slice(0, 160)})`)
+    passedOn.push(`${agentName(agent)} couldn't do it (${why})`)
   }
   return { content: [{ type: 'text' as const, text: 'No agent could take the task.' }], isError: true }
 }
@@ -370,6 +393,7 @@ export function createCodexDelegationServer(
     kind: TaskKind
     difficulty: TaskDifficulty
     agent?: HelperRoute
+    files?: string[]
     timeoutMs?: number
   }): Promise<{ content: { type: 'text'; text: string }[]; isError: boolean }> {
     const settings = getSettings()
@@ -377,7 +401,19 @@ export function createCodexDelegationServer(
     const faders = workModeOf(settings) === 'manual' ? fadersOf(settings) : undefined
     // Equal faders share the work: whoever took fewer hand-offs this past week goes first.
     const used = faders ? recentHandoffUse() : undefined
-    const routes = chooseRoutes({ difficulty: args.difficulty, kind: args.kind, available, codexLow, clineLow, asked: args.agent, faders, used })
+    let routes = chooseRoutes({ difficulty: args.difficulty, kind: args.kind, available, codexLow, clineLow, asked: args.agent, faders, used })
+    // The local model only gets what fits: a task whose files fill more than half its context has it
+    // reading, losing what it read and running out of time, while another agent does it in seconds.
+    // Not when the user asked for it by name, or when it's the only one there.
+    const skipped: string[] = []
+    if (routes.includes('local') && routes.length > 1 && args.agent !== 'local') {
+      const room = settings.lmStudioContextLength || DEFAULT_LOAD_CONTEXT
+      const { tokens } = attempt(() => estimateReadTokens(projectPath, args.prompt, args.files)) ?? { tokens: 0 }
+      if (!fitsLocalContext(tokens, room)) {
+        routes = routes.filter((r) => r !== 'local')
+        skipped.push(`skipping the local model (the files named come to about ${Math.round(tokens / 1000)}k tokens, more than half its ${room.toLocaleString()} tokens of context)`)
+      }
+    }
     if (!routes.length && faders && (['codex', 'cline', 'local'] as const).some((r) => available[r])) {
       return {
         content: [
@@ -400,7 +436,7 @@ export function createCodexDelegationServer(
         isError: true
       }
     }
-    return tryInOrder(routes, (route, last, carryOn) => {
+    return tryInOrder(routes, (route, last, carryOn, note) => {
       const agent = ROUTE_AGENT[route]
       onProgress(carryOn ? `${agentName(agent)} ran out of time part-way: carrying on to finish` : routedNote(agent, args.difficulty, args.kind))
       // A cheaper agent with another behind it gets less time on simple work: a stall shouldn't hold
@@ -408,10 +444,18 @@ export function createCodexDelegationServer(
       // every big feature it was given on Lazarus).
       const capped = !last && route !== 'codex' && !carryOn && args.difficulty === 'simple'
       const timeoutMs = capped ? Math.min(args.timeoutMs ?? HANDOFF_TIMEOUT_MS, FALLBACK_TIMEOUT_MS) : args.timeoutMs
-      const prompt = carryOn ? carryOnPrompt(args.prompt) : args.prompt
+      const task = note ? `${args.prompt}\n\n${note}` : args.prompt
+      const prompt = carryOn ? carryOnPrompt(task) : task
       const work = route === 'codex' ? codexWork(prompt, timeoutMs) : route === 'cline' ? clineWork(prompt, timeoutMs) : localWork(prompt, timeoutMs)
       return handOff(agent, prompt, work, { kind: args.kind, difficulty: args.difficulty })
-    }, `${args.difficulty} ${args.kind}`)
+    }, `${args.difficulty} ${args.kind}`, {
+      skipped,
+      undo: async (snapshot) => {
+        await restoreSnapshot(projectPath, snapshot)
+        onProgress('Undid the half-done changes before the next agent starts')
+        return true
+      }
+    })
   }
 
   return createSdkMcpServer({
@@ -590,7 +634,7 @@ export function createCodexDelegationServer(
       ),
       tool(
         'run_subtask',
-        "Hand a scoped coding subtask to another agent and get its result. Starwright picks the agent from the user's settings, what each plan has left and how hard you say the task is: the local model (free, on this computer) or Cline (on its own plan) for simple, well-specified work, Codex for harder work; if one fails without changing anything, the next one gets it. Each is given the user's request, the key facts and relevant memories, and several Codex hand-offs in one request continue the same Codex session, so say what to do, which files are involved, what \"done\" looks like and how to check it (tests to run; for visible changes, what to try in the browser, where the agents have the same Playwright tools). Split bigger jobs and hand the simple parts off separately. The result says who did it, with its report, the files changed (with a small diff) and the automatic checks (script syntax, JSON, the project's npm test); the full report is available from the handoffs tool. Hand-offs run one at a time (they share the project folder), so asking for several at once doesn't make them faster.",
+        "Hand a scoped coding subtask to another agent and get its result. Starwright picks the agent from the user's settings, what each plan has left and how hard you say the task is: the local model (free, on this computer) or Cline (on its own plan) for simple, well-specified work, Codex for harder work; if one fails, its changes are undone and the next one gets it, with what the failed one reported. Name the files it must read (files), so a task too big for the local model goes elsewhere. Each is given the user's request, the key facts and relevant memories, and several Codex hand-offs in one request continue the same Codex session, so say what to do, which files are involved, what \"done\" looks like and how to check it (tests to run; for visible changes, what to try in the browser, where the agents have the same Playwright tools). Split bigger jobs and hand the simple parts off separately. The result says who did it, with its report, the files changed (with a small diff) and the automatic checks (script syntax, JSON, the project's npm test); the full report is available from the handoffs tool. Hand-offs run one at a time (they share the project folder), so asking for several at once doesn't make them faster.",
         {
           prompt: z.string().describe('The subtask: what to do, which files, what "done" looks like, and how to check it.'),
           kind: z.enum(['feature', 'bugfix', 'tests', 'refactor', 'boilerplate', 'docs', 'other']).describe('What kind of task it is.'),
@@ -600,6 +644,10 @@ export function createCodexDelegationServer(
               'simple: a clear change in named files, boilerplate, tests for existing code, a bug with a failing test. moderate: a typical feature or fix across a few files. hard: tricky, vague, or wide-reaching work.'
             ),
           agent: z.enum(['codex', 'cline', 'local']).optional().describe('Only when the user asked for a particular agent: that one is tried first.'),
+          files: z
+            .array(z.string())
+            .optional()
+            .describe('The files or folders the agent will need to read, when you know them (paths in the project). Starwright uses their size to pick an agent with room for them.'),
           timeoutMs: z.number().optional().describe('Optional timeout in milliseconds. Defaults to 15 minutes.')
         },
         (args) => oneAtATime(() => routedHandOff(args))
@@ -719,7 +767,7 @@ export function createCodexDelegationServer(
       return {
         content: [{ type: 'text' as const, text: lines.join('\n\n') }],
         isError: !ok || checksOk === false,
-        outcome: { ok, stopped: false, changed: changes?.length ?? 0 }
+        outcome: { ok, stopped: false, changed: changes?.length ?? 0, before }
       }
     } catch (err) {
       const message = (err as Error).message
@@ -733,7 +781,7 @@ export function createCodexDelegationServer(
       return {
         content: [{ type: 'text' as const, text: `${agentName(agent)} couldn't finish: ${message}${touched}` }],
         isError: true,
-        outcome: { ok: false, stopped: !!signal?.aborted, changed: partial?.changes?.length ?? 0 }
+        outcome: { ok: false, stopped: !!signal?.aborted, changed: partial?.changes?.length ?? 0, before }
       }
     }
   }

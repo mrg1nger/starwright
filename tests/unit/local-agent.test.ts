@@ -15,6 +15,8 @@ type Turn = { calls?: [string, Record<string, unknown>][]; say?: string }
 let script: Turn[] = []
 /** What the stand-in says each prompt cost: raise it to make the conversation look full, so it gets trimmed. */
 let promptTokens = 100
+/** How long the stand-in takes over each model turn. */
+let replyDelayMs = 0
 const requests: { messages: { role: string; content: string }[]; reasoning_effort?: string }[] = []
 
 const server = createServer((req, res) => {
@@ -30,7 +32,9 @@ const server = createServer((req, res) => {
     const message = turn.calls
       ? { content: '', tool_calls: turn.calls.map(([name, args], i) => ({ id: `c${requests.length}-${i}`, type: 'function', function: { name, arguments: JSON.stringify(args) } })) }
       : { content: turn.say }
-    res.end(JSON.stringify({ model: 'coder', choices: [{ message, finish_reason: turn.calls ? 'tool_calls' : 'stop' }], usage: { prompt_tokens: promptTokens, completion_tokens: 10 } }))
+    const body = JSON.stringify({ model: 'coder', choices: [{ message, finish_reason: turn.calls ? 'tool_calls' : 'stop' }], usage: { prompt_tokens: promptTokens, completion_tokens: 10 } })
+    if (replyDelayMs) setTimeout(() => res.end(body), replyDelayMs)
+    else res.end(body)
   })
 })
 
@@ -270,6 +274,28 @@ test('a model reading again what was removed to save room is stopped after a few
     result = await runLocalAgent({ task: 'Change m1.', cwd })
     assert.equal(result.ok, true, result.error)
   } finally {
+    promptTokens = 100
+  }
+})
+
+test('slow steps with a context more than half full hand the task over; slow steps with room, or the first one, do not', async () => {
+  const cwd = project({ 'a.js': 'a\n', 'b.js': 'b\n', 'c.js': 'c\n' })
+  const read = (path: string): Turn => ({ calls: [['read_file', { path }]] })
+  replyDelayMs = 60
+  try {
+    promptTokens = 20_000 // with the reply, about 63% of 32,000
+    script = [read('a.js'), read('b.js'), read('c.js'), { say: 'Done.' }]
+    let result = await runLocalAgent({ task: 'Read a, b and c.', cwd, slowStepMs: 30 })
+    assert.equal(result.ok, false)
+    assert.match(result.error ?? '', /steps got slow \(\d+ s for the last one, with its 32,000 tokens of context 63% full\)/)
+    assert.equal(result.steps, 2, 'the first step (which may load the model) is let off')
+
+    promptTokens = 10_000 // 31%: slow, but it has room, so it's just slow hardware
+    script = [read('a.js'), read('b.js'), read('c.js'), { say: 'Done.' }]
+    result = await runLocalAgent({ task: 'Read a, b and c.', cwd, slowStepMs: 30 })
+    assert.equal(result.ok, true, result.error)
+  } finally {
+    replyDelayMs = 0
     promptTokens = 100
   }
 })

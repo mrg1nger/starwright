@@ -924,6 +924,45 @@ try {
     if (count(await chatText()) !== 1) throw new Error('the question shows twice in the reopened chat')
   })
 
+  await step('a quick request after a long break runs in a short fresh session, and the next bigger one carries on the conversation', async () => {
+    const saved = () => JSON.parse(readFileSync(join(data, 'projects.json'), 'utf8')).projects.find((p) => p.id === PROJECT_ID)?.sdkSessionId
+    const flag = join(data, 'test-aside-now')
+    try {
+      // A conversation to set aside, with something only it knows.
+      await send('Create aside-test.txt in the project containing just the word PLUM. Also remember the codeword HERON for later in this chat; don\'t write it anywhere.')
+      await idle(600_000)
+      const main = saved()
+      if (!main) throw new Error('no conversation saved for the project')
+      // The flag stands in for an hour's gap; the keyword judge calls this a quick edit.
+      await evaluate(`window.vibe.settings.update({ smartRouting: true, aiRouting: false })`)
+      writeFileSync(flag, '')
+      await send('Make the title blue')
+      await idle(600_000)
+      rmSync(flag, { force: true })
+      if (!/runs in a short fresh session/.test(await chatText())) throw new Error('the quick request did not run in a short session')
+      if (saved() !== main) throw new Error("the short session's id replaced the project's conversation")
+      // A normal request: back to the long conversation, told about the quick one.
+      await evaluate(`window.vibe.settings.update({ smartRouting: false })`)
+      await send('Without changing any files: reply with one line giving the codeword I asked you to remember earlier in this chat, and the colour the title was just made.')
+      await idle(600_000)
+      if (!/Back in the full conversation/.test(await chatText())) throw new Error('the long conversation was not picked up again')
+      const reply = await lastReply()
+      if (!/heron/i.test(reply) || !/blue/i.test(reply)) throw new Error(`it lost track of one of them: ${reply.slice(0, 200)}`)
+      // What each of the three requests read (the short session starts from Claude Code's own instructions only).
+      const usage = readFileSync(join(data, 'transcripts', `${PROJECT_ID}.jsonl`), 'utf8')
+        .trim()
+        .split('\n')
+        .map((l) => JSON.parse(l).event)
+        .filter((e) => e?.type === 'usage')
+        .slice(-3)
+        .map((u) => `${u.model?.replace('claude-', '')} ${u.steps} steps, ${Math.round((u.fresh + u.cached) / 1000)}k read`)
+      console.log(`    (${usage.join(' · ')})`)
+    } finally {
+      rmSync(flag, { force: true })
+      await evaluate(`window.vibe.settings.update({ smartRouting: false })`).catch(() => undefined)
+    }
+  })
+
   await step('"make it cheaper" in Build knows what was just asked in Ask', async () => {
     await click('Ask', '.chat-mode-switch button')
     try {

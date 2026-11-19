@@ -521,6 +521,36 @@ export function registerIpcHandlers(getSender: () => WebContents | undefined): v
         }
       }
 
+      // A quick request after a long gap: the prompt cache has expired, so resuming would re-read the
+      // whole conversation at full price for one small job. It runs in a short fresh session instead,
+      // and the next bigger request picks the long conversation up again, told what happened between.
+      let asideNote: string | undefined
+      if (session.isAside() && (route.size !== 'quick' || planning || !!extra?.approvedPlan)) {
+        if (session.returnFromAside()) {
+          asideNote = takeAsideNote(projectId)
+          session.emit('event', { type: 'note', text: '↩ Back in the full conversation, with the quick requests from the break passed along.' } satisfies VibeEvent)
+        }
+      } else if (
+        !carried &&
+        !session.isAside() &&
+        route.size === 'quick' &&
+        !planning &&
+        !extra?.approvedPlan &&
+        (asideForTests() ||
+          (session.idleMs() >= ASIDE_AFTER_IDLE_MS && (session.contextSizeUnknown() || session.contextTokens() >= ASIDE_MIN_TOKENS)))
+      ) {
+        if (session.stepAside()) {
+          asideRequests.set(projectId, [])
+          asideNote = ASIDE_START_NOTE
+          session.emit('event', {
+            type: 'note',
+            text: "⚡ A quick request after a long break: it runs in a short fresh session, so the whole conversation isn't read again for it. The next bigger request carries on the conversation."
+          } satisfies VibeEvent)
+        }
+      }
+      // The session was started again meanwhile (it resumes the long conversation): still pass them on.
+      if (!asideNote && !session.isAside() && asideRequests.has(projectId)) asideNote = takeAsideNote(projectId)
+
       // The prompt cache is per model, so dropping to Haiku in a big
       // conversation re-processes all of it, costing more than a quick edit
       // saves. Stay on the current model then.
@@ -600,6 +630,7 @@ export function registerIpcHandlers(getSender: () => WebContents | undefined): v
       lastRequests.set(projectId, { text, element, images: prepared.map((p) => p.savedPath), snapshot })
       const message = [
         carried,
+        asideNote,
         // What Codex did on its own while Claude was out.
         takeCatchUpNote(projectId),
         takeUndoNote(projectId),
@@ -1375,6 +1406,39 @@ function pickedNote(picked: PickedElement): string {
 /** Above this conversation size, small requests keep the current model rather than breaking the prompt cache. */
 const CACHE_KEEP_TOKENS = 30_000
 
+/** Idle this long, the prompt cache has expired: a quick request runs in a short fresh session (stepAside). */
+const ASIDE_AFTER_IDLE_MS = 60 * 60_000
+/** Only worth it when there's this much conversation to skip (Claude Code's own instructions are about 30k). */
+const ASIDE_MIN_TOKENS = 40_000
+/** Told to Claude at the start of the short session. */
+const ASIDE_START_NOTE =
+  "[VibeApp note: this quick request runs in a short fresh session; the project's longer conversation is set aside after a long break and picked up again for the next bigger request. If the request refers to something said earlier, look it up with the history tool (mcp__vibe_memory__history).]"
+
+/** Tests: a file in the data folder makes the next quick request step aside, whatever the gap. */
+function asideForTests(): boolean {
+  return process.env.VIBEAPP_TEST_HOOKS === '1' && existsSync(join(app.getPath('userData'), 'test-aside-now'))
+}
+
+/** Per project: the quick requests done in the short session, for the long one when it's picked up again. */
+const asideRequests = new Map<string, { request: string; reply: string; actions: string[] }[]>()
+
+/** What happened in the short session, for the long conversation's next message. */
+function takeAsideNote(projectId: string): string | undefined {
+  const done = asideRequests.get(projectId) ?? []
+  asideRequests.delete(projectId)
+  if (!done.length) return undefined
+  const lines = done.slice(-5).map((d) =>
+    [
+      `- Request: ${d.request.replace(/\s+/g, ' ').slice(0, 300)}`,
+      d.actions.length ? `  Did: ${d.actions.slice(-6).join('; ').slice(0, 400)}` : undefined,
+      d.reply ? `  Reply: ${d.reply.replace(/\s+/g, ' ').slice(0, 500)}` : undefined
+    ]
+      .filter(Boolean)
+      .join('\n')
+  )
+  return `[VibeApp note: after a long break, these quick requests were done in a short separate session while this conversation was set aside:\n${lines.join('\n')}]`
+}
+
 /** Folders inside `dir` (or the drives and home folder when no dir is given), for the browser's folder picker. */
 function listDirs(dir?: string): { path: string; parent: string | null; dirs: { name: string; path: string }[] } {
   if (!dir) {
@@ -2063,6 +2127,9 @@ function wireSessionEvents(
         const path = getProject(projectId)?.path
         const finished = turnRecords.get(projectId)
         turnRecords.delete(projectId)
+        if (finished && session.isAside()) {
+          asideRequests.get(projectId)?.push({ request: finished.request, reply: finished.replies.at(-1) ?? '', actions: finished.actions })
+        }
         // A plan's build is over: say honestly how many of its steps were reported.
         const built = buildingPlans.get(projectId)
         if (built) {
@@ -2119,6 +2186,7 @@ function wireSessionEvents(
     getSender()?.send('vibe:chat:confirmationClosed', projectId, id)
   })
   session.on('session_id', (sdkSessionId: string) => {
-    setSdkSessionId(projectId, sdkSessionId)
+    // Not the short session's: if Starwright restarts meanwhile, the long conversation is the one to resume.
+    if (!session.isAside()) setSdkSessionId(projectId, sdkSessionId)
   })
 }

@@ -184,6 +184,13 @@ export class ClaudeSession extends EventEmitter {
   /** Size of the conversation Claude last saw, in tokens (from its latest API call). */
   private lastContextTokens = 0
   private sizeUnknown = false
+  /** When Claude last finished a turn (epoch ms); 0 for a conversation resumed from disk, whose last turn may be long ago. */
+  private lastActiveAt = 0
+  /**
+   * The long conversation, set aside while quick requests after a long gap run in a short fresh
+   * session (see stepAside); picked up again by returnFromAside.
+   */
+  private parked: { sessionId: string; tokens: number; sizeUnknown: boolean } | undefined
 
   setRequestContext(context: RequestContext | undefined): void {
     this.requestContext = context
@@ -249,12 +256,55 @@ export class ClaudeSession extends EventEmitter {
     if (this.dead || this.disposed || this.turnsInFlight > 0) return false
     const before = this.lastContextTokens
     const old = this.queue
+    this.parked = undefined
     this.capturedSessionId = undefined
     this.lastContextTokens = 0
     this.sizeUnknown = false
     this.queue = this.startQuery(undefined, this.goNutz)
     old.close()
     this.emit('event', { type: 'session_rotated', contextTokens: before, summary } satisfies VibeEvent)
+    return true
+  }
+
+  /** How long since Claude last finished a turn (very long for a conversation resumed from disk). */
+  idleMs(): number {
+    return Date.now() - this.lastActiveAt
+  }
+
+  /** A quick request is running in a short fresh session, with the long conversation set aside. */
+  isAside(): boolean {
+    return !!this.parked
+  }
+
+  /**
+   * Sets the long conversation aside and starts a short fresh one, for a quick request after a long
+   * gap: the prompt cache has expired by then, so resuming would re-read the whole conversation at
+   * full price for one small job (63k tokens for "how many VMs are on mini-srv?" on Lazarus). Only
+   * between requests; false if it can't (a request running, or nothing to set aside).
+   */
+  stepAside(): boolean {
+    if (this.dead || this.disposed || this.turnsInFlight > 0 || this.parked || !this.capturedSessionId) return false
+    this.parked = { sessionId: this.capturedSessionId, tokens: this.lastContextTokens, sizeUnknown: this.sizeUnknown }
+    const old = this.queue
+    this.capturedSessionId = undefined
+    this.lastContextTokens = 0
+    this.sizeUnknown = false
+    this.queue = this.startQuery(undefined, this.goNutz)
+    old.close()
+    return true
+  }
+
+  /** Picks the long conversation up again, leaving the short one behind. Only between requests. */
+  returnFromAside(): boolean {
+    if (!this.parked || this.dead || this.disposed || this.turnsInFlight > 0) return false
+    const { sessionId, tokens, sizeUnknown } = this.parked
+    this.parked = undefined
+    const old = this.queue
+    this.capturedSessionId = sessionId
+    this.lastContextTokens = tokens
+    this.sizeUnknown = sizeUnknown
+    this.queue = this.startQuery(sessionId, this.goNutz)
+    old.close()
     return true
   }
 
@@ -267,6 +317,7 @@ export class ClaudeSession extends EventEmitter {
     super()
     this.goNutz = initialGoNutz
     this.capturedSessionId = resumeSessionId
+    if (!resumeSessionId) this.lastActiveAt = Date.now()
     // A resumed conversation's size isn't known until its first reply.
     this.sizeUnknown = !!resumeSessionId
     this.queue = this.startQuery(resumeSessionId, initialGoNutz)
@@ -609,8 +660,9 @@ ${extensionInstructions(extensions)}` : ''}`
     return this.dead
   }
 
+  /** The conversation to resume if this session has to be started again: the long one, even while it's set aside. */
   getCapturedSessionId(): string | undefined {
-    return this.capturedSessionId
+    return this.parked?.sessionId ?? this.capturedSessionId
   }
 
   isGoNutzMode(): boolean {
@@ -656,6 +708,7 @@ ${extensionInstructions(extensions)}` : ''}`
     try {
       for await (const message of queryHandle) {
         if (queryHandle !== this.queryHandle) return // superseded by a reload
+        if (message.type === 'result') this.lastActiveAt = Date.now()
         if ('session_id' in message && message.session_id && message.session_id !== this.capturedSessionId) {
           this.capturedSessionId = message.session_id
           this.emit('session_id', message.session_id)

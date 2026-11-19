@@ -2,6 +2,15 @@
 
 The version goes up with each improvement that ships: the middle number for new features, the last for fixes only. Settings shows the version a computer is running. (Starwright was called VibeApp up to 0.10.0.)
 
+## 0.20.0 (2026-11-19)
+
+Hand-offs waste less time, and quick requests after a break cost less. From a look at a week of use on another computer, where every one of the local model's failures was running out of time.
+
+- **The local model only gets what fits.** Claude can now name the files a hand-off has to read. When they come to more than half of the local model's context, it's skipped and the next agent takes the task. This applies unless you asked for the local model by name, or there's no one else. The chat says why it was skipped. On the other computer, a 20-file task took the local model ten minutes before it gave up, and Cline then did it in 30 seconds.
+- **It hands over when its steps get slow.** A step taking more than 90 seconds while its context is more than half full means it's wading through more than it can handle, so it stops and the next agent takes over. The first step doesn't count, since it may include loading the model. Slow steps with plenty of room left are just slow hardware, and carry on.
+- **The next agent starts from a clean project.** When an agent fails after changing files and another one is next, its changes are undone first, scratch files included, so the next agent isn't building on a half-done change. The next agent is told what the failed one reported. If the last agent fails, its changes stay for Claude to look at, as before. On the other computer, a failed local-model run had left nine scratch scripts in a project.
+- **Quick requests after a long break cost less.** After an hour or more with nothing sent, Claude's saved copy of the conversation has expired, so carrying on reads the whole conversation again at full price. That was 63k tokens to answer "how many VMs are on the server?". A quick request after a break now runs in a short fresh session, with the project's key facts and brief, and says so in the chat. The next bigger request goes back to the full conversation, and is told what the quick requests did.
+
 ## 0.19.3 (2026-11-19)
 
 Two fixes from trying 0.19.2 on another computer.
