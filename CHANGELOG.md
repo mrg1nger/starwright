@@ -2,6 +2,13 @@
 
 The version goes up with each improvement that ships: the middle number for new features, the last for fixes only. Settings shows the version a computer is running. (Starwright was called VibeApp up to 0.10.0.)
 
+## 0.19.3 (2026-11-19)
+
+Two fixes from trying 0.19.2 on another computer.
+
+- **The local model hands over sooner when a task doesn't fit.** Given 20 files, it read them all, had to drop the first 8 to make room, and read those 8 again until its time ran out. The read counts from 0.19.2 didn't stop it, since no file had been read more than twice. Now reading again something it had to drop counts too: it can get back up to 3 such files to make its change, and on the fourth it stops and another agent takes the task. Reading a file again after changing it still doesn't count.
+- **A question passed on to Build shows once.** When a question went on as a build request, it showed twice in the chat after the chat was opened again.
+
 ## 0.19.2 (2026-11-19)
 
 Fixes from a look at a week of use on another computer.

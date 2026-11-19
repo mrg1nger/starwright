@@ -447,12 +447,18 @@ const TRIMMED = '[Earlier output removed to save room. Read or run it again if y
  * (tool call id → "read_file src/a.js"), the note says what was removed, so the model knows what it
  * has lost instead of reading everything again.
  */
-export function trimConversation(messages: Message[], keepRecent = 6, labels?: Map<string, string>): number {
+export function trimConversation(
+  messages: Message[],
+  keepRecent = 6,
+  labels?: Map<string, string>,
+  onTrim?: (toolCallId: string) => void
+): number {
   const tools = messages.map((m, i) => (m.role === 'tool' && !m.content.startsWith('[Earlier output ') ? i : -1)).filter((i) => i >= 0)
   let trimmed = 0
   for (const i of tools.slice(0, Math.max(0, tools.length - keepRecent))) {
     const label = messages[i].tool_call_id ? labels?.get(messages[i].tool_call_id!) : undefined
     messages[i] = { ...messages[i], content: label ? trimmedNote(label) : TRIMMED }
+    if (messages[i].tool_call_id) onTrim?.(messages[i].tool_call_id!)
     trimmed++
   }
   return trimmed
@@ -466,6 +472,13 @@ function trimmedNote(label: string): string {
 export const MAX_READS_OF_A_PART = 3
 /** Re-reads in all before the run is stopped: the task needs more than fits in the model's context. */
 export const MAX_REREADS = 8
+/**
+ * Reads of parts whose earlier read was removed to save room, before the run is stopped. Needing
+ * back a few lines it lost is fine; reading a batch of them again means the task doesn't fit in the
+ * model's context, and it would only lose them again (it read 20 files, lost 8, and read those 8
+ * again until the time ran out).
+ */
+export const MAX_DROPPED_REREADS = 3
 
 /**
  * Counts the model's reads, to spot it cycling through files it has already read (A, B, C, A, B, C):
@@ -475,6 +488,9 @@ export const MAX_REREADS = 8
 export class ReadTracker {
   private parts = new Map<string, number>()
   private rereads = 0
+  /** Parts whose read was removed from the conversation to save room. */
+  private lost = new Set<string>()
+  private lostRereads = 0
 
   private static key(path: unknown, startLine: unknown): string {
     return `${String(path ?? '').replace(/\\/g, '/').replace(/^\.\//, '').toLowerCase()}:${Math.max(1, Math.floor(Number(startLine) || 1))}`
@@ -486,13 +502,23 @@ export class ReadTracker {
     const times = (this.parts.get(key) ?? 0) + 1
     this.parts.set(key, times)
     if (times > 1) this.rereads++
-    return { times, stop: times > MAX_READS_OF_A_PART || this.rereads > MAX_REREADS }
+    if (this.lost.delete(key)) this.lostRereads++
+    return {
+      times,
+      stop: times > MAX_READS_OF_A_PART || this.rereads > MAX_REREADS || this.lostRereads > MAX_DROPPED_REREADS
+    }
+  }
+
+  /** That read's output was removed to save room. */
+  dropped(path: unknown, startLine: unknown): void {
+    this.lost.add(ReadTracker.key(path, startLine))
   }
 
   /** The file changed: reading it again is checking the change, not going round in circles. */
   changed(path: unknown): void {
     const prefix = ReadTracker.key(path, 1).replace(/:1$/, ':')
     for (const key of [...this.parts.keys()]) if (key.startsWith(prefix)) this.parts.delete(key)
+    for (const key of [...this.lost]) if (key.startsWith(prefix)) this.lost.delete(key)
   }
 
   /** The files read most often, for the message when the run is stopped. */
@@ -563,6 +589,12 @@ async function runModel(run: LocalAgentRun): Promise<LocalAgentResult> {
   const reads = new ReadTracker()
   /** What each tool result was, for the note that replaces it when it's trimmed. */
   const labels = new Map<string, string>()
+  /** Which part of which file each read_file call read, to tell the tracker when its output is trimmed. */
+  const readOf = new Map<string, { path: unknown; startLine: unknown }>()
+  const onTrim = (id: string): void => {
+    const part = readOf.get(id)
+    if (part) reads.dropped(part.path, part.startLine)
+  }
 
   for (let step = 1; step <= maxSteps; step++) {
     if (run.signal?.aborted) return fail('The local model run was cancelled.', step - 1, model)
@@ -643,6 +675,7 @@ async function runModel(run: LocalAgentRun): Promise<LocalAgentResult> {
           )
         }
         if (seen.times === MAX_READS_OF_A_PART) note += `\n(You have now read this ${seen.times} times. Don't read it again: write down in your next reply what you need from it, then make the change.)`
+        readOf.set(call.id, { path: args.path, startLine: args.start_line })
         labels.set(call.id, `read_file ${String(args.path)}${Number(args.start_line) > 1 ? ` from line ${Math.floor(Number(args.start_line))}` : ''}`)
       } else if ((name === 'edit_file' || name === 'write_file') && outcome.activity.ok) {
         reads.changed(args.path)
@@ -661,8 +694,8 @@ async function runModel(run: LocalAgentRun): Promise<LocalAgentResult> {
       if (now?.loaded && now.contextLength) context = now.contextLength
     }
     const prompt = counts.fresh + counts.cached
-    if (prompt > context * 0.6) trimConversation(messages, 6, labels)
-    if (prompt > context * 0.9 && !trimConversation(messages, 2, labels)) {
+    if (prompt > context * 0.6) trimConversation(messages, 6, labels, onTrim)
+    if (prompt > context * 0.9 && !trimConversation(messages, 2, labels, onTrim)) {
       return fail('The task outgrew the local model\'s context. Load the model with a longer context, or hand over a smaller task.', step, model)
     }
   }

@@ -13,6 +13,8 @@ import type { DelegationActivity } from '@shared/types'
 // A stand-in LM Studio that plays back a script of model turns (tool calls, then a report).
 type Turn = { calls?: [string, Record<string, unknown>][]; say?: string }
 let script: Turn[] = []
+/** What the stand-in says each prompt cost: raise it to make the conversation look full, so it gets trimmed. */
+let promptTokens = 100
 const requests: { messages: { role: string; content: string }[]; reasoning_effort?: string }[] = []
 
 const server = createServer((req, res) => {
@@ -28,7 +30,7 @@ const server = createServer((req, res) => {
     const message = turn.calls
       ? { content: '', tool_calls: turn.calls.map(([name, args], i) => ({ id: `c${requests.length}-${i}`, type: 'function', function: { name, arguments: JSON.stringify(args) } })) }
       : { content: turn.say }
-    res.end(JSON.stringify({ model: 'coder', choices: [{ message, finish_reason: turn.calls ? 'tool_calls' : 'stop' }], usage: { prompt_tokens: 100, completion_tokens: 10 } }))
+    res.end(JSON.stringify({ model: 'coder', choices: [{ message, finish_reason: turn.calls ? 'tool_calls' : 'stop' }], usage: { prompt_tokens: promptTokens, completion_tokens: 10 } }))
   })
 })
 
@@ -247,6 +249,31 @@ test('a model going round the same files is stopped early, with a warning first;
   assert.equal(result.ok, true, result.error)
 })
 
+test('a model reading again what was removed to save room is stopped after a few such reads', async () => {
+  const files = Object.fromEntries(Array.from({ length: 10 }, (_, i) => [`m${i + 1}.js`, `m${i + 1}\n`]))
+  const cwd = project(files)
+  const read = (path: string): Turn => ({ calls: [['read_file', { path }]] })
+  // Each prompt fills 25,000 of the 32,000 tokens, so all but the last 6 results are removed: by the
+  // tenth read, m1–m4 are gone, and it reads them again. No part is read a third time and there are
+  // only 4 re-reads in all, so only the removed-then-read-again count stops it.
+  promptTokens = 25_000
+  try {
+    script = [...Array.from({ length: 10 }, (_, i) => read(`m${i + 1}.js`)), read('m1.js'), read('m2.js'), read('m3.js'), read('m4.js'), read('m5.js')]
+    let result = await runLocalAgent({ task: 'Summarise m1 to m10.', cwd })
+    assert.equal(result.ok, false)
+    assert.match(result.error ?? '', /kept reading the same files again \(m1\.js 2×/)
+    assert.match(result.error ?? '', /32,000 tokens of context/)
+    assert.equal(result.steps, 14, 'stopped at the fourth read of something it had lost')
+
+    // Getting back one lost file to make the change is fine.
+    script = [...Array.from({ length: 10 }, (_, i) => read(`m${i + 1}.js`)), read('m1.js'), { calls: [['edit_file', { path: 'm1.js', old_text: 'm1', new_text: 'm1 done' }]] }, { say: 'Done.' }]
+    result = await runLocalAgent({ task: 'Change m1.', cwd })
+    assert.equal(result.ok, true, result.error)
+  } finally {
+    promptTokens = 100
+  }
+})
+
 test('trimmed output says what was removed', () => {
   const messages = [
     { role: 'system' as const, content: 's' },
@@ -259,6 +286,10 @@ test('trimmed output says what was removed', () => {
   assert.match(messages[1].content, /^\[Earlier output removed to save room: read_file src\/vms\.ts\./)
   assert.match(messages[2].content, /from line 401/)
   assert.equal(trimConversation(messages, 1, labels), 0, 'a labelled note is not trimmed again')
+  const told: string[] = []
+  messages.push({ role: 'tool' as const, content: 'newest', tool_call_id: 'c4' })
+  trimConversation(messages, 1, labels, (id) => told.push(id))
+  assert.deepEqual(told, ['c3'], 'the caller hears which results were removed')
 })
 
 test('a command outside the project goes to the user, as for Claude: Allow runs it, Deny refuses it', async () => {

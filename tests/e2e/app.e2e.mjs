@@ -915,6 +915,13 @@ try {
     if (!/v?\d+\.\d+\.\d+/.test(reply)) throw new Error(`no version in the answer: ${reply.slice(0, 200)}`)
     if (/no access|can't access|cannot access|don't have access/i.test(reply)) throw new Error(`answered "no access": ${reply.slice(0, 200)}`)
     console.log(`    (answered: ${reply.match(/v?\d+\.\d+\.\d+/)[0]}; this Node is ${version})`)
+    // The build saves the question again: it shows once, live and when the chat is opened again.
+    const count = (t) => t.split('What version does').length - 1
+    if (count(await chatText()) !== 1) throw new Error('the question shows twice')
+    await click('Projects', '.app-nav-tabs button')
+    await click('e2e-game', 'button.project-row')
+    await waitFor(`/went on as a build request/.test(document.querySelector('.chat-log')?.innerText ?? '')`, 'the reopened chat', 15_000)
+    if (count(await chatText()) !== 1) throw new Error('the question shows twice in the reopened chat')
   })
 
   await step('"make it cheaper" in Build knows what was just asked in Ask', async () => {

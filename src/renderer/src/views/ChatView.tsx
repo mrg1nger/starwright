@@ -808,7 +808,22 @@ function ChatView({ project, onBack, onOpenHistory, onOpenMemory, onError, think
     window.vibe.chat.loadRecent(project.id, showAllHistory ? 0 : REPLAY_REQUESTS).then(({ entries, earlier }) => {
       if (cancelled) return
       setItems(earlier > 0 ? [{ kind: 'older', hidden: earlier }] : [])
+      // A question that went on as a build request is saved again by the build (with its Undo
+      // snapshot): shown once, with the snapshot.
+      let rerouted: string | null = null
       for (const entry of entries) {
+        if (entry.direction === 'user' && entry.text && entry.text === rerouted) {
+          rerouted = null
+          const again = entry
+          setItems((prev) => {
+            const at = prev.findLastIndex((item) => item.kind === 'user_text' && item.text === again.text)
+            if (at === -1) return prev
+            return prev.map((item, i) => (i === at && item.kind === 'user_text' ? { ...item, snapshot: again.snapshot ?? item.snapshot } : item))
+          })
+          continue
+        }
+        if (entry.direction === 'user') rerouted = null
+        if (entry.direction === 'event' && entry.event?.type === 'ask_rerouted') rerouted = entry.event.text
         if (entry.direction === 'user' && entry.text) {
           const item: ChatItem = {
             kind: 'user_text',
