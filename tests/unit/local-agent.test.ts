@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { applyEdit, projectPath, runLocalAgent, trimConversation } from '../../src/main/local/localAgent'
 import { forgetLmStudioStatus } from '../../src/main/cli/lmStudio'
+import { progressNote } from '../../src/main/cli/codexActivity'
 import { updateSettings } from '../../src/main/settings/store'
 import type { DelegationActivity } from '@shared/types'
 
@@ -15,15 +16,19 @@ type Turn = { calls?: [string, Record<string, unknown>][]; say?: string }
 let script: Turn[] = []
 /** What the stand-in says each prompt cost: raise it to make the conversation look full, so it gets trimmed. */
 let promptTokens = 100
-/** How long the stand-in takes over each model turn. */
+/** How long the stand-in reads before its first token, each model turn. */
 let replyDelayMs = 0
+/** Streaming: the pause before each piece it writes after the first. */
+let writeDelayMs = 0
+/** Off: it answers in one piece even when asked to stream, as a server that can't would. */
+let streams = true
 const requests: { messages: { role: string; content: string }[]; reasoning_effort?: string }[] = []
 
 const server = createServer((req, res) => {
   let raw = ''
   req.on('data', (d) => (raw += d))
   req.on('end', () => {
-    res.writeHead(200, { 'Content-Type': 'application/json' })
+    if (req.url?.includes('/models')) res.writeHead(200, { 'Content-Type': 'application/json' })
     if (req.url === '/api/v0/models') return res.end(JSON.stringify({ data: [{ id: 'coder', type: 'llm', state: 'loaded', loaded_context_length: 32000 }] }))
     // Already loaded: Starwright uses it as it is (it never loads a second copy).
     if (req.url === '/api/v1/models') return res.end(JSON.stringify({ models: [{ type: 'llm', key: 'coder', max_context_length: 131072, loaded_instances: [{ id: 'coder', config: { context_length: 32000 } }] }] }))
@@ -32,7 +37,41 @@ const server = createServer((req, res) => {
     const message = turn.calls
       ? { content: '', tool_calls: turn.calls.map(([name, args], i) => ({ id: `c${requests.length}-${i}`, type: 'function', function: { name, arguments: JSON.stringify(args) } })) }
       : { content: turn.say }
-    const body = JSON.stringify({ model: 'coder', choices: [{ message, finish_reason: turn.calls ? 'tool_calls' : 'stop' }], usage: { prompt_tokens: promptTokens, completion_tokens: 10 } })
+    const usage = { prompt_tokens: promptTokens, completion_tokens: 10 }
+    const asked = requests[requests.length - 1] as { stream?: boolean }
+    if (asked.stream && streams) {
+      // As LM Studio streams: the tool call's name first, then its arguments in pieces, then the usage.
+      const pieces: unknown[] = []
+      if (turn.calls) {
+        turn.calls.forEach(([name, args], i) => {
+          const id = `c${requests.length}-${i}`
+          const json = JSON.stringify(args)
+          pieces.push({ tool_calls: [{ index: i, id, type: 'function', function: { name, arguments: '' } }] })
+          for (let at = 0; at < json.length; at += 4) pieces.push({ tool_calls: [{ index: i, type: 'function', function: { arguments: json.slice(at, at + 4) } }] })
+        })
+      } else {
+        for (const word of (turn.say ?? '').split(/(?= )/)) pieces.push({ content: word })
+      }
+      const chunks = [
+        ...pieces.map((delta, i) => ({ data: { model: 'coder', choices: [{ index: 0, delta: i === 0 ? { role: 'assistant', ...(delta as object) } : delta }] }, wait: i === 0 ? replyDelayMs : writeDelayMs })),
+        { data: { model: 'coder', choices: [{ index: 0, delta: {}, finish_reason: turn.calls ? 'tool_calls' : 'stop' }] }, wait: 0 },
+        { data: { model: 'coder', choices: [], usage }, wait: 0 }
+      ]
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' })
+      const send = (i: number): void => {
+        if (res.destroyed) return
+        if (i === chunks.length) return void res.end('data: [DONE]\n\n')
+        res.write(`data: ${JSON.stringify(chunks[i].data)}\n\n`)
+        const next = chunks[i + 1]?.wait ?? 0
+        if (next) setTimeout(() => send(i + 1), next)
+        else send(i + 1)
+      }
+      if (chunks[0].wait) setTimeout(() => send(0), chunks[0].wait)
+      else send(0)
+      return
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    const body = JSON.stringify({ model: 'coder', choices: [{ message, finish_reason: turn.calls ? 'tool_calls' : 'stop' }], usage })
     if (replyDelayMs) setTimeout(() => res.end(body), replyDelayMs)
     else res.end(body)
   })
@@ -278,7 +317,7 @@ test('a model reading again what was removed to save room is stopped after a few
   }
 })
 
-test('slow steps with a context more than half full hand the task over; slow steps with room, or the first one, do not', async () => {
+test('slow reading with a context more than half full hands the task over; slow reading with room, or the first step, does not', async () => {
   const cwd = project({ 'a.js': 'a\n', 'b.js': 'b\n', 'c.js': 'c\n' })
   const read = (path: string): Turn => ({ calls: [['read_file', { path }]] })
   replyDelayMs = 60
@@ -287,8 +326,8 @@ test('slow steps with a context more than half full hand the task over; slow ste
     script = [read('a.js'), read('b.js'), read('c.js'), { say: 'Done.' }]
     let result = await runLocalAgent({ task: 'Read a, b and c.', cwd, slowStepMs: 30 })
     assert.equal(result.ok, false)
-    assert.match(result.error ?? '', /steps got slow \(\d+ s for the last one, with its 32,000 tokens of context 63% full\)/)
-    assert.equal(result.steps, 2, 'the first step (which may load the model) is let off')
+    assert.match(result.error ?? '', /got slow reading its context \(\d+ s before it wrote anything, on more than one step, with its 32,000 tokens of context 63% full\)/)
+    assert.equal(result.steps, 3, 'the first step (which may load the model) is let off, and it takes two slow ones in a row')
 
     promptTokens = 10_000 // 31%: slow, but it has room, so it's just slow hardware
     script = [read('a.js'), read('b.js'), read('c.js'), { say: 'Done.' }]
@@ -297,6 +336,72 @@ test('slow steps with a context more than half full hand the task over; slow ste
   } finally {
     replyDelayMs = 0
     promptTokens = 100
+  }
+})
+
+test('slow writing is not slow reading: a long reply at a few tokens a second carries on', async () => {
+  const cwd = project({ 'a.js': 'a\n', 'b.js': 'b\n', 'c.js': 'c\n' })
+  const read = (path: string): Turn => ({ calls: [['read_file', { path }]] })
+  writeDelayMs = 15 // each tool call comes in 5-6 pieces: 75 ms or more of writing per step
+  try {
+    promptTokens = 20_000
+    script = [read('a.js'), read('b.js'), read('c.js'), { say: 'Done.' }]
+    const result = await runLocalAgent({ task: 'Read a, b and c.', cwd, slowStepMs: 30 })
+    assert.equal(result.ok, true, result.error)
+    assert.equal(result.steps, 4)
+  } finally {
+    writeDelayMs = 0
+    promptTokens = 100
+  }
+})
+
+test('a reply that stops part-way ends the run rather than waiting out the time', async () => {
+  const cwd = project({ 'a.js': 'a\n' })
+  writeDelayMs = 400
+  try {
+    script = [{ calls: [['read_file', { path: 'a.js' }]] }, { say: 'Done.' }]
+    const started = Date.now()
+    const result = await runLocalAgent({ task: 'Read a.', cwd, stallMs: 60 })
+    assert.equal(result.ok, false)
+    assert.match(result.error ?? '', /stopped responding \(nothing for \d+ s part-way through a reply\)/)
+    assert.ok(Date.now() - started < 1500, 'ended by the stall check')
+  } finally {
+    writeDelayMs = 0
+  }
+})
+
+test('a long step shows a live line, reading then writing, and what it took when done', async () => {
+  const cwd = project({ 'a.js': 'a\n' })
+  const seen: DelegationActivity[] = []
+  replyDelayMs = 120
+  writeDelayMs = 30
+  try {
+    script = [{ calls: [['read_file', { path: 'a.js' }]] }, { say: 'Done reading a.' }]
+    const result = await runLocalAgent({ task: 'Read a.', cwd, progressAfterMs: 20, onActivity: (a) => seen.push({ ...a }) })
+    assert.equal(result.ok, true, result.error)
+    const live = seen.filter((a) => a.id === 'local-live-1')
+    assert.ok(live.some((a) => !a.done && /^Local model reading its context/.test(a.text)), JSON.stringify(live))
+    assert.ok(live.some((a) => !a.done && /^Local model writing: \d+ tokens/.test(a.text)), JSON.stringify(live))
+    const last = live[live.length - 1]
+    assert.equal(last.done, true)
+    assert.match(last.text, /^Local model read about \d[\d,]* new tokens in \d+ s, then wrote 10 tokens in \d+ s/)
+    assert.equal(progressNote({ id: 'local-live-1', step: 'tool', done: false, text: 'Local model reading its context (6 s)' }), 'Local model reading its context (6 s)')
+  } finally {
+    replyDelayMs = 0
+    writeDelayMs = 0
+  }
+})
+
+test('a server that answers in one piece when asked to stream still works', async () => {
+  const cwd = project({ 'a.js': 'a\n' })
+  streams = false
+  try {
+    script = [{ calls: [['read_file', { path: 'a.js' }]] }, { say: 'Read it.' }]
+    const result = await runLocalAgent({ task: 'Read a.', cwd })
+    assert.equal(result.ok, true, result.error)
+    assert.equal(result.text, 'Read it.')
+  } finally {
+    streams = true
   }
 })
 

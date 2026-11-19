@@ -200,6 +200,8 @@ export function describeActivity(event: { type: string; item?: unknown }): Deleg
 /** The one-line status for the card header while a step runs. */
 export function progressNote(activity: DelegationActivity): string | null {
   if (activity.done) return null
+  // The local model's live line ("Local model reading its context, about 40% (20 s)") says it all.
+  if (activity.id.startsWith('local-live-')) return activity.text
   if (activity.step === 'run') return `Running: ${activity.text}`
   if (activity.step === 'edit') return activity.text.replace(/^(\S+)/, (v) => `${v.replace(/ed$/, 'ing').replace(/^Created/, 'Creating')}`)
   if (activity.step === 'tool') return `Using ${activity.text}`

@@ -2,6 +2,15 @@
 
 The version goes up with each improvement that ships: the middle number for new features, the last for fixes only. Settings shows the version a computer is running. (Starwright was called VibeApp up to 0.10.0.)
 
+## 0.20.1 (2026-11-19)
+
+The local model's hand-off shows what it's doing, and only slow reading hands its task over.
+
+- **A fix to 0.20.0's slow-step check.** 0.20.0 timed whole steps, writing included. At 11 tokens a second, a step that wrote a medium-sized file took more than 90 seconds, so once the context was half full a working model was stopped, and its changes undone. Now only the time spent reading the context before it writes anything counts, and it takes two such slow steps in a row. The step after older output is trimmed doesn't count either, since it reads the whole conversation again once.
+- **You can see whether it's still working.** Starwright now streams the local model's replies from LM Studio. A step that runs more than a few seconds gets a live line in the hand-off: "reading its context, about 40%", then "writing: 340 tokens, 11 tok/s". When the step ends, the line records what it took. The card's header shows the same line.
+- **A model that stops part-way is noticed.** Nothing for two minutes in the middle of a reply ends the run, so the next agent gets the task. Before, it waited out the whole 15 minutes.
+- LM Studio's own chat endpoint reports reading progress, but it doesn't accept the tools Starwright's local agent works through, so Starwright estimates the percentage from how fast earlier steps read. A new smoke test runs the local agent on the real LM Studio.
+
 ## 0.20.0 (2026-11-19)
 
 Hand-offs waste less time, and quick requests after a break cost less. From a look at a week of use on another computer, where every one of the local model's failures was running out of time.

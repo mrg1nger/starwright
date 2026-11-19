@@ -11,6 +11,7 @@ import { maskText } from '../secrets/maskSecrets'
 import type { TokenCounts } from '../usage/tokens'
 import type { DelegationActivity } from '@shared/types'
 import { fileTimeOf, listProcesses, startedBy, stopProcesses, type RecordedProcess } from '../preview/leftovers'
+import { StreamStopped, progressText, stepSummary, streamChat, type StreamedReply, type ToolCall } from './chatStream'
 
 // VibeApp's own coding agent, on a model in LM Studio. The model can only ask
 // for one of the tools below; VibeApp carries each request out itself, after
@@ -41,8 +42,12 @@ export interface LocalAgentRun {
   /** Set by runLocalAgent: when the run must end, and what its commands left running in the background. */
   deadline?: number
   leftBehind?: RecordedProcess[]
-  /** A step slower than this, with the context more than half full, hands the task over (for tests; SLOW_STEP_MS otherwise). */
+  /** Reading the context for longer than this, with it more than half full, twice in a row, hands the task over (for tests; SLOW_STEP_MS otherwise). */
   slowStepMs?: number
+  /** No output for this long part-way through a reply ends the run (for tests; STALL_MS otherwise). */
+  stallMs?: number
+  /** A step running longer than this gets a live line in the hand-off (for tests; PROGRESS_AFTER_MS otherwise). */
+  progressAfterMs?: number
   /** Lets LM Studio's model be unloaded again once the run is over. */
   releaseModel?: () => void
 }
@@ -431,15 +436,8 @@ async function runTool(name: string, args: Record<string, unknown>, run: LocalAg
 interface Message {
   role: 'system' | 'user' | 'assistant' | 'tool'
   content: string
-  tool_calls?: { id: string; type: 'function'; function: { name: string; arguments: string } }[]
+  tool_calls?: ToolCall[]
   tool_call_id?: string
-}
-
-interface ChatReply {
-  model?: string
-  choices?: { message?: { content?: string | null; tool_calls?: Message['tool_calls'] }; finish_reason?: string }[]
-  usage?: Parameters<typeof countsFromChatUsage>[0]
-  error?: { message?: string } | string
 }
 
 const TRIMMED = '[Earlier output removed to save room. Read or run it again if you still need it.]'
@@ -482,12 +480,20 @@ export const MAX_REREADS = 8
  */
 export const MAX_DROPPED_REREADS = 3
 /**
- * A step taking longer than this while the context is more than half full means the model is
- * wading through more than it can handle: on Lazarus (2026-11-19) such steps took 2-2½ minutes,
- * so only a few fit before the time ran out, and Cline then did the whole task in 30 seconds.
- * The first step doesn't count: it may include loading the model.
+ * Reading the context for longer than this before writing anything, while it is more than half
+ * full, means the model is wading through more than it can handle: on Lazarus (2026-11-19) such
+ * steps took 2-2½ minutes, so only a few fit before the time ran out, and Cline then did the whole
+ * task in 30 seconds. Only the reading counts (the time to the first token): writing a big file at
+ * 11 tokens a second takes minutes and is fine. It takes SLOW_READS_TO_HAND_OVER such steps in a
+ * row; the first step (which may load the model) and the step after trimming (which reads the
+ * whole conversation again, once) don't count.
  */
 export const SLOW_STEP_MS = 90_000
+export const SLOW_READS_TO_HAND_OVER = 2
+/** Nothing for this long part-way through a reply: the model has stopped. */
+export const STALL_MS = 120_000
+/** A step running longer than this gets a live line in the hand-off: reading, about N%, or writing at N tok/s. */
+export const PROGRESS_AFTER_MS = 5_000
 
 /**
  * Counts the model's reads, to spot it cycling through files it has already read (A, B, C, A, B, C):
@@ -605,37 +611,74 @@ async function runModel(run: LocalAgentRun): Promise<LocalAgentResult> {
     if (part) reads.dropped(part.path, part.startLine)
   }
 
+  const slowLimit = run.slowStepMs ?? SLOW_STEP_MS
+  const progressAfter = run.progressAfterMs ?? PROGRESS_AFTER_MS
+  const slowMessage = (readMs: number, full: number): string =>
+    `The local model got slow reading its context (${Math.round(readMs / 1000)} s before it wrote anything, on more than one step, with its ${context!.toLocaleString()} tokens of context ${Math.round(full * 100)}% full): the task needs more than it can work through in time. Hand it to another agent, or split it into smaller tasks.`
+  /** How full the context was at the last request. */
+  let lastFull = 0
+  /** Steps in a row that read for longer than slowLimit. */
+  let slowReads = 0
+  /** The conversation was trimmed after the last step, so this one reads all of it again. */
+  let trimmedBefore = false
+  /** The conversation's size at the last request, to estimate what's new to read. */
+  let lastChars = 0
+  /** Tokens a second it reads at, from earlier steps, for the "about N%" while it reads. */
+  let readRate = 0
+
   for (let step = 1; step <= maxSteps; step++) {
     if (run.signal?.aborted) return fail('The local model run was cancelled.', step - 1, model)
     const left = deadline - Date.now()
     if (left <= 0) return fail('The local model ran out of time.', step - 1, model)
-    let reply: ChatReply
-    const stepStarted = Date.now()
+    // Only a later step with the context more than half full, and nothing trimmed since, is held to the limit.
+    const watched = step > 1 && lastFull > 0.5 && !trimmedBefore
+    const chars = JSON.stringify(messages).length
+    const toRead = Math.round((trimmedBefore ? chars : Math.max(0, chars - lastChars)) / 3.5)
+    lastChars = chars
+    const liveId = `local-live-${step}`
+    let live = false
+    let streamed: StreamedReply
     try {
-      const res = await fetch(`${base}/v1/chat/completions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model,
-          messages,
-          tools: TOOLS,
-          temperature: 0.2,
-          stream: false,
-          ...(run.thinking ? {} : { reasoning_effort: 'none' })
-        }),
-        signal: run.signal ? AbortSignal.any([run.signal, AbortSignal.timeout(left)]) : AbortSignal.timeout(left)
-      })
-      reply = (await res.json().catch(() => ({ error: `HTTP ${res.status}` }))) as ChatReply
-      if (!res.ok && !reply.error) reply.error = `HTTP ${res.status}`
+      streamed = await streamChat(
+        `${base}/v1/chat/completions`,
+        { model, messages, tools: TOOLS, temperature: 0.2, ...(run.thinking ? {} : { reasoning_effort: 'none' }) },
+        {
+          signal: run.signal ? AbortSignal.any([run.signal, AbortSignal.timeout(left)]) : AbortSignal.timeout(left),
+          // The step that would make it slow twice in a row ends as soon as it's clear, rather than reading on.
+          readLimitMs: watched && slowReads + 1 >= SLOW_READS_TO_HAND_OVER ? slowLimit : undefined,
+          stallMs: run.stallMs ?? STALL_MS,
+          progressEveryMs: Math.max(10, Math.min(2000, progressAfter)),
+          onProgress: (p) => {
+            if (p.elapsedMs < progressAfter) return
+            live = true
+            run.onActivity?.({ id: liveId, step: 'tool', done: false, text: progressText(p, readRate ? { tokens: toRead, perSecond: readRate } : undefined) })
+          }
+        }
+      )
     } catch (err) {
+      const end = (text: string): void => {
+        if (live) run.onActivity?.({ id: liveId, step: 'tool', done: true, ok: false, text })
+      }
+      if (err instanceof StreamStopped) {
+        end(err.why === 'slow-read' ? `Local model still reading after ${Math.round(err.afterMs / 1000)} s` : `Local model stopped writing for ${Math.round(err.afterMs / 1000)} s`)
+        if (err.why === 'slow-read') return fail(slowMessage(err.afterMs, lastFull), step, model)
+        return fail(
+          `The local model stopped responding (nothing for ${Math.round(err.afterMs / 1000)} s part-way through a reply). Hand it to another agent, or try again.`,
+          step,
+          model
+        )
+      }
+      end('Local model step ended')
       if (run.signal?.aborted) return fail('The local model run was cancelled.', step - 1, model)
       return fail((err as Error).name === 'TimeoutError' ? 'The local model ran out of time.' : `Couldn't reach LM Studio (${(err as Error).message}).`, step - 1, model)
     }
+    const { reply, firstTokenMs, totalMs } = streamed
     const counts = countsFromChatUsage(reply.usage)
     usage.fresh += counts.fresh
     usage.cached += counts.cached
     usage.output += counts.output
     usage.steps = step
+    if (live) run.onActivity?.({ id: liveId, step: 'tool', done: true, ok: true, text: stepSummary(firstTokenMs, totalMs, counts.output, toRead) })
     if (reply.error) {
       const message = typeof reply.error === 'string' ? reply.error : (reply.error.message ?? 'unknown error')
       return fail(`LM Studio refused the request: ${message.slice(0, 300)}`, step, model)
@@ -643,15 +686,16 @@ async function runModel(run: LocalAgentRun): Promise<LocalAgentResult> {
     const choice = reply.choices?.[0]
     const said = (choice?.message?.content ?? '').trim()
     const calls = choice?.message?.tool_calls ?? []
-    const took = Date.now() - stepStarted
-    const full = (counts.fresh + counts.cached) / context
-    if (calls.length && step > 1 && took > (run.slowStepMs ?? SLOW_STEP_MS) && full > 0.5) {
-      return fail(
-        `The local model's steps got slow (${Math.round(took / 1000)} s for the last one, with its ${context.toLocaleString()} tokens of context ${Math.round(full * 100)}% full): the task needs more than it can work through in time. Hand it to another agent, or split it into smaller tasks.`,
-        step,
-        model
-      )
+    // The reading time: until the first token when it streamed, the whole step otherwise.
+    const readMs = firstTokenMs ?? totalMs
+    if (firstTokenMs !== undefined && readMs >= 1000 && toRead >= 200) {
+      const rate = toRead / (readMs / 1000)
+      readRate = readRate ? (readRate + rate) / 2 : rate
     }
+    const full = (counts.fresh + counts.cached) / context
+    if (watched) slowReads = readMs > slowLimit ? slowReads + 1 : 0
+    if (calls.length && slowReads >= SLOW_READS_TO_HAND_OVER) return fail(slowMessage(readMs, full), step, model)
+    lastFull = full
 
     if (!calls.length) {
       if (said) {
@@ -713,9 +757,12 @@ async function runModel(run: LocalAgentRun): Promise<LocalAgentResult> {
       if (now?.loaded && now.contextLength) context = now.contextLength
     }
     const prompt = counts.fresh + counts.cached
-    if (prompt > context * 0.6) trimConversation(messages, 6, labels, onTrim)
-    if (prompt > context * 0.9 && !trimConversation(messages, 2, labels, onTrim)) {
-      return fail('The task outgrew the local model\'s context. Load the model with a longer context, or hand over a smaller task.', step, model)
+    trimmedBefore = false
+    if (prompt > context * 0.6) trimmedBefore = trimConversation(messages, 6, labels, onTrim) > 0
+    if (prompt > context * 0.9) {
+      const more = trimConversation(messages, 2, labels, onTrim)
+      if (!more) return fail('The task outgrew the local model\'s context. Load the model with a longer context, or hand over a smaller task.', step, model)
+      trimmedBefore = true
     }
   }
   return fail(`The local model used all ${maxSteps} steps without finishing.`, maxSteps, model)
