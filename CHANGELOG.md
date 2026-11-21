@@ -2,6 +2,15 @@
 
 The version goes up with each improvement that ships: the middle number for new features, the last for fixes only. Settings shows the version a computer is running. (Starwright was called VibeApp up to 0.10.0.)
 
+## 0.21.0 (2026-11-20)
+
+Starwright keeps a track record of each agent and model, and uses it when it hands work out.
+
+- **Every hand-off records the model that did the work, as the agent reports it.** For the local model, that's LM Studio's model. For Cline, it's the model Cline says it ran. For Codex, the model and reasoning effort come from Codex's own saved session, since its live events don't say. Each hand-off also records the Starwright version that ran it. Earlier hand-offs get their model filled in once, from the token log and Codex's sessions. Reviews record the models of the hand-offs whose work they checked.
+- **An agent that keeps failing at a kind of task is tried later for it.** Three bad results in its last 5 hand-offs of that kind (failed, checks failed, or redone soon after), in the last 30 days, move it behind the next agent. It still gets the task when that agent can't do it. An agent you ask for by name is never moved. A hand-off you stopped, or one that failed because Starwright refused something, doesn't count.
+- **A record is per agent and model, and starts again after a fix.** A new model starts with a clean record. Failures from before a fix that dealt with them don't count: Cline's from before 0.19.2, and the local model's from before 0.20.1.
+- **You can see it.** The chat says when an agent was moved down and why. The result Claude gets says so too. The request's record notes it next to the faders, and the hand-off's record keeps the order the agents were offered it in. The usage report lists hand-offs by kind and model, and has a Track record section: who's moved down now, who's had some bad results lately, and how often the order changed and how those hand-offs went.
+
 ## 0.20.1 (2026-11-19)
 
 The local model's hand-off shows what it's doing, and only slow reading hands its task over.

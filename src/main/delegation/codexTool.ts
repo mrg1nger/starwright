@@ -10,7 +10,9 @@ import { runLocalAgent } from '../local/localAgent'
 import { progressNote } from '../cli/codexActivity'
 import { getSettings } from '../settings/store'
 import { memoryDb } from '../memory/paths'
-import { codeSummariesFor, finishHandoff, keyFactsBlock, markReworked, startHandoff } from '../memory/store'
+import { codeSummariesFor, finishHandoff, keyFactsBlock, latestHandoffModel, markReworked, startHandoff, trackRows } from '../memory/store'
+import { codexRunModel } from '../cli/codexSessions'
+import { TRACK_DAYS, applyTrackRecord, assess, moveTag, orderNote, recordText, whoOf, type Track } from './trackRecord'
 import { conventionsFor } from '../memory/meaning'
 import { digestDiff } from './diffDigest'
 import { briefBlock } from '../memory/brief'
@@ -112,6 +114,9 @@ function describeChanges(changes: FileChange[]): string {
   })
   return `${shown.join(', ')}${changes.length > 12 ? ` and ${changes.length - 12} more` : ''}`
 }
+
+/** What an agent's work comes back with: its report, and the model it ran (as the agent reports it). */
+type WorkResult = { report: string; ok: boolean; model?: string; effort?: string }
 
 type HandOffResult = {
   content: { type: 'text'; text: string }[]
@@ -227,7 +232,7 @@ export function createCodexDelegationServer(
   // What each agent does with a hand-off; handOff() wraps it with snapshots, the record and the checks.
   const codexWork =
     (prompt: string, timeoutMs?: number) =>
-    async (): Promise<{ report: string; ok: boolean }> => {
+    async (): Promise<WorkResult> => {
       const unsandboxed = isGoNutzMode()
       const signal = getStopSignal?.()
       const request = getRequestContext?.()
@@ -275,15 +280,19 @@ export function createCodexDelegationServer(
     }
     if (result.threadId && result.exitCode === 0) codexThread?.set({ id: result.threadId, unsandboxed })
     recordUsage(memory?.projectId, 'handoff', 'codex', countsFromCodexEvents(result.events))
+    // Codex's events don't name the model; its saved session does.
+    const used = await attemptLater(() => codexRunModel(result.threadId ?? resumeId))
     return {
       report: `${continued ? '(Continued the earlier Codex session from this request.)\n' : ''}${codexReport(result)}`,
-      ok: result.exitCode === 0
+      ok: result.exitCode === 0,
+      model: used?.model,
+      effort: used?.effort
     }
     }
 
   const clineWork =
     (prompt: string, timeoutMs?: number) =>
-    async (): Promise<{ report: string; ok: boolean }> => {
+    async (): Promise<WorkResult> => {
       const signal = getStopSignal?.()
       const request = getRequestContext?.()
     const settings = getSettings()
@@ -329,13 +338,14 @@ export function createCodexDelegationServer(
       : ''
     return {
       report: `${result.text || result.error || '(Cline finished with no final message.)'}${result.ok || !result.text || !result.error ? '' : `\n[${result.error}]`}${blocked}`,
-      ok: result.ok
+      ok: result.ok,
+      model: result.model
     }
     }
 
   const localWork =
     (prompt: string, timeoutMs?: number) =>
-    async (): Promise<{ report: string; ok: boolean }> => {
+    async (): Promise<WorkResult> => {
       const signal = getStopSignal?.()
       const request = getRequestContext?.()
     if (!getSettings().localHandoffs) {
@@ -380,7 +390,8 @@ export function createCodexDelegationServer(
     const failed = result.ok || !result.text || !result.error ? '' : `\n[${result.error}]`
     return {
       report: `${result.text || result.error || '(The local model finished with no report.)'}${failed}\n[${result.model ?? 'local model'}, ${result.steps} steps]${blocked}`,
-      ok: result.ok
+      ok: result.ok,
+      model: result.model
     }
     }
 
@@ -414,6 +425,31 @@ export function createCodexDelegationServer(
         skipped.push(`skipping the local model (the files named come to about ${Math.round(tokens / 1000)}k tokens, more than half its ${room.toLocaleString()} tokens of context)`)
       }
     }
+    // The track record: an agent (on its current model) that failed or had its work redone on 3 of
+    // its last 5 hand-offs of this kind goes behind the next agent. Never one asked for by name.
+    let moved: Track[] = []
+    if (routes.length > 1) {
+      const tracks = attempt(() => {
+        const db = memoryDb()
+        const since = new Date(Date.now() - TRACK_DAYS * 86_400_000).toISOString()
+        return Object.fromEntries(
+          routes.map((r) => [r, assess(r, args.kind, trackRows(db, r, args.kind, since), latestHandoffModel(db, r))])
+        ) as Partial<Record<HelperRoute, Track>>
+      })
+      if (tracks) {
+        const applied = applyTrackRecord(routes, tracks, args.agent)
+        routes = applied.routes
+        moved = applied.moved
+        for (const t of moved) {
+          skipped.push(`moving ${whoOf(t, false)} down (${recordText(t)})`)
+          onProgress(`${whoOf(t)} moved down for ${t.kind} tasks: ${t.bad} of its last ${t.of} failed or were redone`)
+        }
+      }
+    }
+    const order = orderNote(routes, moved)
+    const movedDown = moved.map(moveTag).join('; ')
+    let tries = 0
+
     if (!routes.length && faders && (['codex', 'cline', 'local'] as const).some((r) => available[r])) {
       return {
         content: [
@@ -447,7 +483,8 @@ export function createCodexDelegationServer(
       const task = note ? `${args.prompt}\n\n${note}` : args.prompt
       const prompt = carryOn ? carryOnPrompt(task) : task
       const work = route === 'codex' ? codexWork(prompt, timeoutMs) : route === 'cline' ? clineWork(prompt, timeoutMs) : localWork(prompt, timeoutMs)
-      return handOff(agent, prompt, work, { kind: args.kind, difficulty: args.difficulty })
+      // The moves are put on the first try's record: the hand-off they changed.
+      return handOff(agent, prompt, work, { kind: args.kind, difficulty: args.difficulty, order, movedDown: tries++ === 0 ? movedDown : undefined })
     }, `${args.difficulty} ${args.kind}`, {
       skipped,
       undo: async (snapshot) => {
@@ -662,15 +699,20 @@ export function createCodexDelegationServer(
   async function handOff(
     agent: HandoffAgent,
     prompt: string,
-    execute: () => Promise<{ report: string; ok: boolean }>,
-    task?: { kind: TaskKind; difficulty: TaskDifficulty }
+    execute: () => Promise<WorkResult>,
+    task?: { kind: TaskKind; difficulty: TaskDifficulty; order?: string; movedDown?: string }
   ): Promise<HandOffResult> {
     const signal = getStopSignal?.()
     const request = getRequestContext?.()
     const projectId = memory?.projectId
 
     const handoffId = projectId
-      ? attempt(() => startHandoff(memoryDb(), projectId, agent === 'Local model' ? 'local' : agent.toLowerCase(), prompt, request?.text ?? null, task))
+      ? attempt(() =>
+          startHandoff(memoryDb(), projectId, agent === 'Local model' ? 'local' : agent.toLowerCase(), prompt, request?.text ?? null, {
+            ...task,
+            version: app.getVersion()
+          })
+        )
       : undefined
     const before = await takeSnapshot(projectPath, 'before hand-off').catch(() => undefined)
 
@@ -680,7 +722,7 @@ export function createCodexDelegationServer(
       checks: string
       checksOk: boolean | null
     }
-    const outcome = async (status: 'done' | 'error' | 'stopped', report: string): Promise<Outcome> => {
+    const outcome = async (status: 'done' | 'error' | 'stopped', report: string, used?: { model?: string; effort?: string }): Promise<Outcome> => {
       let changes: FileChange[] | null = null
       let diff = ''
       let checks = ''
@@ -710,7 +752,9 @@ export function createCodexDelegationServer(
             // Kept in memory, where later agents and the user read it: no secret values.
             report: maskReport([report, checks].filter(Boolean).join('\n\n')),
             files: changes?.map((c) => c.path) ?? null,
-            checksOk
+            checksOk,
+            model: used?.model,
+            effort: used?.effort
           })
         )
       }
@@ -723,8 +767,8 @@ export function createCodexDelegationServer(
     }
 
     try {
-      const { report: full, ok } = await execute()
-      const { changes, diff, checks, checksOk } = await outcome(ok ? 'done' : 'error', full)
+      const { report: full, ok, model, effort } = await execute()
+      const { changes, diff, checks, checksOk } = await outcome(ok ? 'done' : 'error', full, { model, effort })
 
       const summary =
         full.length > SUMMARY_CHARS

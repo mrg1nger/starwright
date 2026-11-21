@@ -1,4 +1,5 @@
 import type { RouteWork, WorkRoute } from '@shared/types'
+import { trackLines, type TrackSummary } from '../delegation/trackReport'
 import type { RequestLogRow } from '../memory/store'
 import type { StepKind } from './requestLog'
 
@@ -82,7 +83,7 @@ function shares(work: Record<WorkRoute, RouteWork>, pick: (w: RouteWork) => numb
 export function workSection(
   work: Record<WorkRoute, RouteWork>,
   extra: {
-    byKind?: { route: WorkRoute; kind: string; total: number; failed: number; checksFailed: number; reworked: number }[]
+    byKind?: { route: WorkRoute; model?: string; kind: string; total: number; failed: number; checksFailed: number; reworked: number }[]
     reviews?: Record<string, number>
   } = {}
 ): string[] {
@@ -114,7 +115,7 @@ export function workSection(
   if (extra.byKind?.length) {
     lines.push('- By kind of task (hand-offs, failed, checks failed, redone):')
     for (const k of extra.byKind) {
-      lines.push(`  - ${ROUTE_LABELS[k.route]}, ${k.kind}: ${k.total}, ${k.failed} failed, ${k.checksFailed} checks failed, ${k.reworked} redone`)
+      lines.push(`  - ${ROUTE_LABELS[k.route]}${k.model ? ` (${k.model})` : ''}, ${k.kind}: ${k.total}, ${k.failed} failed, ${k.checksFailed} checks failed, ${k.reworked} redone`)
     }
   }
   const reviews = Object.entries(extra.reviews ?? {}).sort((a, b) => b[1] - a[1])
@@ -140,9 +141,11 @@ export function buildReport(input: {
   only?: string
   /** Who did the work, per route. */
   work?: Record<WorkRoute, RouteWork>
-  byKind?: { route: WorkRoute; kind: string; total: number; failed: number; checksFailed: number; reworked: number }[]
+  byKind?: { route: WorkRoute; model?: string; kind: string; total: number; failed: number; checksFailed: number; reworked: number }[]
   /** Whether requests were reviewed, or why not, with counts. */
   reviews?: Record<string, number>
+  /** The track record: who's moved down for which kinds of task, and how that went. */
+  track?: TrackSummary
 }): string {
   const { days, usage, requests, projectNames } = input
   const name = (id: string): string => (id ? projectNames.get(id) ?? id : '(no project: Chat tab)')
@@ -152,6 +155,7 @@ export function buildReport(input: {
   ]
   if (input.plans?.length) lines.push(`Plans now: ${input.plans.join(' · ')}`)
   if (input.work) lines.push('', ...workSection(input.work, { byKind: input.byKind, reviews: input.reviews }))
+  if (input.track) lines.push('', ...trackLines(input.track))
 
   // ---- Claude by project and by kind of work
   const claudeRows = usage.filter((u) => u.agent === 'claude')

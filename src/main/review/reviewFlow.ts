@@ -9,7 +9,7 @@ import { changesBetween, fixPrompt, reviewChanges } from './codexReview'
 import { scanDiff } from '../secrets/leakScan'
 import { secretValues } from '../secrets/vault'
 import { memoryDb } from '../memory/paths'
-import { handoffAgentsSince, markReworked, recordReview, routeOf, setReviewFixResult, type WorkRoute } from '../memory/store'
+import { handoffAgentsSince, markReworked, recordReview, routeOf, setReviewFixResult, type WorkRoute, handoffModelsSince } from '../memory/store'
 
 /** Below this share of Codex plan left, skip reviews to save it for real work. */
 const CODEX_REVIEW_MIN_LEFT = 15
@@ -70,6 +70,15 @@ function buildersOf(projectId: string, turn: TurnContext): WorkRoute[] {
     // no records: Claude's own edits are all we know
   }
   return [...out]
+}
+
+/** The models of the request's hand-offs ("cline:model-x"), from their records. */
+function modelsOf(projectId: string, turn: TurnContext): string[] {
+  try {
+    return handoffModelsSince(memoryDb(), projectId, turn.startedAt)
+  } catch {
+    return []
+  }
 }
 
 /** A file Claude edited, relative to the project with forward slashes (as hand-offs record their files). */
@@ -206,6 +215,7 @@ export function handleSessionEvent(
           projectId,
           reviewer: 'codex',
           builtBy: builders.length ? builders : ['claude'],
+          builtModels: modelsOf(projectId, turn),
           findings: review.findings
         })
       } catch (err) {

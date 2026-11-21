@@ -677,6 +677,26 @@ try {
       const card = await evaluate(`(() => { const c = [...document.querySelectorAll('.tool-card-delegation')].at(-1); return c ? c.innerText : '' })()`)
       if (!/cline/i.test(card)) throw new Error(`no Cline hand-off card: ${card.slice(0, 200)}`)
       console.log(`  (${card.replace(/\s+/g, ' ').slice(0, 160)})`)
+      // The hand-off's record has the model Cline reported, and the report has the track record.
+      const report = await evaluate(`window.vibe.usage.report(1)`)
+      const line = /^ {2}- Cline \([^)]+\), \S+: \d+.*$/m.exec(report)?.[0]
+      if (!line) throw new Error(`no model on Cline's hand-off in the report:\n${report.split('\n').filter((l) => /Cline/.test(l)).join('\n')}`)
+      if (!/^## Track record /m.test(report)) throw new Error('no Track record section in the report')
+      console.log(`  (${line.trim()}; ${/^- Moved down now: .*$/m.exec(report)?.[0]})`)
+    } finally {
+      writeFileSync(join(project, 'shop.js'), originalShop)
+    }
+  })
+
+  await step("a Codex hand-off records the model Codex used, read from its own session file", async () => {
+    try {
+      await send("Use the run_subtask tool with agent 'codex' to hand this to Codex: add the comment // Prices are in gold. as the first line of shop.js. Don't edit it yourself.")
+      await idle(600_000)
+      if (!/Prices are in gold/.test(readFileSync(join(project, 'shop.js'), 'utf-8'))) throw new Error('the comment was not added')
+      const report = await evaluate(`window.vibe.usage.report(1)`)
+      const line = /^ {2}- Codex \([^)]+\), \S+: \d+.*$/m.exec(report)?.[0]
+      if (!line) throw new Error(`no model on Codex's hand-off in the report:\n${report.split('\n').filter((l) => /Codex/.test(l)).join('\n')}`)
+      console.log(`  (${line.trim()})`)
     } finally {
       writeFileSync(join(project, 'shop.js'), originalShop)
     }

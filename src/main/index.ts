@@ -16,6 +16,8 @@ import { applyLoginItem, noteStillRunning, setupTray } from './tray'
 import { applyPendingRestore, scheduleBackups } from './backup/backup'
 import { startUpdateChecks, stopUpdateChecks } from './updates/updates'
 import { startMemorySearch, stopMemorySearch } from './memory/searchPipe'
+import { fillHandoffModels } from './delegation/trackReport'
+import { memoryDb } from './memory/paths'
 
 let currentWindow: BrowserWindow | undefined
 /** Started with --tray (e.g. with Windows): no window until the user asks for one. */
@@ -169,6 +171,15 @@ app.whenReady().then(() => {
     const settings = getSettings()
     if (settings.smartRouting && settings.aiRouting) requestClassifier.warmUp()
   }, 3_000)
+
+  // Once: the model of hand-offs recorded before it was (for the track record and the usage report).
+  setTimeout(() => {
+    fillHandoffModels(memoryDb())
+      .then((filled) => {
+        if (filled.usage || filled.codex) console.log(`Filled in the model of ${filled.usage + filled.codex} earlier hand-offs`)
+      })
+      .catch((err) => console.warn('Filling in hand-off models failed:', (err as Error).message))
+  }, 20_000)
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

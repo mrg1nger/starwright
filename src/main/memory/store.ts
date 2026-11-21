@@ -271,7 +271,15 @@ export function openMemory(dbPath: string, vectorExtension?: string): DatabaseSy
     ['checks_ok', 'INTEGER'],
     ['task_kind', 'TEXT'],
     ['difficulty', 'TEXT'],
-    ['reworked', 'INTEGER NOT NULL DEFAULT 0']
+    ['reworked', 'INTEGER NOT NULL DEFAULT 0'],
+    // The Starwright version that ran it (failures before a fix don't count against the agent), the
+    // model that did the work and its reasoning effort (as the agent reports it), the order the
+    // agents were offered it in, and, on the first try, which agents were moved down for their record.
+    ['app_version', 'TEXT'],
+    ['model', 'TEXT'],
+    ['effort', 'TEXT'],
+    ['order_note', 'TEXT'],
+    ['moved_down', 'TEXT']
   ]) {
     if (!handoffColumns.has(column)) ignoreDuplicateColumn(() => db.exec(`ALTER TABLE handoffs ADD COLUMN ${column} ${type}`))
   }
@@ -288,6 +296,8 @@ export function openMemory(dbPath: string, vectorExtension?: string): DatabaseSy
   const reviewColumns = new Set((db.prepare('PRAGMA table_info(review_log)').all() as { name: string }[]).map((c) => c.name))
   // After a review-and-fix round: whether the automatic checks passed on the fixed code (null: not checked).
   if (!reviewColumns.has('fix_ok')) ignoreDuplicateColumn(() => db.exec('ALTER TABLE review_log ADD COLUMN fix_ok INTEGER'))
+  // The models of the hand-offs that built it ("cline:model-x"), as their records have them.
+  if (!reviewColumns.has('built_models')) ignoreDuplicateColumn(() => db.exec("ALTER TABLE review_log ADD COLUMN built_models TEXT NOT NULL DEFAULT '[]'"))
   const factColumns = new Set((db.prepare('PRAGMA table_info(facts)').all() as { name: string }[]).map((c) => c.name))
   // Another process may add it between the look and the change.
   if (!factColumns.has('replaced_by')) ignoreDuplicateColumn(() => db.exec('ALTER TABLE facts ADD COLUMN replaced_by TEXT'))
@@ -1042,11 +1052,24 @@ export function startHandoff(
   agent: string,
   brief: string,
   request: string | null,
-  task?: { kind?: string; difficulty?: string }
+  task?: { kind?: string; difficulty?: string; version?: string; order?: string; movedDown?: string }
 ): number {
   const result = db
-    .prepare('INSERT INTO handoffs (project_id, agent, brief, request, started_at, task_kind, difficulty) VALUES (?, ?, ?, ?, ?, ?, ?)')
-    .run(projectId, agent, brief.slice(0, 6000), request?.slice(0, 2000) ?? null, now(), task?.kind ?? null, task?.difficulty ?? null)
+    .prepare(
+      'INSERT INTO handoffs (project_id, agent, brief, request, started_at, task_kind, difficulty, app_version, order_note, moved_down) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    )
+    .run(
+      projectId,
+      agent,
+      brief.slice(0, 6000),
+      request?.slice(0, 2000) ?? null,
+      now(),
+      task?.kind ?? null,
+      task?.difficulty ?? null,
+      task?.version ?? null,
+      task?.order ?? null,
+      task?.movedDown || null
+    )
   return Number(result.lastInsertRowid)
 }
 
@@ -1081,16 +1104,109 @@ export function handoffCountsSince(db: DatabaseSync, sinceIso: string): Record<s
 export function finishHandoff(
   db: DatabaseSync,
   id: number,
-  result: { status: Handoff['status']; report: string; files: string[] | null; checksOk?: boolean | null }
+  result: { status: Handoff['status']; report: string; files: string[] | null; checksOk?: boolean | null; model?: string | null; effort?: string | null }
 ): void {
-  db.prepare('UPDATE handoffs SET status = ?, report = ?, files = ?, finished_at = ?, checks_ok = ? WHERE id = ?').run(
+  db.prepare(
+    'UPDATE handoffs SET status = ?, report = ?, files = ?, finished_at = ?, checks_ok = ?, model = COALESCE(?, model), effort = COALESCE(?, effort) WHERE id = ?'
+  ).run(
     result.status,
     result.report.slice(0, 12000),
     result.files ? JSON.stringify(result.files.slice(0, 200)) : null,
     now(),
     result.checksOk === undefined || result.checksOk === null ? null : result.checksOk ? 1 : 0,
+    result.model ?? null,
+    result.effort ?? null,
     id
   )
+}
+
+// ---- track record: how each agent and model has done on each kind of task ----
+
+/** An agent's finished hand-offs of a kind since then, newest first (for the track record). */
+export function trackRows(
+  db: DatabaseSync,
+  agent: string,
+  kind: string,
+  sinceIso: string
+): { status: string; checksOk: number | null; reworked: number; report: string | null; version: string | null; model: string | null }[] {
+  return db
+    .prepare(
+      `SELECT status, checks_ok AS checksOk, reworked, report, app_version AS version, model FROM handoffs
+       WHERE agent = ? AND task_kind = ? AND started_at >= ? AND status != 'running' ORDER BY id DESC LIMIT 50`
+    )
+    .all(agent, kind, sinceIso) as { status: string; checksOk: number | null; reworked: number; report: string | null; version: string | null; model: string | null }[]
+}
+
+/** The model an agent's latest hand-off used: what it runs now, as far as the records know. */
+export function latestHandoffModel(db: DatabaseSync, agent: string): string | null {
+  const row = db.prepare('SELECT model FROM handoffs WHERE agent = ? AND model IS NOT NULL ORDER BY id DESC LIMIT 1').get(agent) as
+    | { model: string }
+    | undefined
+  return row?.model ?? null
+}
+
+/** The kinds of task each agent was handed since then (for the report's track record). */
+export function trackKindsSince(db: DatabaseSync, sinceIso: string): { agent: string; kind: string }[] {
+  return db
+    .prepare("SELECT DISTINCT agent, task_kind AS kind FROM handoffs WHERE started_at >= ? AND task_kind IS NOT NULL AND status != 'running'")
+    .all(sinceIso) as { agent: string; kind: string }[]
+}
+
+/** Hand-offs whose order was changed by the track record, with who took the task (the first try) and how it went. */
+export function movedHandoffsSince(db: DatabaseSync, sinceIso: string, projectId?: string): { agent: string; status: string; movedDown: string }[] {
+  return db
+    .prepare(
+      `SELECT agent, status, moved_down AS movedDown FROM handoffs
+       WHERE started_at >= ? AND moved_down IS NOT NULL AND status != 'running'${projectId ? ' AND project_id = ?' : ''} ORDER BY id`
+    )
+    .all(...(projectId ? [sinceIso, projectId] : [sinceIso])) as { agent: string; status: string; movedDown: string }[]
+}
+
+/** "cline:model-x" for each hand-off in a project since then (who built a request's changes, by model). */
+export function handoffModelsSince(db: DatabaseSync, projectId: string, sinceIso: string): string[] {
+  const rows = db
+    .prepare('SELECT DISTINCT agent, model FROM handoffs WHERE project_id = ? AND started_at >= ?')
+    .all(projectId, sinceIso) as { agent: string; model: string | null }[]
+  return rows.map((r) => (r.model ? `${r.agent}:${r.model}` : r.agent))
+}
+
+/** The track-record moves made for a project's hand-offs since then ("cline:model-x feature 3/5"). */
+export function handoffMovesSince(db: DatabaseSync, projectId: string, sinceIso: string): string[] {
+  const rows = db
+    .prepare('SELECT moved_down AS movedDown FROM handoffs WHERE project_id = ? AND started_at >= ? AND moved_down IS NOT NULL ORDER BY id')
+    .all(projectId, sinceIso) as { movedDown: string }[]
+  return [...new Set(rows.flatMap((r) => r.movedDown.split('; ')))]
+}
+
+/**
+ * Hand-offs recorded before the model was: Cline's and the local model's from the token log, where
+ * each run's usage was saved with the model it reported (while the hand-off ran). Returns how many.
+ */
+export function fillHandoffModelsFromUsage(db: DatabaseSync): number {
+  const result = db
+    .prepare(
+      `UPDATE handoffs SET model = (
+         SELECT u.model FROM usage_log u
+         WHERE u.kind = 'handoff' AND u.model IS NOT NULL AND u.project_id = handoffs.project_id
+           AND u.agent = CASE handoffs.agent WHEN 'local' THEN 'lmstudio' ELSE handoffs.agent END
+           AND u.at >= handoffs.started_at AND u.at <= handoffs.finished_at
+         ORDER BY u.at LIMIT 1)
+       WHERE model IS NULL AND agent IN ('cline', 'local') AND finished_at IS NOT NULL`
+    )
+    .run()
+  return Number(result.changes)
+}
+
+/** Codex hand-offs with no model recorded, for matching to Codex's own session files. */
+export function codexHandoffsWithoutModel(db: DatabaseSync): { id: number; startedAt: string }[] {
+  return db.prepare("SELECT id, started_at AS startedAt FROM handoffs WHERE agent = 'codex' AND model IS NULL ORDER BY id").all() as {
+    id: number
+    startedAt: string
+  }[]
+}
+
+export function setHandoffModel(db: DatabaseSync, id: number, model: string, effort?: string | null): void {
+  db.prepare('UPDATE handoffs SET model = ?, effort = COALESCE(?, effort) WHERE id = ? AND model IS NULL').run(model, effort ?? null, id)
 }
 
 // ---- who did the work (for the work equalizer's meters and the usage report) ----
@@ -1107,14 +1223,22 @@ export function routeOf(agent: string): WorkRoute | null {
 /** Records a review of a change: who built it and what the reviewer found. */
 export function recordReview(
   db: DatabaseSync,
-  entry: { projectId: string; reviewer: WorkRoute; builtBy: WorkRoute[]; findings: { severity: 'high' | 'medium' | 'low' }[] }
+  entry: {
+    projectId: string
+    reviewer: WorkRoute
+    builtBy: WorkRoute[]
+    /** The hand-offs' models ("cline:model-x"). */
+    builtModels?: string[]
+    findings: { severity: 'high' | 'medium' | 'low' }[]
+  }
 ): number {
   const count = (severity: string): number => entry.findings.filter((f) => f.severity === severity).length
-  const result = db.prepare('INSERT INTO review_log (at, project_id, reviewer, built_by, high, medium, low) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
+  const result = db.prepare('INSERT INTO review_log (at, project_id, reviewer, built_by, built_models, high, medium, low) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
     now(),
     entry.projectId,
     entry.reviewer,
     JSON.stringify([...new Set(entry.builtBy)]),
+    JSON.stringify([...new Set(entry.builtModels ?? [])]),
     count('high'),
     count('medium'),
     count('low')
@@ -1256,26 +1380,29 @@ export function workByKind(
   db: DatabaseSync,
   sinceIso: string,
   projectId?: string
-): { route: WorkRoute; kind: string; total: number; failed: number; checksFailed: number; reworked: number }[] {
+): { route: WorkRoute; model?: string; kind: string; total: number; failed: number; checksFailed: number; reworked: number }[] {
   const rows = db
     .prepare(
-      `SELECT agent, COALESCE(task_kind, 'unlabelled') AS kind, COUNT(*) AS total, SUM(status = 'error') AS failed,
+      `SELECT agent, model, COALESCE(task_kind, 'unlabelled') AS kind, COUNT(*) AS total, SUM(status = 'error') AS failed,
               SUM(checks_ok = 0) AS checksFailed, SUM(reworked = 1) AS reworked
        FROM handoffs WHERE started_at >= ? AND status != 'running'${projectId ? ' AND project_id = ?' : ''}
-       GROUP BY agent, kind ORDER BY total DESC`
+       GROUP BY agent, model, kind ORDER BY total DESC`
     )
     .all(...(projectId ? [sinceIso, projectId] : [sinceIso])) as {
     agent: string
+    model: string | null
     kind: string
     total: number
     failed: number
     checksFailed: number
     reworked: number
   }[]
-  const out: { route: WorkRoute; kind: string; total: number; failed: number; checksFailed: number; reworked: number }[] = []
+  const out: { route: WorkRoute; model?: string; kind: string; total: number; failed: number; checksFailed: number; reworked: number }[] = []
   for (const r of rows) {
     const route = routeOf(r.agent)
-    if (route) out.push({ route, kind: r.kind, total: r.total, failed: r.failed ?? 0, checksFailed: r.checksFailed ?? 0, reworked: r.reworked ?? 0 })
+    if (route) {
+      out.push({ route, ...(r.model ? { model: r.model } : {}), kind: r.kind, total: r.total, failed: r.failed ?? 0, checksFailed: r.checksFailed ?? 0, reworked: r.reworked ?? 0 })
+    }
   }
   return out
 }

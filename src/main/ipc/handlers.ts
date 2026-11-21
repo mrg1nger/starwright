@@ -115,6 +115,7 @@ import {
   agentUsageSince,
   codexUsageSince,
   handoffAgentsSince,
+  handoffMovesSince,
   keyFactsBlock,
   listRequests,
   logRequest,
@@ -199,6 +200,7 @@ import { beginTurn, handleSessionEvent, skipReview, takeReviewNote } from '../re
 import { isPlanFile } from '../orchestrator/planGuard'
 import { prepareImages, imagesNote } from '../attachments/images'
 import { listSecrets, setSecret, deleteSecret, maskProjectSecrets } from '../secrets/vault'
+import { trackSummary } from '../delegation/trackReport'
 import {
   publishStatus,
   publishToGitHub,
@@ -1288,7 +1290,8 @@ export function registerIpcHandlers(getSender: () => WebContents | undefined): v
       only: only?.name,
       work: workSummary(memoryDb(), since, only?.id),
       byKind: workByKind(memoryDb(), since, only?.id),
-      reviews: reviewOutcomes(memoryDb(), since, only?.id)
+      reviews: reviewOutcomes(memoryDb(), since, only?.id),
+      track: trackSummary(memoryDb(), only?.id)
     })
   })
 
@@ -1920,6 +1923,9 @@ function observeRequestLog(projectId: string, event: VibeEvent): void {
     }
     row.builtBy = [...(row.tools.edit ? ['claude'] : []), ...Object.keys(agents)]
     row.review = takeReviewNote(projectId)
+    // Agents its hand-offs moved down for their track record, next to the faders and Haiku's label.
+    const moves = handoffMovesSince(db, projectId, since)
+    if (moves.length) row.route = `${row.route ?? 'hand-offs'} · track record: ${moves.map((m) => m.replace(/^(\w+)(\S*) /, '$1$2 ↓ ')).join(', ')}`
     logRequest(db, row)
   } catch (err) {
     console.warn('Recording the request failed:', (err as Error).message)
