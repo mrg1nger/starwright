@@ -9,7 +9,7 @@ import { applyEdit, projectPath, runLocalAgent, trimConversation } from '../../s
 import { forgetLmStudioStatus } from '../../src/main/cli/lmStudio'
 import { progressNote } from '../../src/main/cli/codexActivity'
 import { updateSettings } from '../../src/main/settings/store'
-import type { DelegationActivity } from '@shared/types'
+import type { DelegationActivity, LiveTokens } from '@shared/types'
 
 // A stand-in LM Studio that plays back a script of model turns (tool calls, then a report).
 type Turn = { calls?: [string, Record<string, unknown>][]; say?: string }
@@ -134,9 +134,13 @@ test('a task runs to the end: reads, edits, runs the tests, reports', async () =
   ]
   requests.length = 0
   const activity: DelegationActivity[] = []
-  const result = await runLocalAgent({ task: 'Fix add.', cwd, onActivity: (a) => activity.push(a) })
+  const tokens: LiveTokens[] = []
+  const result = await runLocalAgent({ task: 'Fix add.', cwd, onActivity: (a) => activity.push(a), onTokens: (t) => tokens.push(t) })
   assert.equal(result.ok, true, result.error)
   assert.equal(result.text, 'Fixed add() in math.js; the check passes.')
+  // Its card's token count: after each step, ending on the run's own totals.
+  assert.deepEqual(tokens.at(-1), { read: 400, written: 40, steps: 4 })
+  assert.deepEqual([...new Set(tokens.map((t) => t.steps))], [1, 2, 3, 4])
   assert.equal(result.steps, 4)
   assert.equal(result.usage.fresh, 400)
   assert.match(readFileSync(join(cwd, 'math.js'), 'utf8'), /return a \+ b/)

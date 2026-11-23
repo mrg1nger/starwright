@@ -688,10 +688,16 @@ try {
     }
   })
 
-  await step("a Codex hand-off records the model Codex used, read from its own session file", async () => {
+  await step("a Codex hand-off shows tokens as it runs and records the model Codex used, read from its own session file", async () => {
     try {
       await send("Use the run_subtask tool with agent 'codex' to hand this to Codex: add the comment // Prices are in gold. as the first line of shop.js. Don't edit it yourself.")
+      // While it runs: the time and Claude's tokens on the Thinking line, and the hand-off's own on its card.
+      await waitFor(`/\\d+s.*↓ [\\d.]+[kM]? written.*[\\d.]+[kM]? context/.test(document.querySelector('.live-usage')?.textContent ?? '')`, "Claude's live tokens", 120_000)
+      console.log(`  (${await evaluate("document.querySelector('.chat-item-thinking')?.textContent")})`)
+      await waitFor(`/^ · read [\\d.]+[kM]? · wrote [\\d.]+[kM]?$/.test(document.querySelector('.codex-feed .tool-tokens')?.textContent ?? '')`, "the hand-off's live tokens", 600_000)
+      await shot('live-tokens')
       await idle(600_000)
+      console.log(`  (Codex card: ${await evaluate("[...document.querySelectorAll('.codex-feed .tool-tokens')].at(-1)?.textContent")})`)
       if (!/Prices are in gold/.test(readFileSync(join(project, 'shop.js'), 'utf-8'))) throw new Error('the comment was not added')
       const report = await evaluate(`window.vibe.usage.report(1)`)
       const line = /^ {2}- Codex \([^)]+\), \S+: \d+.*$/m.exec(report)?.[0]
@@ -1686,6 +1692,55 @@ try {
       await click('Update and restart', '.update-banner button')
       await waitFor(`(${banner}).includes('Installing Starwright 99.1.0')`, 'the download and install', 10_000)
       await waitFor(`!document.querySelector('.update-banner')`, 'the banner to clear', 10_000)
+    } finally {
+      rmSync(switchFile, { force: true })
+    }
+  })
+
+  await step('a new Codex or Cline shows a notice with the command to update, skip it, not now', async () => {
+    const switchFile = join(data, 'test-tool-versions.json')
+    const banner = `document.querySelector('.tool-banner')?.innerText ?? ''`
+    const fake = (codexLatest) =>
+      writeFileSync(
+        switchFile,
+        JSON.stringify({
+          codex: { installed: '0.158.0', latest: codexLatest },
+          cline: { installed: '3.0.74', latest: '3.0.74' },
+          claude: { installed: '0.3.283', latest: '0.3.330' }
+        })
+      )
+    try {
+      fake('99.0.0')
+      await evaluate(`window.vibe.tools.check()`)
+      await waitFor(`(${banner}).includes('Codex 99.0.0 is out')`, 'the tool notice', 10_000)
+      const text = await evaluate(banner)
+      if (!text.includes('npm i -g @openai/codex@latest')) throw new Error(`no update command: ${text}`)
+      if (/Cline|Claude/.test(text)) throw new Error(`a current or built-in tool showed: ${text}`)
+      await shot('tool-banner')
+      // Settings lists all three, the SDK as built in.
+      await click('Settings', '.app-nav-tabs button')
+      const list = `document.querySelector('.tool-versions')?.innerText ?? ''`
+      await waitFor(`['Codex 0.158.0: 99.0.0 is out', 'Cline 3.0.74: the newest', 'Claude Agent SDK 0.3.283 (built into Starwright): 0.3.330 is out'].every((t) => (${list}).includes(t))`, 'the tool versions in Settings', 5000)
+      // Skip: gone and remembered; Remind me again brings it back.
+      await click('Skip this version', '.tool-banner button')
+      await waitFor(`!document.querySelector('.tool-banner')`, 'the notice to go after Skip', 5000)
+      if ((await evaluate(`window.vibe.settings.get()`)).skippedToolVersions?.codex !== '99.0.0') throw new Error('the skipped version was not saved')
+      await waitFor(`(${list}).includes('Skipped: Codex 99.0.0')`, 'the skip in Settings', 5000)
+      await click('Remind me again', '.tool-versions button')
+      await waitFor(`(${banner}).includes('Codex 99.0.0 is out')`, 'the notice to come back', 5000)
+      // Not now: gone for this version, and a newer one shows again.
+      await click('Not now', '.tool-banner button')
+      await waitFor(`!document.querySelector('.tool-banner')`, 'the notice to go after Not now', 5000)
+      await evaluate(`window.vibe.tools.check()`)
+      await sleep(800)
+      if (await evaluate(`!!document.querySelector('.tool-banner')`)) throw new Error('Not now came back for the same version')
+      fake('99.1.0')
+      await evaluate(`window.vibe.tools.check()`)
+      await waitFor(`(${banner}).includes('Codex 99.1.0 is out')`, 'the notice for a newer version', 10_000)
+      // Updated: no notice.
+      fake('0.158.0')
+      await evaluate(`window.vibe.tools.check()`)
+      await waitFor(`!document.querySelector('.tool-banner')`, 'the notice to clear once up to date', 10_000)
     } finally {
       rmSync(switchFile, { force: true })
     }

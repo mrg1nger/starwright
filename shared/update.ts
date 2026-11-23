@@ -1,4 +1,4 @@
-import type { UpdateState } from './types'
+import type { ToolId, ToolVersion, ToolVersions, UpdateState } from './types'
 
 /** a > b for plain x.y.z versions (a pre-release tag counts as older than its release). */
 export function isNewer(a: string, b: string): boolean {
@@ -25,4 +25,30 @@ export function bannerWanted(s: UpdateState, skipped: string | null): boolean {
     s.version !== skipped &&
     isNewer(s.version, s.current)
   )
+}
+
+/** Codex and Cline with a newer version out that the user hasn't skipped (the Claude SDK comes with Starwright). */
+export function toolNotices(v: ToolVersions | null, skipped: Partial<Record<ToolId, string>> | undefined): ToolVersion[] {
+  return (v?.tools ?? []).filter((t) => t.newer && !t.bundled && !!t.latest && skipped?.[t.tool] !== t.latest)
+}
+
+/** How to update each tool, in a terminal on the computer running Starwright. */
+export const TOOL_UPDATE_COMMANDS: Record<ToolId, string> = {
+  codex: 'npm i -g @openai/codex@latest',
+  cline: 'npm i -g cline@latest',
+  claude: ''
+}
+
+/** For the usage report: a line per tool. */
+export function toolVersionLines(v: ToolVersions): string[] {
+  if (!v.tools.length) return []
+  const name: Record<ToolId, string> = { codex: 'Codex', cline: 'Cline', claude: 'Claude Agent SDK (built in)' }
+  return [
+    `## Tools${v.checkedAt ? ` (checked ${v.checkedAt.slice(0, 16).replace('T', ' ')} UTC)` : ''}`,
+    ...v.tools.map((t) => {
+      const have = t.installed ?? (t.tool === 'claude' ? 'unknown' : 'not installed')
+      const out = t.newer ? `, ${t.latest} is out` : t.latest ? ', the newest' : t.error ? ` (couldn't ask npm: ${t.error})` : ''
+      return `- ${name[t.tool]}: ${have}${t.installed ? out : ''}`
+    })
+  ]
 }

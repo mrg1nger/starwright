@@ -266,6 +266,7 @@ const READ_CHANNELS = new Set([
   'vibe:cline:models',
   'vibe:lmstudio:status',
   'vibe:update:state',
+  'vibe:tools:versions',
   'vibe:todos:list',
   'vibe:deploy:get',
   'vibe:schedules:list',

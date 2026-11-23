@@ -14,7 +14,7 @@ export interface CodexRunModel {
   effort?: string
 }
 
-const sessionsDir = (): string => join(process.env.CODEX_HOME || join(homedir(), '.codex'), 'sessions')
+export const sessionsDir = (): string => join(process.env.CODEX_HOME || join(homedir(), '.codex'), 'sessions')
 
 /** Codex's own reviewer of commands, not the model that did the work. */
 const REVIEWER_MODELS = new Set(['codex-auto-review'])

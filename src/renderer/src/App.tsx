@@ -12,6 +12,7 @@ import ToastHost from './components/ToastHost'
 import UsageMeters from './components/UsageMeters'
 import Equalizer from './components/Equalizer'
 import UpdateBanner from './components/UpdateBanner'
+import ToolUpdateBanner from './components/ToolUpdateBanner'
 import { AppFooter, BrandTitle } from './components/Brand'
 import { useToasts } from './lib/useToasts'
 import { useCompactWhenCrowded } from './lib/useCompactWhenCrowded'
@@ -159,6 +160,7 @@ function App() {
       </div>
 
       {settings && <UpdateBanner settings={settings} onSettingsChange={changeSettings} />}
+      {settings && <ToolUpdateBanner settings={settings} onSettingsChange={changeSettings} />}
 
       <div className="app-main">
         {screen === 'accounts' && <AccountsView statuses={statuses} onRefresh={refreshStatus} />}

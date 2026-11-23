@@ -15,6 +15,7 @@ import { getSettings } from './settings/store'
 import { applyLoginItem, noteStillRunning, setupTray } from './tray'
 import { applyPendingRestore, scheduleBackups } from './backup/backup'
 import { startUpdateChecks, stopUpdateChecks } from './updates/updates'
+import { startToolVersionChecks, stopToolVersionChecks } from './updates/toolVersions'
 import { startMemorySearch, stopMemorySearch } from './memory/searchPipe'
 import { fillHandoffModels } from './delegation/trackReport'
 import { memoryDb } from './memory/paths'
@@ -149,6 +150,8 @@ app.whenReady().then(() => {
   registerRemoteHandlers()
   // New versions on GitHub Releases (a banner when there's one).
   startUpdateChecks((channel, ...args) => toScreens()?.send(channel, ...args))
+  // New versions of Codex and Cline (and the built-in Claude SDK): a notice, never an install.
+  startToolVersionChecks((channel, ...args) => toScreens()?.send(channel, ...args))
   // Remote access, if the user switched it on.
   applyRemoteSettings().catch((err) => console.warn('Remote access failed to start:', (err as Error).message))
 
@@ -193,6 +196,7 @@ app.on('before-quit', () => {
 app.on('will-quit', () => {
   stopAllPreviews()
   stopUpdateChecks()
+  stopToolVersionChecks()
   // Codex jobs, test runs and tool checks still going: nothing keeps working after VibeApp is closed.
   stopAllChildren()
   closeAllTerminals()

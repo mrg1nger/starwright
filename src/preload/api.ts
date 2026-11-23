@@ -47,7 +47,9 @@ import type {
   GitHubSync,
   GitHubGetResult,
   GitHubRepoInfo,
-  UpdateState
+  UpdateState,
+  ToolVersions,
+  LiveUsageUpdate
 } from '@shared/types'
 import type { ScheduleInput } from '@shared/schedule'
 
@@ -214,6 +216,12 @@ export function createVibeApi(ipcRenderer: IpcLike, host: 'electron' | 'browser'
         ): void => cb(projectId, payload)
         ipcRenderer.on('vibe:chat:event', listener)
         return () => ipcRenderer.removeListener('vibe:chat:event', listener)
+      },
+      /** Tokens while a request runs: Claude's turn, or the hand-off running now (live only, not in the history). */
+      onLive: (cb: (projectId: string, update: LiveUsageUpdate) => void): (() => void) => {
+        const listener = (_event: unknown, projectId: string, update: LiveUsageUpdate): void => cb(projectId, update)
+        ipcRenderer.on('vibe:chat:live', listener)
+        return () => ipcRenderer.removeListener('vibe:chat:live', listener)
       },
       onConfirmationRequest: (
         cb: (projectId: string, request: ConfirmationRequest) => void
@@ -519,6 +527,18 @@ export function createVibeApi(ipcRenderer: IpcLike, host: 'electron' | 'browser'
         const listener = (_event: unknown, state: UpdateState): void => cb(state)
         ipcRenderer.on('vibe:update:changed', listener)
         return () => ipcRenderer.removeListener('vibe:update:changed', listener)
+      }
+    },
+
+    tools: {
+      /** The Codex, Cline and Claude SDK versions in use here, and the newest on npm. */
+      versions: (): Promise<ToolVersions> => ipcRenderer.invoke('vibe:tools:versions'),
+      /** Looks now. */
+      check: (): Promise<ToolVersions> => ipcRenderer.invoke('vibe:tools:check'),
+      onChanged: (cb: (v: ToolVersions) => void): (() => void) => {
+        const listener = (_event: unknown, v: ToolVersions): void => cb(v)
+        ipcRenderer.on('vibe:tools:changed', listener)
+        return () => ipcRenderer.removeListener('vibe:tools:changed', listener)
       }
     },
 

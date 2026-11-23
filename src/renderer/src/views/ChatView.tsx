@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { PlanStep } from '@shared/plan'
+import { elapsedText, liveSummary } from '@shared/live'
 import { likelyHelper } from '@shared/balance'
 import { SUBTASK_TOOL_NAME, agentOfRoutedNote } from '@shared/handoff'
 import type {
   ConfirmationRequest,
   DelegationActivity,
+  LiveTokens,
   ImageAttachment,
   PickedElement,
   PreviewProblem,
@@ -58,6 +60,8 @@ type ChatItem =
       /** Which agent a hand-off went to. */
       agent?: 'Codex' | 'Cline' | 'Local model' | 'Helper'
       progressNote?: string
+      /** The hand-off's tokens so far (live; not in the saved history). */
+      tokens?: LiveTokens
       /** Codex's steps during a hand-off. */
       activity?: DelegationActivity[]
       /** What a helper agent (started by this call) did, step by step. */
@@ -176,6 +180,31 @@ function toAttachment(image: PendingImage): ImageAttachment {
 }
 
 /** 12345 -> "12.3k", 1234567 -> "1.2M" */
+/** A hand-off card's tokens: "read 48k · wrote 1.2k". */
+function handoffTokensText(t: LiveTokens): string {
+  return `read ${compactCount(t.read)} · wrote ${compactCount(t.written)}`
+}
+
+/** The "Thinking…" line while a request runs, with its time and Claude's tokens so far. */
+function LiveLine({ label, since, turns }: { label: string; since: number; turns: Record<number, LiveTokens> }) {
+  const [now, setNow] = useState(Date.now())
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [])
+  const { written, context } = liveSummary(turns)
+  return (
+    <div className="chat-item chat-item-thinking">
+      {label}
+      <span className="live-usage">
+        {since > 0 && ` · ${elapsedText(now - since)}`}
+        {written > 0 && <span title="What Claude has written this request, tool calls included (the step being written is estimated)"> · ↓ {compactCount(written)} written</span>}
+        {context > 0 && <span title="The conversation's size now: what Claude reads each step, mostly from the cache"> · {compactCount(context)} context</span>}
+      </span>
+    </div>
+  )
+}
+
 function compactCount(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
   if (n >= 10_000) return `${Math.round(n / 1000)}k`
@@ -260,6 +289,14 @@ function ChatView({ project, onBack, onOpenHistory, onOpenMemory, onError, think
   const [items, setItems] = useState<ChatItem[]>([])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
+  /** When the request now running started (as seen here), and Claude's live token counts per turn. */
+  const [busySince, setBusySince] = useState(0)
+  const [liveTurns, setLiveTurns] = useState<Record<number, LiveTokens>>({})
+  useEffect(() => {
+    if (!busy) return
+    setBusySince(Date.now())
+    setLiveTurns({})
+  }, [busy])
   // A queue: two destructive commands can be pending at once, and each one
   // leaves Claude waiting until it's answered.
   const [confirmations, setConfirmations] = useState<ConfirmationRequest[]>([])
@@ -860,6 +897,24 @@ function ChatView({ project, onBack, onOpenHistory, onOpenMemory, onError, think
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project.id, showAllHistory])
 
+  // Tokens while the request runs: Claude's per turn (summed), a hand-off's on its card.
+  useEffect(() => {
+    return window.vibe.chat.onLive((projectId, update) => {
+      if (projectId !== project.id) return
+      if (update.kind === 'claude') {
+        const { turn, read, written, steps } = update
+        setLiveTurns((prev) => ({ ...prev, [turn]: { read, written, steps } }))
+        return
+      }
+      const { read, written, steps } = update
+      setItems((prev) => {
+        const at = prev.findLastIndex((item) => item.kind === 'tool' && item.isDelegation && item.status === 'running')
+        if (at === -1) return prev
+        return prev.map((item, i) => (i === at && item.kind === 'tool' ? { ...item, tokens: { read, written, steps } } : item))
+      })
+    })
+  }, [project.id])
+
   useEffect(() => {
     const unsubEvent = window.vibe.chat.onEvent((projectId, event) => {
       if (projectId === project.id) applyEvent(event)
@@ -1353,6 +1408,7 @@ function ChatView({ project, onBack, onOpenHistory, onOpenMemory, onError, think
                     startedAt={item.startedAt}
                     projectPath={project.path}
                     agent={item.agent}
+                    tokens={item.tokens ? handoffTokensText(item.tokens) : undefined}
                   />
                 )}
                 {item.kind === 'error' && <p className="chat-error">{item.message}</p>}
@@ -1570,7 +1626,7 @@ function ChatView({ project, onBack, onOpenHistory, onOpenMemory, onError, think
                 )}
               </div>
             ))}
-            {busy && <div className="chat-item chat-item-thinking">{thinkingLabel}</div>}
+            {busy && <LiveLine label={thinkingLabel} since={busySince} turns={liveTurns} />}
           </div>
 
           {leaks && !busy && (

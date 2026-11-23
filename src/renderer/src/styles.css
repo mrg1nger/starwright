@@ -300,6 +300,13 @@ button.active,
   font-style: italic;
 }
 
+/* The time and tokens so far, after "Thinking…": plain figures, not italic. */
+.live-usage {
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.9em;
+}
+
 .chat-error {
   color: var(--danger);
 }
@@ -348,6 +355,14 @@ button.active,
 
 .tool-status {
   color: var(--text-muted);
+}
+
+/* A hand-off's tokens so far, on its card. */
+.tool-tokens {
+  color: var(--text-muted);
+  font-size: 0.85em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .confirmation-banner {
@@ -2001,6 +2016,27 @@ textarea {
 /* Across the top of every screen, under the top bar. */
 .update-banner {
   margin: 0.5rem 0.75rem 0;
+}
+
+/* A new Codex or Cline: the same place, quieter (only a notice). */
+.tool-banner {
+  margin: 0.5rem 0.75rem 0;
+  border-color: var(--border);
+}
+
+.tool-banner code {
+  font-size: 0.85em;
+  user-select: all;
+}
+
+.tool-banner small {
+  display: block;
+  color: var(--text-muted);
+}
+
+.tool-versions ul {
+  margin: 0.25rem 0 0.5rem;
+  padding-left: 1.2rem;
 }
 
 .github-banner-conflict {

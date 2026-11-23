@@ -1,5 +1,7 @@
 import type { RouteWork, WorkRoute } from '@shared/types'
 import { trackLines, type TrackSummary } from '../delegation/trackReport'
+import { toolVersionLines } from '@shared/update'
+import type { ToolVersions } from '@shared/types'
 import type { RequestLogRow } from '../memory/store'
 import type { StepKind } from './requestLog'
 
@@ -146,6 +148,8 @@ export function buildReport(input: {
   reviews?: Record<string, number>
   /** The track record: who's moved down for which kinds of task, and how that went. */
   track?: TrackSummary
+  /** Codex, Cline and the Claude SDK: the version in use and whether a newer one is out. */
+  tools?: ToolVersions
 }): string {
   const { days, usage, requests, projectNames } = input
   const name = (id: string): string => (id ? projectNames.get(id) ?? id : '(no project: Chat tab)')
@@ -156,6 +160,7 @@ export function buildReport(input: {
   if (input.plans?.length) lines.push(`Plans now: ${input.plans.join(' · ')}`)
   if (input.work) lines.push('', ...workSection(input.work, { byKind: input.byKind, reviews: input.reviews }))
   if (input.track) lines.push('', ...trackLines(input.track))
+  if (input.tools?.tools.length) lines.push('', ...toolVersionLines(input.tools))
 
   // ---- Claude by project and by kind of work
   const claudeRows = usage.filter((u) => u.agent === 'claude')

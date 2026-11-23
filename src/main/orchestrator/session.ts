@@ -9,7 +9,7 @@ import {
   type PreToolUseHookInput,
   type SDKCompactBoundaryMessage
 } from '@anthropic-ai/claude-agent-sdk'
-import type { ConfirmationRequest, QuestionAnswers, UserQuestion, VibeEvent } from '@shared/types'
+import type { ConfirmationRequest, LiveUsageUpdate, QuestionAnswers, UserQuestion, VibeEvent } from '@shared/types'
 import { mapSdkMessage } from './eventSchema'
 import { createCodexDelegationServer } from '../delegation/codexTool'
 import { memoryDb, memoryDbPath, memoryServerScriptPath } from '../memory/paths'
@@ -28,6 +28,10 @@ import { agentSecretEnv, listSecrets } from '../secrets/vault'
 import type { PreparedImage } from '../attachments/images'
 import type { CodexThread, RequestContext } from '../delegation/codexTool'
 import { countsFromSdkResult, recordUsage } from '../usage/tokens'
+import { LiveUsage, throttle } from './liveUsage'
+
+/** Numbers each turn's live counts, across sessions (a reload mid-request starts a new session). */
+let liveTurnSeq = 0
 
 /** A compaction's outcome: conversation size (tokens) before and after. */
 export interface CompactResult {
@@ -183,6 +187,10 @@ export class ClaudeSession extends EventEmitter {
   private codexThread: CodexThread | undefined
   /** Size of the conversation Claude last saw, in tokens (from its latest API call). */
   private lastContextTokens = 0
+  /** Tokens while the current turn is still running (sent on 'live', not kept in the history). */
+  private live = new LiveUsage()
+  private liveTurn = ++liveTurnSeq
+  private liveSend = throttle(() => this.emit('live', { kind: 'claude', turn: this.liveTurn, ...this.live.counts() } satisfies LiveUsageUpdate), 400)
   private sizeUnknown = false
   /** When Claude last finished a turn (epoch ms); 0 for a conversation resumed from disk, whose last turn may be long ago. */
   private lastActiveAt = 0
@@ -244,6 +252,14 @@ export class ClaudeSession extends EventEmitter {
       this.emit('event', { type: 'compacting' } satisfies VibeEvent)
       this.queue.push(`/compact ${instructions}`)
     })
+  }
+
+  /** A turn ended: its last counts go out, and the next stream events count as a new turn. */
+  private endLiveTurn(): void {
+    if (this.live.counts().steps) this.liveSend.flush()
+    else this.liveSend.cancel()
+    this.live.reset()
+    this.liveTurn = ++liveTurnSeq
   }
 
   private endCompaction(): void {
@@ -373,7 +389,8 @@ export class ClaudeSession extends EventEmitter {
       },
       () => this.deployRunner?.() ?? Promise.resolve({ ok: false, text: 'Deploy is not available here.' }),
       (what, why) => this.askToLeavePlan(what, why),
-      (agent, command) => this.askAboutCommand(agent, command)
+      (agent, command) => this.askAboutCommand(agent, command),
+      (tokens) => this.emit('live', { kind: 'handoff', ...tokens } satisfies LiveUsageUpdate)
     )
 
     const memoryServer = {
@@ -498,6 +515,8 @@ export class ClaudeSession extends EventEmitter {
       options: {
         cwd: this.projectPath,
         pathToClaudeCodeExecutable: resolveClaudeExecutable(),
+        // The reply as it's written: only used to count tokens live (the chat still shows whole messages).
+        includePartialMessages: true,
         model: this.activeModel ?? undefined,
         // Replaces the inherited environment, so start from process.env.
         // Helper agents must finish inside the request: left to run in the
@@ -713,6 +732,13 @@ ${extensionInstructions(extensions)}` : ''}`
           this.capturedSessionId = message.session_id
           this.emit('session_id', message.session_id)
         }
+        // The reply being written: tokens so far, a few times a second. Nothing else uses these.
+        if (message.type === 'stream_event') {
+          const m = message as { event: Parameters<LiveUsage['onStream']>[0]; parent_tool_use_id: string | null }
+          if (!this.compaction && this.live.onStream(m.event, m.parent_tool_use_id)) this.liveSend.call()
+          continue
+        }
+        if (message.type === 'result') this.endLiveTurn()
         // Plan limit reached: report it as itself (not as a crash or a normal
         // reply) so VibeApp can hand the request to Codex.
         if (message.type === 'rate_limit_event') {
@@ -947,6 +973,7 @@ ${extensionInstructions(extensions)}` : ''}`
   dispose(): void {
     this.disposed = true
     if (this.reloadTimer) clearTimeout(this.reloadTimer)
+    this.liveSend.cancel()
     this.mcpWatcher?.close()
     for (const { resolve } of this.confirmationWaiters.values()) resolve(false)
     this.confirmationWaiters.clear()

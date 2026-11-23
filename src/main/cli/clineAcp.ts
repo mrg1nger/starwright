@@ -1,10 +1,11 @@
+import { pollTokens } from '../delegation/liveTokens'
 import { app } from 'electron'
 import { spawn, type ChildProcessWithoutNullStreams } from 'child_process'
 import { createHash } from 'crypto'
-import { mkdtempSync, readFileSync, rmSync } from 'fs'
+import { mkdtempSync, readFileSync, rmSync, statSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import type { DelegationActivity } from '@shared/types'
+import type { DelegationActivity, LiveTokens } from '@shared/types'
 import { decideToolCall, type ClinePolicy } from '../cline/hookPolicy'
 import {
   clineDataDir,
@@ -279,6 +280,46 @@ interface SessionTotals {
   model?: string
 }
 
+/**
+ * A hosted Cline session's tokens from now on, step by step: each reply in its messages file
+ * carries what that step read (cached included) and wrote. Messages already there are earlier
+ * hand-offs' in the same session.
+ */
+export function clineStepReader(sessionId: string, dataDir = clineDataDir()): () => LiveTokens | null {
+  const file = join(dataDir, 'sessions', sessionId, `${sessionId}.messages.json`)
+  const count = (): { messages: { role?: string; metrics?: { inputTokens?: number; outputTokens?: number } }[] } | null => {
+    try {
+      return JSON.parse(readFileSync(file, 'utf8'))
+    } catch {
+      return null
+    }
+  }
+  const skip = count()?.messages?.length ?? 0
+  let seenAt = 0
+  let last: LiveTokens | null = null
+  return () => {
+    let mtime = 0
+    try {
+      mtime = statSync(file).mtimeMs
+    } catch {
+      return last
+    }
+    if (mtime === seenAt) return last
+    const data = count()
+    if (!data?.messages) return last
+    seenAt = mtime
+    const t = { read: 0, written: 0, steps: 0 }
+    for (const m of data.messages.slice(skip)) {
+      if (m.role !== 'assistant' || !m.metrics) continue
+      t.read += m.metrics.inputTokens ?? 0
+      t.written += m.metrics.outputTokens ?? 0
+      t.steps++
+    }
+    last = t.steps ? t : null
+    return last
+  }
+}
+
 /** Cline's running totals for a session, from its session file (the protocol doesn't carry them). */
 function sessionTotals(sessionId: string): SessionTotals {
   try {
@@ -345,6 +386,8 @@ export async function runClineHosted(args: ClineRunArgs, onActivity?: (activity:
     const id = sessionId
 
     const before = sessionTotals(id)
+    // Its tokens as it goes: each step's are in the session's messages file (the totals above only at the end).
+    const stopTokens = args.onTokens ? pollTokens(clineStepReader(id), args.onTokens) : undefined
     const hookBefore = hookLines(running.hookLog).length
     const tools = new Map<string, ToolSeen>()
     let toolCalls = 0
@@ -404,6 +447,7 @@ export async function runClineHosted(args: ClineRunArgs, onActivity?: (activity:
       if (forced) clearTimeout(forced)
       args.signal?.removeEventListener('abort', onAbort)
       running.listeners.delete(id)
+      stopTokens?.()
       sayNow()
     }
 

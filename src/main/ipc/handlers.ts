@@ -25,7 +25,8 @@ import type {
   QuestionAnswers,
   Schedule,
   TalkAgent,
-  VibeEvent
+  VibeEvent,
+  LiveUsageUpdate
 } from '@shared/types'
 import { checkClaudeStatus } from '../cli/claude'
 import { checkCodexStatus } from '../cli/codex'
@@ -142,6 +143,7 @@ import {
 } from '../memory/store'
 import { getSettings, updateSettings } from '../settings/store'
 import { checkForUpdate, installUpdate, updateState } from '../updates/updates'
+import { checkToolVersions, toolVersions } from '../updates/toolVersions'
 import { workingProjects } from '../tray'
 import { listClaudeModels } from '../cli/claudeModels'
 import { listCodexModels } from '../cli/codexModels'
@@ -1242,6 +1244,9 @@ export function registerIpcHandlers(getSender: () => WebContents | undefined): v
   ipc.handle('vibe:update:state', () => updateState())
   ipc.handle('vibe:update:check', () => checkForUpdate())
   ipc.handle('vibe:update:install', (_event, anyway?: boolean) => installUpdate(workingProjects(), !!anyway))
+  // Newer Codex, Cline or Claude Agent SDK than the one in use (only said, never installed).
+  ipc.handle('vibe:tools:versions', () => toolVersions())
+  ipc.handle('vibe:tools:check', () => checkToolVersions())
 
   // Cline (a third agent on the user's ClinePass plan): installed? and a quick live check.
   ipc.handle('vibe:cline:status', () => clineStatus())
@@ -1291,7 +1296,8 @@ export function registerIpcHandlers(getSender: () => WebContents | undefined): v
       work: workSummary(memoryDb(), since, only?.id),
       byKind: workByKind(memoryDb(), since, only?.id),
       reviews: reviewOutcomes(memoryDb(), since, only?.id),
-      track: trackSummary(memoryDb(), only?.id)
+      track: trackSummary(memoryDb(), only?.id),
+      tools: toolVersions()
     })
   })
 
@@ -2039,6 +2045,8 @@ function wireSessionEvents(
     const path = getProject(projectId)?.path
     return path ? deployForClaude(projectId, path, getSender) : Promise.resolve({ ok: false, text: 'Deploy is not available here.' })
   }
+  // Tokens while Claude is still writing: straight to the screens, not into the history.
+  session.on('live', (update: LiveUsageUpdate) => getSender()?.send('vibe:chat:live', projectId, update))
 
   session.on('event', (event: VibeEvent) => {
     if (event.type === 'claude_limit') {

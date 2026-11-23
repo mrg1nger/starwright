@@ -10,6 +10,8 @@ interface CodexFeedProps {
   projectPath: string
   /** Who's doing the hand-off (default Codex). */
   agent?: 'Codex' | 'Cline' | 'Local model' | 'Helper'
+  /** Its tokens so far ("read 48k · wrote 1.2k"), while this screen has seen them. */
+  tokens?: string
 }
 
 function clock(ms: number): string {
@@ -22,7 +24,7 @@ function clock(ms: number): string {
  * changes, and the commands it runs with their output. Open while it works,
  * folded away once it's done.
  */
-function CodexFeed({ steps, running, startedAt, projectPath, agent = 'Codex' }: CodexFeedProps) {
+function CodexFeed({ steps, running, startedAt, projectPath, agent = 'Codex', tokens }: CodexFeedProps) {
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
     if (!running) return
@@ -40,6 +42,12 @@ function CodexFeed({ steps, running, startedAt, projectPath, agent = 'Codex' }: 
         {running
           ? `${agent} is working${startedAt ? ` · ${clock(now - startedAt)}` : ''}`
           : `${agent}'s work · ${finished} step${finished === 1 ? '' : 's'}`}
+        {tokens && (
+          <span className="tool-tokens" title="This hand-off's tokens so far: everything it read (cached or not) and wrote">
+            {' · '}
+            {tokens}
+          </span>
+        )}
       </summary>
       <ul>
         {steps.length === 0 && <li className="codex-step codex-step-wait">Starting up…</li>}

@@ -1,3 +1,4 @@
+import { codexTokenReader, pollTokens } from './liveTokens'
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk'
 import { app } from 'electron'
 import { existsSync } from 'fs'
@@ -22,7 +23,7 @@ import { estimateReadTokens, fitsLocalContext } from './taskSize'
 import { DEFAULT_LOAD_CONTEXT } from '../cli/lmStudio'
 import { verifyChanges } from '../review/checks'
 import { countsFromCodexEvents, recordUsage } from '../usage/tokens'
-import type { DelegationActivity, TaskDifficulty, TaskKind } from '@shared/types'
+import type { DelegationActivity, LiveTokens, TaskDifficulty, TaskKind } from '@shared/types'
 import { agentName, routedNote, type HandoffAgent } from '@shared/handoff'
 import { chooseRoutes, helperAvailability, recentHandoffUse, type HelperRoute } from '../orchestrator/routing'
 import { fadersOf, fadersText, workModeOf } from '@shared/balance'
@@ -210,7 +211,9 @@ export function createCodexDelegationServer(
   /** Plan mode: asks the user whether Claude may stop planning and do something now. */
   leavePlan?: (what: string, why: string) => Promise<string>,
   /** Asks the user (Allow/Deny) about a helper's command that may reach outside the project, as for Claude's. */
-  askAboutCommand?: (agent: string, command: string) => Promise<boolean>
+  askAboutCommand?: (agent: string, command: string) => Promise<boolean>,
+  /** The running hand-off's tokens so far, for its card. */
+  onTokens?: (tokens: LiveTokens) => void
 ): ReturnType<typeof createSdkMcpServer> {
   // Hand-offs share the project folder and the request's Codex session, and each one's
   // "files changed" comes from before/after snapshots, so two at once would edit the same
@@ -238,9 +241,16 @@ export function createCodexDelegationServer(
       const request = getRequestContext?.()
     const images = (request?.images ?? []).filter((p) => existsSync(p))
     const context = memory ? await attemptLater(() => handoffContext(memory.projectId, prompt, request)) : undefined
+    // Codex's tokens come from its session file as it writes it, once its thread id is known.
+    let stopTokens: (() => void) | undefined
+    const watchTokens = (threadId: string): void => {
+      stopTokens?.()
+      if (onTokens) stopTokens = pollTokens(codexTokenReader(threadId, new Date()), onTokens)
+    }
     const run = (resumeThreadId?: string): Promise<CodexExecResult> =>
       runCodexExec(
         {
+          onThread: watchTokens,
           prompt: [prompt, secretsNote()].filter(Boolean).join('\n\n'),
           env: secrets(),
           cwd: projectPath,
@@ -269,14 +279,19 @@ export function createCodexDelegationServer(
     // Pick up this request's earlier Codex session, if it's still valid.
     const thread = codexThread?.get()
     const resumeId = thread && thread.unsandboxed === unsandboxed ? thread.id : undefined
-    let result = await run(resumeId)
+    let result: CodexExecResult
     let continued = !!resumeId
-    if (resumeId && result.exitCode !== 0 && !result.finalMessage) {
-      // The old session couldn't be resumed: start a new one instead.
-      codexThread?.set(undefined)
-      recordUsage(memory?.projectId, 'handoff', 'codex', countsFromCodexEvents(result.events))
-      result = await run(undefined)
-      continued = false
+    try {
+      result = await run(resumeId)
+      if (resumeId && result.exitCode !== 0 && !result.finalMessage) {
+        // The old session couldn't be resumed: start a new one instead.
+        codexThread?.set(undefined)
+        recordUsage(memory?.projectId, 'handoff', 'codex', countsFromCodexEvents(result.events))
+        result = await run(undefined)
+        continued = false
+      }
+    } finally {
+      stopTokens?.()
     }
     if (result.threadId && result.exitCode === 0) codexThread?.set({ id: result.threadId, unsandboxed })
     recordUsage(memory?.projectId, 'handoff', 'codex', countsFromCodexEvents(result.events))
@@ -323,7 +338,8 @@ export function createCodexDelegationServer(
         memory: memory ? { scriptPath: memory.scriptPath, dbPath: memory.dbPath, projectId: memory.projectId, projectPath: memory.projectPath } : undefined,
         // Later hand-offs in the same request carry on Cline's conversation.
         session: request ? clineSessionFor(request) : undefined,
-        ask: askAboutCommand ? (command) => askAboutCommand('Cline', command) : undefined
+        ask: askAboutCommand ? (command) => askAboutCommand('Cline', command) : undefined,
+        onTokens
       },
       (activity) => {
         onActivity?.(activity)
@@ -376,6 +392,7 @@ export function createCodexDelegationServer(
       signal,
       timeoutMs: timeoutMs ?? HANDOFF_TIMEOUT_MS,
       ask: askAboutCommand ? (command) => askAboutCommand('The local model', command) : undefined,
+      onTokens,
       onActivity: (activity) => {
         onActivity?.(activity)
         const note = progressNote(activity)

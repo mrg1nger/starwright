@@ -2,6 +2,19 @@
 
 The version goes up with each improvement that ships: the middle number for new features, the last for fixes only. Settings shows the version a computer is running. (Starwright was called VibeApp up to 0.10.0.)
 
+## 0.22.0 (2026-11-22)
+
+Tokens show while a request runs, and Starwright says when there's a newer Codex or Cline than the one installed.
+
+- **The "working…" line counts as Claude works**: the time so far, what Claude has written this request (its tool calls and edits included), and the conversation's size now, e.g. "Claude is working… · 1m 24s · ↓ 2.3k written · 148k context". What's being written is counted as it arrives (about 4 characters a token) and corrected to the exact figure as each step ends, so the line ends on the same number as the request's usage line. Helper agents' writing counts too.
+- **A hand-off shows its own tokens** next to its clock, "Codex is working · 0:12 · read 19k · wrote 163", counting up step by step: Codex from its session file as it writes it (its events only give them at the end), Cline from its per-step figures, the local model as it reads and writes. They stay on the card when it's done, until the chat is reopened.
+- **Remote screens get the same line.** The live figures aren't kept in the chat history; the usage line at the end still is.
+
+- **A notice under the top bar** names the new version, the one Starwright is using, and the command to update it (`npm i -g @openai/codex@latest` or `npm i -g cline@latest`). It only says so. A new version can change what Starwright relies on, so you choose when to update, while nothing is running, and try a small task afterwards. Skip this version, or Not now until the next start. A newer version still shows after a skip.
+- **Settings, Updates lists the tools** with the version in use and the newest on npm, a Check tools button, and skipped versions to bring back. The Claude Agent SDK is listed too. It's built into Starwright, so a newer one comes with a Starwright update and gets no notice.
+- **Checked a minute after start and twice a day**, while "Look for new versions automatically" is on. Only each tool's public npm entry is asked; nothing about the computer is sent. On a remote screen, the notice is about the computer running Starwright.
+- **The usage report has a Tools section** with the same versions.
+
 ## 0.21.0 (2026-11-20)
 
 Starwright keeps a track record of each agent and model, and uses it when it hands work out.

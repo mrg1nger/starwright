@@ -48,6 +48,7 @@ const DEFAULTS: AppSettings = {
   localHandoffs: false,
   updateChecks: true,
   skippedVersion: null,
+  skippedToolVersions: {},
   lastRunVersion: null
 }
 

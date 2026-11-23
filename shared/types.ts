@@ -727,6 +727,8 @@ export interface AppSettings {
   updateChecks: boolean
   /** A version the user chose to skip: no banner for it (a newer one still shows). */
   skippedVersion: string | null
+  /** The same for Codex and Cline: a new version of theirs not to mention again. */
+  skippedToolVersions: Partial<Record<ToolId, string>>
   /** The version that ran last time, to notice an update and say so once. */
   lastRunVersion: string | null
 }
@@ -768,6 +770,43 @@ export interface UpdateState {
   canInstall: boolean
   /** Updated since last time: the version it was (for a one-time "updated" note). */
   updatedFrom?: string
+}
+
+/** Tokens so far while work is still running (sent live, never kept in the history). */
+export interface LiveTokens {
+  /** Claude: the conversation's size now. A hand-off: everything it has read so far, cached or not. */
+  read: number
+  /** Written so far (Claude's step still being written is estimated until it ends). */
+  written: number
+  /** Steps (API calls) so far. */
+  steps: number
+}
+
+/** What vibe:chat:live carries: Claude's turn, or the hand-off running now. */
+export type LiveUsageUpdate = ({ kind: 'claude'; turn: number } | { kind: 'handoff' }) & LiveTokens
+
+/** The tools Starwright runs work through, for the new-version notice. */
+export type ToolId = 'codex' | 'cline' | 'claude'
+
+export interface ToolVersion {
+  tool: ToolId
+  /** Its npm package. */
+  package: string
+  /** The version Starwright uses here (none: not installed, or it couldn't be told). */
+  installed?: string
+  /** The newest version published on npm. */
+  latest?: string
+  /** latest is newer than installed. */
+  newer: boolean
+  /** Built into Starwright (the Claude Agent SDK): comes with a Starwright update, nothing to do. */
+  bundled: boolean
+  /** Why npm couldn't be asked. */
+  error?: string
+}
+
+export interface ToolVersions {
+  tools: ToolVersion[]
+  checkedAt?: string
 }
 
 /** Where tokens went over a period, by kind of work. */

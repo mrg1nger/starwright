@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import type { AppSettings, UpdateState } from '@shared/types'
-import { isNewer } from '@shared/update'
+import type { AppSettings, ToolVersions, UpdateState } from '@shared/types'
+import { isNewer, TOOL_UPDATE_COMMANDS } from '@shared/update'
+import { TOOL_NAMES } from './ToolUpdateBanner'
 
 interface UpdateSettingsProps {
   settings: AppSettings
@@ -66,7 +67,8 @@ function UpdateSettings({ settings, onSettingsChange }: UpdateSettingsProps) {
           Look for new versions automatically
           <small>
             When Starwright starts and every few hours, it asks GitHub whether there&apos;s a newer version and shows a
-            banner. Nothing is downloaded until you press Update.
+            banner. Nothing is downloaded until you press Update. Twice a day it also asks npm whether there&apos;s a
+            newer Codex or Cline than the one installed, and only says so.
           </small>
         </span>
       </label>
@@ -78,7 +80,74 @@ function UpdateSettings({ settings, onSettingsChange }: UpdateSettingsProps) {
           </button>
         </div>
       )}
+      <ToolVersionList settings={settings} onSettingsChange={onSettingsChange} />
     </section>
+  )
+}
+
+/** Codex, Cline and the built-in Claude SDK: the version in use and the newest on npm. */
+function ToolVersionList({ settings, onSettingsChange }: UpdateSettingsProps) {
+  const [versions, setVersions] = useState<ToolVersions | null>(null)
+  const [checking, setChecking] = useState(false)
+
+  useEffect(() => {
+    window.vibe.tools.versions().then(setVersions).catch(() => undefined)
+    return window.vibe.tools.onChanged(setVersions)
+  }, [])
+
+  const check = async (): Promise<void> => {
+    setChecking(true)
+    try {
+      setVersions(await window.vibe.tools.check())
+    } catch {
+      // Shown as before.
+    } finally {
+      setChecking(false)
+    }
+  }
+
+  const skipped = Object.entries(settings.skippedToolVersions ?? {}).filter(([, v]) => v)
+
+  return (
+    <div className="tool-versions">
+      <p className="settings-hint">
+        Tools Starwright works through. A new Codex or Cline is only mentioned: you choose when to update, in a terminal.
+      </p>
+      <ul className="settings-hint">
+        {(versions?.tools ?? []).map((t) => (
+          <li key={t.tool}>
+            {TOOL_NAMES[t.tool]} {t.installed ?? (t.bundled ? '' : 'isn\'t installed')}
+            {t.bundled && ' (built into Starwright)'}
+            {t.installed &&
+              (t.newer
+                ? t.bundled
+                  ? `: ${t.latest} is out, and comes with a Starwright update.`
+                  : `: ${t.latest} is out. Update with ${TOOL_UPDATE_COMMANDS[t.tool]}`
+                : t.latest
+                  ? ': the newest.'
+                  : t.error
+                    ? `: couldn't ask npm (${t.error}).`
+                    : '')}
+          </li>
+        ))}
+        {!versions?.tools.length && <li>Not checked yet.</li>}
+      </ul>
+      <div className="settings-row">
+        <button type="button" onClick={check} disabled={checking}>
+          {checking ? 'Checking…' : 'Check tools'}
+        </button>
+        {skipped.length > 0 && (
+          <>
+            <span className="settings-hint">
+              Skipped: {skipped.map(([tool, v]) => `${TOOL_NAMES[tool as keyof typeof TOOL_NAMES]} ${v}`).join(', ')}.
+            </span>
+            <button type="button" onClick={() => onSettingsChange({ skippedToolVersions: {} }).catch(() => undefined)}>
+              Remind me again
+            </button>
+          </>
+        )}
+      </div>
+    </div>
   )
 }
 

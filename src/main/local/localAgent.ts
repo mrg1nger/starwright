@@ -9,7 +9,7 @@ import { countsFromChatUsage, ensureModelLoaded, holdModel, lmStudioBase, lmStud
 import { getSettings } from '../settings/store'
 import { maskText } from '../secrets/maskSecrets'
 import type { TokenCounts } from '../usage/tokens'
-import type { DelegationActivity } from '@shared/types'
+import type { DelegationActivity, LiveTokens } from '@shared/types'
 import { fileTimeOf, listProcesses, startedBy, stopProcesses, type RecordedProcess } from '../preview/leftovers'
 import { StreamStopped, progressText, stepSummary, streamChat, type StreamedReply, type ToolCall } from './chatStream'
 
@@ -35,6 +35,8 @@ export interface LocalAgentRun {
   thinking?: boolean
   model?: string
   onActivity?: (activity: DelegationActivity) => void
+  /** Tokens so far: estimated while a step runs, exact once it ends. */
+  onTokens?: (tokens: LiveTokens) => void
   /** Extra environment variables for its commands: the project's secrets, as Claude has them. */
   env?: Record<string, string>
   /** Asks the user about a command that only failed the folder check (Allow/Deny), as for Claude. None: refused. */
@@ -649,6 +651,7 @@ async function runModel(run: LocalAgentRun): Promise<LocalAgentResult> {
           stallMs: run.stallMs ?? STALL_MS,
           progressEveryMs: Math.max(10, Math.min(2000, progressAfter)),
           onProgress: (p) => {
+            run.onTokens?.({ read: usage.fresh + usage.cached + Math.round(chars / 3.5), written: usage.output + p.pieces, steps: step })
             if (p.elapsedMs < progressAfter) return
             live = true
             run.onActivity?.({ id: liveId, step: 'tool', done: false, text: progressText(p, readRate ? { tokens: toRead, perSecond: readRate } : undefined) })
@@ -678,6 +681,7 @@ async function runModel(run: LocalAgentRun): Promise<LocalAgentResult> {
     usage.cached += counts.cached
     usage.output += counts.output
     usage.steps = step
+    run.onTokens?.({ read: usage.fresh + usage.cached, written: usage.output, steps: step })
     if (live) run.onActivity?.({ id: liveId, step: 'tool', done: true, ok: true, text: stepSummary(firstTokenMs, totalMs, counts.output, toRead) })
     if (reply.error) {
       const message = typeof reply.error === 'string' ? reply.error : (reply.error.message ?? 'unknown error')

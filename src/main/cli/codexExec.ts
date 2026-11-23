@@ -159,6 +159,8 @@ export interface CodexExecArgs {
   outputSchema?: object
   /** Aborting kills the Codex process and rejects. */
   signal?: AbortSignal
+  /** Codex's thread id, as soon as it starts (its session file has the tokens as it goes). */
+  onThread?: (threadId: string) => void
   /** The shared memory MCP server's script and database, if memory access should be wired in. */
   memory?: {
     scriptPath: string
@@ -378,6 +380,7 @@ ${args.prompt}`
         try {
           const event = JSON.parse(line) as CodexJsonEvent
           events.push(event)
+          if (event.type === 'thread.started' && typeof event.thread_id === 'string') args.onThread?.(event.thread_id)
           const activity = describeActivity(event)
           if (activity) {
             onActivity?.(activity)

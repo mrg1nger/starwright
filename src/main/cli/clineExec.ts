@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { homedir, tmpdir } from 'os'
 import { dirname, join } from 'path'
 import { promisify } from 'util'
-import type { DelegationActivity } from '@shared/types'
+import type { DelegationActivity, LiveTokens } from '@shared/types'
 import { decideToolCall, type ClineMode, type ClinePolicy } from '../cline/hookPolicy'
 import { commandParts, scrubSecrets } from './codexActivity'
 import { killTree, trackChild } from './codexExec'
@@ -257,6 +257,8 @@ export interface ClineRunArgs {
   memory?: { scriptPath: string; dbPath: string; projectId: string; projectPath: string }
   /** Runs with the same key carry on one Cline conversation (hand-offs within one request). */
   session?: string
+  /** This run's tokens so far, after each step. */
+  onTokens?: (tokens: LiveTokens) => void
   /**
    * Asks the user about a command that only failed the folder check (Allow/Deny), as for
    * Claude. Only hosted Cline can wait for the answer; a one-off run refuses such commands.
@@ -515,6 +517,7 @@ export async function runCline(args: ClineRunArgs, onActivity?: (activity: Deleg
 
   let final: ClineEvent | undefined
   let lastError = ''
+  let usageSteps = 0
   try {
     await new Promise<void>((resolveRun, reject) => {
       // No stdin: with an open input pipe Cline waits for more prompt to arrive on it (found: every run hung).
@@ -549,6 +552,10 @@ export async function runCline(args: ClineRunArgs, onActivity?: (activity: Deleg
             continue
           }
           if (event.type === 'run_result') final = event
+          if (event.type === 'agent_event' && event.event?.type === 'usage') {
+            const u = event.event as { totalInputTokens?: number; totalOutputTokens?: number }
+            args.onTokens?.({ read: u.totalInputTokens ?? 0, written: u.totalOutputTokens ?? 0, steps: ++usageSteps })
+          }
           if (event.type === 'error' && event.message) lastError = event.message
           if (event.type === 'agent_event' && event.event?.type === 'error') lastError = event.event.error?.message ?? lastError
           const activity = describeClineActivity(event)
