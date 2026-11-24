@@ -426,6 +426,53 @@ try {
     await click('Terminal', '.terminal-toggle')
   })
 
+  await step('the Files pane lists the project, shows a file highlighted or formatted, hides a key file and mentions a file in the chat', async () => {
+    writeFileSync(join(project, 'files-e2e.md'), '# Files check\n\nSome **bold** words.\n')
+    writeFileSync(join(project, 'server.key'), 'PRIVATE-KEY-e2e-0123456789')
+    try {
+      await click('Files', '.chat-header button')
+      await waitFor(`[...document.querySelectorAll('.files-tree .file-row')].some((r) => r.textContent.includes('shop.js'))`, 'the file list', 15_000)
+      // A file added since the last checkpoint has the "new" mark.
+      await waitFor(
+        `[...document.querySelectorAll('.files-tree .file-row')].some((r) => r.textContent.includes('files-e2e.md') && r.querySelector('.file-change-dot.new'))`,
+        'the new-file mark',
+        10_000
+      )
+      await shot('files-list')
+      // Markdown is shown formatted, with a switch to its text.
+      await fill('.files-filter', 'files-e2e')
+      await click('files-e2e.md', '.files-tree .file-match')
+      await waitFor(`document.querySelector('.file-markdown h1')?.textContent === 'Files check'`, 'the formatted Markdown', 10_000)
+      await click('Text', '.file-actions button')
+      await waitFor(`(document.querySelector('.file-code .file-text')?.textContent ?? '').startsWith('# Files check')`, 'the Markdown text', 5000)
+      await click('Files', '.file-view-bar button')
+      // Code is highlighted, with line numbers.
+      await fill('.files-filter', 'shop.js')
+      await click('shop.js', '.files-tree .file-match')
+      await waitFor(`!!document.querySelector('.file-text .hljs-comment') && !!document.querySelector('.file-text .hljs-number')`, 'the highlighted code', 10_000)
+      const lines = await evaluate(`document.querySelector('.file-lines').textContent`)
+      if (!/^1\n2\n3$/.test(lines)) throw new Error(`line numbers: ${JSON.stringify(lines)}`)
+      await shot('files-pane')
+      // "Mention in chat" puts the path in the message box.
+      await click('Mention in chat', '.file-actions button')
+      await waitFor(`document.querySelector('textarea.chat-input').value === 'shop.js '`, 'the path in the message box', 5000)
+      await fill('textarea.chat-input', '')
+      // A key file is listed by name but never shown.
+      await click('Files', '.file-view-bar button')
+      await fill('.files-filter', 'server.key')
+      await click('server.key', '.files-tree .file-match')
+      await waitFor(`/passwords or keys/.test(document.querySelector('.file-body')?.innerText ?? '')`, 'the secret-file note', 10_000)
+      if ((await evaluate(`document.querySelector('.files-pane').innerText`)).includes('PRIVATE-KEY')) throw new Error("the key file's contents are on screen")
+      // Nothing outside the project, even when asked directly.
+      const outside = await evaluate(`window.vibe.files.read(${JSON.stringify(PROJECT_ID)}, '../e2e-outside.txt').then(() => 'read', (e) => e.message)`)
+      if (!/Not a file in this project/.test(outside)) throw new Error(`a path outside the project: ${outside}`)
+    } finally {
+      rmSync(join(project, 'files-e2e.md'), { force: true })
+      rmSync(join(project, 'server.key'), { force: true })
+      await click('Preview', '.chat-header button').catch(() => undefined)
+    }
+  })
+
   await step('an error in the page shows the "Something broke" banner', async () => {
     if (!preview) throw new Error('no preview page')
     writeFileSync(join(project, 'index.html'), PAGE.replace('</body>', '<script>throw new Error("e2e boom")</script></body>'))
@@ -1395,7 +1442,7 @@ try {
     // A third plan meter, as with Cline: five things in the top row must still fit.
     await evaluate(`(() => { const m = document.querySelector('.usage-meter:not(.local-model)'); if (!m) return; const c = m.cloneNode(true); c.classList.add('e2e-fake-meter'); c.querySelector('.usage-meter-name').textContent = 'Cline'; m.after(c) })()`)
     // Anything wider than the screen (the page would scroll sideways), by its class.
-    const overflow = `[...document.querySelectorAll('body *')].filter((e) => { const r = e.getBoundingClientRect(); return r.width && (r.right > innerWidth + 1 || r.left < -1) && getComputedStyle(e).position !== 'fixed' && !e.closest('.app-nav-tabs, .chat-header-actions, pre, .md table') }).slice(0, 8).map((e) => (e.className || e.tagName) + ' ' + Math.round(e.getBoundingClientRect().right)).join(', ')`
+    const overflow = `[...document.querySelectorAll('body *')].filter((e) => { const r = e.getBoundingClientRect(); return r.width && (r.right > innerWidth + 1 || r.left < -1) && getComputedStyle(e).position !== 'fixed' && !e.closest('.app-nav-tabs, .chat-header-actions, pre, .md table, .file-code') }).slice(0, 8).map((e) => (e.className || e.tagName) + ' ' + Math.round(e.getBoundingClientRect().right)).join(', ')`
     const problems = []
     try {
       for (const [tab, open] of [['Projects', null], ['Chat', 'e2e-game'], ['Settings', null], ['Extensions', null]]) {
@@ -1409,6 +1456,22 @@ try {
         const wide = await evaluate(overflow)
         if (wide) problems.push(`${tab}: ${wide}`)
         if (tab === 'Chat') {
+          // The Files pane, on its own on a phone: the list, a file, and back to the chat to ask about it.
+          await click('Files', '.mobile-pane-switch button')
+          await waitFor(`!!document.querySelector('.files-tree .file-row')`, 'the file list', 10_000)
+          await fill('.files-filter', 'shop.js')
+          await click('shop.js', '.files-tree .file-match')
+          await waitFor(`!!document.querySelector('.file-text')`, 'the file', 10_000)
+          await sleep(300)
+          await shot('phone-files')
+          const wideFiles = await evaluate(overflow)
+          if (wideFiles) problems.push(`Files: ${wideFiles}`)
+          await click('Mention in chat', '.file-actions button')
+          await sleep(300)
+          if (!(await evaluate(`document.querySelector('textarea.chat-input')?.offsetParent != null`))) problems.push('Files: "Mention in chat" stayed on the files')
+          await fill('textarea.chat-input', '')
+          await click('Preview', '.mobile-pane-switch button')
+          await click('Chat', '.mobile-pane-switch button')
           if (await evaluate(`getComputedStyle(document.querySelector('.chat-header-actions')).display !== 'none'`)) problems.push('Chat: the project buttons show without ⋯')
           await click('⋯', 'button.chat-more')
           await sleep(400)

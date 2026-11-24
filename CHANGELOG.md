@@ -2,6 +2,17 @@
 
 The version goes up with each improvement that ships: the middle number for new features, the last for fixes only. Settings shows the version a computer is running. (Starwright was called VibeApp up to 0.10.0.)
 
+## 0.23.0 (2026-11-23)
+
+A Files pane: look through the project's files without leaving the chat.
+
+- **📁 Files sits beside Preview and Notes.** It lists the project's files as a tree, folders first, leaving out what `.gitignore` leaves out (`node_modules`, build output and so on). Without git, the usual package and build folders are skipped. Find a file by typing part of its name or path.
+- **What the agents changed is marked.** A dot shows each file changed since the last checkpoint (green when it's new), and folders show how many changed inside. The list loads again when a request ends or changes are undone, as does the open file.
+- **Click a file to read it.** Code is highlighted, with line numbers, in colours that suit the theme. Markdown is shown formatted, with a switch to its text. Pictures are shown. Only the first 512 KB of a big file is shown, and a binary file shows just its size.
+- **Mention in chat** puts the file's path in the message box, ready to ask about it or have it changed. **Open in editor** opens it in its own program on the computer.
+- **Read-only, and only the project.** Nothing in it changes a file. Nothing outside the project folder can be opened: no `..`, no absolute paths, nothing in `.git`, and no link that leads out of the folder. Files that usually hold passwords or keys (`.env`, `.pem`, `.key`, SSH keys, `.npmrc` and the like) are listed by name but never shown; `.env.example` is.
+- **On a phone it's a tab** next to Chat, Preview and Notes, and Mention in chat goes back to the chat. Through Remote access, a full-access device can open files, a read-only one sees only the list, and Open in editor isn't offered, since it would open on the computer.
+
 ## 0.22.0 (2026-11-22)
 
 Tokens show while a request runs, and Starwright says when there's a newer Codex or Cline than the one installed.

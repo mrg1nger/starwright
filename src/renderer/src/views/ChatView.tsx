@@ -23,6 +23,7 @@ import GoNutzToggle from '../components/GoNutzToggle'
 import PreviewPane from '../components/PreviewPane'
 import ProjectTerminal from '../components/ProjectTerminal'
 import NotesPane from '../components/NotesPane'
+import FilesPane from '../components/FilesPane'
 import DeployDialog from '../components/DeployDialog'
 import ScheduleDialog from '../components/ScheduleDialog'
 import GitHubSyncBanner from '../components/GitHubSyncBanner'
@@ -229,15 +230,18 @@ function readModePref(): ChatMode {
   }
 }
 
-type SidePane = 'preview' | 'notes'
+type SidePane = 'preview' | 'notes' | 'files'
 
 function readSidePref(): SidePane {
   try {
-    return localStorage.getItem(SIDE_PREF_KEY) === 'notes' ? 'notes' : 'preview'
+    const saved = localStorage.getItem(SIDE_PREF_KEY)
+    return saved === 'notes' || saved === 'files' ? saved : 'preview'
   } catch {
     return 'preview'
   }
 }
+
+const SIDE_NAMES: Record<SidePane, string> = { preview: 'preview', notes: 'notes', files: 'files' }
 
 /** How wide the chat is beside the preview or notes (percent of the space), dragged on the divider. */
 const CHAT_WIDTH_KEY = 'vibeapp.chatWidth'
@@ -1161,6 +1165,15 @@ function ChatView({ project, onBack, onOpenHistory, onOpenMemory, onError, think
     setProblem(null)
   }, [problem])
 
+  /** The Files pane's "Mention in chat": the file's path goes in the message box, ready to ask about it. */
+  const mentionFile = useCallback((path: string) => {
+    const ref = /\s/.test(path) ? `\`${path}\`` : path
+    setInput((prev) => `${prev}${!prev || /\s$/.test(prev) ? '' : ' '}${ref} `)
+    // On a phone the chat is a separate pane: go back to it.
+    setPhonePane('chat')
+    setTimeout(() => inputRef.current?.focus(), 0)
+  }, [])
+
   const handlePicked = useCallback((element: PickedElement) => {
     setPicked(element)
     // On a phone the chat is a separate pane: go back to it to type what should change.
@@ -1216,6 +1229,13 @@ function ChatView({ project, onBack, onOpenHistory, onOpenMemory, onError, think
             >
               📝 Notes
             </button>
+            <button
+              className={showPreview && sidePane === 'files' ? 'active' : ''}
+              onClick={() => toggleSide('files')}
+              title="This project's files, to look through"
+            >
+              📁 Files
+            </button>
           </span>
         )}
         {headerCompact && (
@@ -1248,6 +1268,13 @@ function ChatView({ project, onBack, onOpenHistory, onOpenMemory, onError, think
                 title="This project's to-do list and notes"
               >
                 📝 Notes
+              </button>
+              <button
+                className={showPreview && sidePane === 'files' ? 'active' : ''}
+                onClick={() => toggleSide('files')}
+                title="This project's files, to look through"
+              >
+                📁 Files
               </button>
             </>
           )}
@@ -1301,7 +1328,7 @@ function ChatView({ project, onBack, onOpenHistory, onOpenMemory, onError, think
           >
             💬 Chat
           </button>
-          {(['preview', 'notes'] as const).map((pane) => {
+          {(['preview', 'notes', 'files'] as const).map((pane) => {
             const on = showPreview && phonePane === 'preview' && sidePane === pane
             return (
               <button
@@ -1315,7 +1342,7 @@ function ChatView({ project, onBack, onOpenHistory, onOpenMemory, onError, think
                   setPhonePane('preview')
                 }}
               >
-                {pane === 'preview' ? '👁 Preview' : '📝 Notes'}
+                {pane === 'preview' ? '👁 Preview' : pane === 'notes' ? '📝 Notes' : '📁 Files'}
               </button>
             )
           })}
@@ -1891,7 +1918,7 @@ function ChatView({ project, onBack, onOpenHistory, onOpenMemory, onError, think
               <button
                 className="split-fold"
                 aria-label={collapsed === 'side' ? 'Show the side pane again' : 'Fold away the chat'}
-                title={collapsed === 'side' ? `Show the ${sidePane === 'notes' ? 'notes' : 'preview'} again` : 'Fold away the chat'}
+                title={collapsed === 'side' ? `Show the ${SIDE_NAMES[sidePane]} again` : 'Fold away the chat'}
                 onClick={() => setCollapsed(collapsed === 'side' ? null : 'chat')}
               >
                 ‹
@@ -1901,7 +1928,7 @@ function ChatView({ project, onBack, onOpenHistory, onOpenMemory, onError, think
               <button
                 className="split-fold"
                 aria-label={collapsed === 'chat' ? 'Show the chat again' : 'Fold away the side pane'}
-                title={collapsed === 'chat' ? 'Show the chat again' : `Fold away the ${sidePane === 'notes' ? 'notes' : 'preview'}`}
+                title={collapsed === 'chat' ? 'Show the chat again' : `Fold away the ${SIDE_NAMES[sidePane]}`}
                 onClick={() => setCollapsed(collapsed === 'chat' ? null : 'side')}
               >
                 ›
@@ -1940,6 +1967,9 @@ function ChatView({ project, onBack, onOpenHistory, onOpenMemory, onError, think
             onOpenSecrets={() => setDialog('secrets')}
             onError={onError}
           />
+          )}
+          {sidePane === 'files' && (
+            <FilesPane projectId={project.id} refreshToken={refreshToken} onMention={mentionFile} />
           )}
           <div
             className={`terminal-drawer${terminalOpen ? ' open' : ''}${termResizing ? ' resizing' : ''}`}

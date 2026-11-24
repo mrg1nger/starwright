@@ -640,6 +640,24 @@ export interface ThemeDefinition {
   imagePreview?: string
 }
 
+/** How a file differs from the last checkpoint (git status). */
+export type FileChange = 'modified' | 'added' | 'deleted' | 'untracked' | 'renamed'
+
+/** The Files pane's list: project-relative paths with forward slashes, as .gitignore leaves them. */
+export interface ProjectFileList {
+  files: string[]
+  changed: Record<string, FileChange>
+  /** More files than are listed. */
+  truncated: boolean
+}
+
+/** One file for the Files pane: its text, a picture, or only its size (binary, or likely to hold secrets). */
+export type ProjectFileContent =
+  | { kind: 'text'; path: string; size: number; text: string; truncated: boolean }
+  | { kind: 'image'; path: string; size: number; dataUrl: string }
+  | { kind: 'binary'; path: string; size: number }
+  | { kind: 'secret'; path: string; size: number }
+
 export interface AppSettings {
   /** How work leans between Claude and Codex ("auto" follows which plan has more left). */
   agentBalance: AgentBalance

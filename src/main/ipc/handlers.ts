@@ -69,6 +69,7 @@ import {
   useGitHubVersion
 } from '../github/github'
 import { eraseProjectData } from '../projects/erase'
+import { listProjectFiles, readProjectFile, safeProjectPath } from '../files/projectFiles'
 import { appendUserMessage, appendEvent, loadRecentTranscript, loadTranscript } from '../projects/transcript'
 import {
   ensureRepo,
@@ -954,6 +955,19 @@ export function registerIpcHandlers(getSender: () => WebContents | undefined): v
     todosChanged(projectId)
     return listTodos(memoryDb(), projectId)
   })
+  // The Files pane: read-only, always by project id (the folder comes from the project list, never the screen).
+  const projectFolder = (projectId: string): string => {
+    const project = getProject(String(projectId))
+    if (!project) throw new Error("That project isn't in the list any more.")
+    return project.path
+  }
+  ipc.handle('vibe:files:list', (_event, projectId: string) => listProjectFiles(projectFolder(projectId)))
+  ipc.handle('vibe:files:read', (_event, projectId: string, path: string) => readProjectFile(projectFolder(projectId), path))
+  ipc.handle('vibe:files:open', async (_event, projectId: string, path: string) => {
+    const problem = await shell.openPath(safeProjectPath(projectFolder(projectId), path))
+    if (problem) throw new Error(problem)
+  })
+
   ipc.handle('vibe:notes:get', (_event, projectId: string) => getNotes(memoryDb(), projectId))
   ipc.handle('vibe:notes:set', (_event, projectId: string, text: string) => {
     const updatedAt = setNotes(memoryDb(), projectId, String(text ?? ''))

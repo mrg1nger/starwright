@@ -39,6 +39,8 @@ import type {
   ExtensionDraft,
   ExtensionCatalogItem,
   ThemeDefinition,
+  ProjectFileList,
+  ProjectFileContent,
   TranscriptEntry,
   UsageSnapshot,
   UsageSummaryRow,
@@ -485,6 +487,14 @@ export function createVibeApi(ipcRenderer: IpcLike, host: 'electron' | 'browser'
         ipcRenderer.on('vibe:notes:changed', listener)
         return () => ipcRenderer.removeListener('vibe:notes:changed', listener)
       }
+    },
+
+    /** The Files pane: the project's files, read-only. */
+    files: {
+      list: (projectId: string): Promise<ProjectFileList> => ipcRenderer.invoke('vibe:files:list', projectId),
+      read: (projectId: string, path: string): Promise<ProjectFileContent> => ipcRenderer.invoke('vibe:files:read', projectId, path),
+      /** Opens it in its own program, on this computer (not from a browser). */
+      open: (projectId: string, path: string): Promise<void> => ipcRenderer.invoke('vibe:files:open', projectId, path)
     },
 
     extensions: {
