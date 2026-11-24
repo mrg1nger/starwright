@@ -1335,7 +1335,8 @@ textarea {
 
 .side-column > .preview-pane,
 .side-column > .notes-pane,
-.side-column > .files-pane {
+.side-column > .files-pane,
+.side-column > .plugins-pane {
   min-height: 0;
 }
 
@@ -4914,4 +4915,140 @@ textarea {
 }
 .hljs-strong {
   font-weight: 700;
+}
+
+/* ---- Plugins pane (0.25.0) ---- */
+
+.plugins-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.plugin-panel-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.plugin-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+  padding: 0.6rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  font-size: 0.88rem;
+}
+
+.plugin-card.plugin-needs-approval,
+.plugin-card.plugin-changed {
+  border-color: color-mix(in srgb, var(--warning-text) 55%, var(--border));
+}
+
+.plugin-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.5rem;
+}
+
+.plugin-version,
+.plugin-scope {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+
+.plugin-status {
+  margin-left: auto;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.plugin-needs-approval .plugin-status,
+.plugin-changed .plugin-status {
+  color: var(--warning-text);
+}
+
+.plugin-approved .plugin-status {
+  color: var(--success-text);
+}
+
+.plugin-broken .plugin-status,
+.plugin-problems,
+.plugin-error {
+  color: var(--danger);
+}
+
+.plugin-error {
+  font-size: 0.85rem;
+}
+
+.plugin-description {
+  color: var(--text-muted);
+}
+
+.plugin-approval p,
+.plugin-approval ul,
+.plugin-problems {
+  margin: 0 0 0.35rem;
+}
+
+.plugin-approval ul,
+.plugin-problems {
+  padding-left: 1.1rem;
+}
+
+.plugin-note {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.plugin-new {
+  color: var(--warning-text);
+  font-weight: 600;
+}
+
+.plugin-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.plugin-where {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.plugin-where .link-button {
+  padding: 0;
+  border: none;
+  background: none;
+  box-shadow: none;
+  color: var(--accent);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.plugin-frame {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  border: none;
+  background: var(--surface);
+}
+
+.plugin-theme-probe {
+  display: none;
+  background: var(--surface);
 }

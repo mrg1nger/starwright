@@ -5,6 +5,7 @@ import { helpersAllowed, runHelperJob, type JsonSchema } from '../helpers/helper
 import { getProject } from '../projects/store'
 import { memoryDb } from './paths'
 import {
+  carryFactLinks,
   codeSummariesFor,
   confirmFactFiles,
   countFacts,
@@ -205,6 +206,7 @@ export async function tidyMemory(scope: string): Promise<MemoryTidyResult> {
           ).run(...remove, merge.keep)
           for (const id of remove) {
             if (forgetFact(db, id, `tidy-up: merged into ${merge.keep}`, merge.keep)) {
+              carryFactLinks(db, id, merge.keep)
               forgotten.add(id)
               result.merged++
             }
@@ -214,6 +216,7 @@ export async function tidyMemory(scope: string): Promise<MemoryTidyResult> {
           if (!inBatch.has(old.id) || forgotten.has(old.id)) continue
           const newer = old.replacedBy && inBatch.has(old.replacedBy) && !forgotten.has(old.replacedBy) ? old.replacedBy : undefined
           if (forgetFact(db, old.id, `tidy-up: outdated (${old.reason})`, newer)) {
+            if (newer) carryFactLinks(db, old.id, newer)
             forgotten.add(old.id)
             result.outdated++
           }

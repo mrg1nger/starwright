@@ -344,3 +344,34 @@ export const OFF_TOPIC: string[] = [
   'can you explain that again more simply?',
   'commit that please'
 ]
+
+/**
+ * Facts that belong together without sounding alike, as a project's history would link them
+ * (they kept mattering in the same requests): the second is a pitfall or detail of the first.
+ */
+export const LINKED_PAIRS: [string, string][] = [
+  ['d-magic', 'g-spam'],
+  ['s-deploy', 'g-rsync'],
+  ['s-sprites', 'g-bleed'],
+  ['s-tiled', 'g-tiled'],
+  ['d-seed', 'g-drift'],
+  ['d-saves', 'g-quota'],
+  ['p-sound', 'g-safari-audio'],
+  ['d-loop', 'g-raf'],
+  ['s-server', 'g-locked'],
+  ['a-phones', 'g-android']
+]
+
+/** Requests worded like the first fact of a pair only: both are needed. */
+export const LINKED_REQUESTS: { text: string; needs: [string, string] }[] = [
+  { text: 'add a way for players to sign in from the title menu', needs: ['d-magic', 'g-spam'] },
+  { text: 'put the new version online', needs: ['s-deploy', 'g-rsync'] },
+  { text: "Ines sent new monster pictures, can you pack them into the sprite sheets?", needs: ['s-sprites', 'g-bleed'] },
+  { text: 'load the level map I made in Tiled as floor 3', needs: ['s-tiled', 'g-tiled'] },
+  { text: 'let players type in a seed to get a particular dungeon', needs: ['d-seed', 'g-drift'] },
+  { text: "keep the player's progress when they close the browser", needs: ['d-saves', 'g-quota'] },
+  { text: 'start the title music as soon as the game loads', needs: ['p-sound', 'g-safari-audio'] },
+  { text: 'make the game run at 30 updates a second instead', needs: ['d-loop', 'g-raf'] },
+  { text: 'start the score server with more connections allowed', needs: ['s-server', 'g-locked'] },
+  { text: 'make it work better on phones', needs: ['a-phones', 'g-android'] }
+]

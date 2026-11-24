@@ -1,0 +1,8 @@
+{
+  "name": "project-pulse",
+  "title": "Project Pulse",
+  "version": "1.0.0",
+  "description": "How this project has been going: requests and how they ended, tokens by agent, hand-offs and how they went, scheduled runs, and the files changed since the last checkpoint.",
+  "permissions": ["records:read", "files:read", "storage"],
+  "panels": [{ "id": "pulse", "title": "Pulse", "entry": "panel.html" }]
+}

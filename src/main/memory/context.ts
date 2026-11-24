@@ -11,7 +11,7 @@ import {
   transaction,
   type Handoff
 } from './store'
-import { factsForRequest, filesForRequest } from './meaning'
+import { factsForRequest, filesForRequest, type AttachedFact } from './meaning'
 
 // What agents are shown without having to ask: facts and files that look
 // relevant to the request (found by a local search by meaning, so it costs no
@@ -32,7 +32,8 @@ export async function prefetchBlock(projectId: string, text: string): Promise<st
     const parts: string[] = []
     if (facts.length) {
       const outdated = outdatedNotes(db, facts.map((f) => f.id))
-      parts.push(`Remembered facts:\n${facts.map((f) => `- [${f.category}] ${f.text} (id ${f.id})${outdatedSuffix(outdated.get(f.id))}`).join('\n')}`)
+      const cameWith = (f: AttachedFact): string => (f.cameWith ? ` (brought along: often needed with ${f.cameWith})` : '')
+      parts.push(`Remembered facts:\n${facts.map((f) => `- [${f.category}] ${f.text} (id ${f.id})${cameWith(f)}${outdatedSuffix(outdated.get(f.id))}`).join('\n')}`)
     }
     if (files.length) {
       parts.push(`Files that may be involved:\n${files.map((f) => `- ${f.path}: ${f.summary}`).join('\n')}`)

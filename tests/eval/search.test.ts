@@ -25,10 +25,11 @@ import {
   rememberFact,
   saveCodeSummaries,
   searchCode,
-  searchFacts
+  searchFacts,
+  strengthenLinks
 } from '../../src/main/memory/store'
 import { projectId } from '../support/fixtures'
-import { FACTS, FACT_QUESTIONS, FILES, FILE_QUESTIONS, OFF_TOPIC, type SearchQuestion } from './searchCases'
+import { FACTS, FACT_QUESTIONS, FILES, FILE_QUESTIONS, LINKED_PAIRS, LINKED_REQUESTS, OFF_TOPIC, type SearchQuestion } from './searchCases'
 
 // The memory search evaluation: a made-up project's facts and code map
 // (searchCases.ts) and 120 questions with known answers, scored on whether
@@ -293,4 +294,53 @@ test("the app's search (by meaning)", { timeout: 10 * 60_000 }, async () => {
   assert.ok(share(row.sharedWord) >= FLOOR.sharedWord, `only ${Math.round(share(row.sharedWord) * 100)}% of the questions that share a word with their answer`)
   assert.ok(row.prefetch.right >= FLOOR.prefetchRight, `the right fact or file was attached to only ${row.prefetch.right} of ${row.prefetch.of} requests`)
   assert.ok(row.prefetch.offTopic <= FLOOR.offTopic, `${row.prefetch.offTopic} off-topic messages got something attached`)
+})
+
+// ---- facts that go together (0.24.0) --------------------------------------------------
+//
+// A fact found for a request brings the facts it keeps mattering together with. Here the
+// project's history is stood in for by linking LINKED_PAIRS (each pair counted twice, the
+// least that brings one along); the requests are worded like the first fact of each pair only.
+// It must attach both more often than without links, and change nothing else: the questions
+// above score as before, and off-topic messages still get nothing.
+
+test('facts that go together come along', { timeout: 10 * 60_000 }, async () => {
+  assert.equal(await searchesByMeaning(), true, 'the language model did not load')
+  await fillVectorsInBackground(db)
+  const dbId = new Map([...caseId].map(([id, c]) => [c, id]))
+  const attachedFor = async (text: string): Promise<string[]> => (await factsForRequest(db, pid, text, 5)).map((f) => caseId.get(f.id) ?? f.id)
+  const both = async (): Promise<{ both: number; first: number; items: number }> => {
+    let bothCount = 0
+    let first = 0
+    let items = 0
+    for (const r of LINKED_REQUESTS) {
+      const got = await attachedFor(r.text)
+      items += got.length
+      if (got.includes(r.needs[0])) first++
+      if (r.needs.every((n) => got.includes(n))) bothCount++
+    }
+    return { both: bothCount, first, items: items / LINKED_REQUESTS.length }
+  }
+  db.prepare('DELETE FROM fact_links WHERE project_id = ?').run(pid)
+  const without = await both()
+  const plainPrefetch = await scorePrefetch(async (text) => ({ facts: await attachedFor(text), files: [] }))
+  for (let i = 0; i < 2; i++) for (const [a, b] of LINKED_PAIRS) strengthenLinks(db, pid, [dbId.get(a)!, dbId.get(b)!])
+  try {
+    const withLinks = await both()
+    const linkedPrefetch = await scorePrefetch(async (text) => ({ facts: await attachedFor(text), files: [] }))
+    console.log(
+      `
+Facts that go together (${LINKED_REQUESTS.length} requests worded like one fact of a pair): first fact attached ${without.first}/${LINKED_REQUESTS.length}; both attached ${without.both} without links, ${withLinks.both} with (${without.items.toFixed(1)} -> ${withLinks.items.toFixed(1)} facts per request).`
+    )
+    console.log(
+      `  The other requests with these links in place: right fact attached ${plainPrefetch.right} -> ${linkedPrefetch.right} of ${linkedPrefetch.of} · ${plainPrefetch.attached.toFixed(1)} -> ${linkedPrefetch.attached.toFixed(1)} facts per request · off-topic messages with something: ${plainPrefetch.offTopic} -> ${linkedPrefetch.offTopic}`
+    )
+    rows.push({ ...(await score('with linked facts (recall)', async (q) => (q.target === 'fact' ? (await recallFacts(db, pid, q.text, 12)).map((f) => caseId.get(f.id) ?? f.id) : (await findCode(db, pid, q.text, 12)).map((f) => f.path)))), linked: { without, withLinks, plainPrefetch, linkedPrefetch } } as Row)
+    assert.ok(withLinks.both > without.both, `links brought nothing along (${without.both} -> ${withLinks.both})`)
+    assert.ok(withLinks.both >= without.first * 0.8, `only ${withLinks.both} of the ${without.first} requests that found the first fact got its partner`)
+    assert.ok(linkedPrefetch.right >= plainPrefetch.right, 'links pushed a right fact out')
+    assert.equal(linkedPrefetch.offTopic, plainPrefetch.offTopic, 'links attached something to an off-topic message')
+  } finally {
+    db.prepare('DELETE FROM fact_links WHERE project_id = ?').run(pid)
+  }
 })

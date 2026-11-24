@@ -562,6 +562,8 @@ export interface MemoryFact {
   files?: string[]
   /** Why it may be out of date: one of its files changed a lot or is gone. */
   mayBeOutdated?: string | null
+  /** Facts it keeps mattering together with (ids, strongest first): found with it, they come along. */
+  goesWith?: string[]
 }
 
 export interface MemoryTidyResult {

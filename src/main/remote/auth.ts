@@ -306,7 +306,7 @@ const READ_CHANNELS = new Set([
  * API key: it's an account key, typed at the computer. And opening a project file in its program:
  * it would open on the computer, not on the device asking.
  */
-const DESKTOP_ONLY = /^vibe:remote:(?!previewUrl$)|^vibe:update:install$|^vibe:backup:setPassword$|^vibe:cline:setUsageKey$|^vibe:files:open$/
+const DESKTOP_ONLY = /^vibe:remote:(?!previewUrl$)|^vibe:update:install$|^vibe:backup:setPassword$|^vibe:cline:setUsageKey$|^vibe:files:open$|^vibe:plugins:/
 const REMOTE_SETTINGS = ['remoteAccess', 'remotePort', 'remoteReadOnly'] as const
 
 export interface CallCheck {
@@ -326,6 +326,8 @@ export function checkRemoteCall(channel: string, args: unknown[], readOnly: bool
           ? 'The Cline API key is entered on the computer running Starwright.'
           : channel === 'vibe:files:open'
             ? 'Files open in their program on the computer running Starwright.'
+            : channel.startsWith('vibe:plugins:')
+              ? 'Plugins are approved and opened on the computer running Starwright, for now.'
             : 'Remote access settings can only be changed on the computer running Starwright.'
     }
   }

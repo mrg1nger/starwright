@@ -2,6 +2,42 @@
 
 The version goes up with each improvement that ships: the middle number for new features, the last for fixes only. Settings shows the version a computer is running. (Starwright was called VibeApp up to 0.10.0.)
 
+## 0.25.0 (2026-11-24)
+
+Plugins, part 1: add things to Starwright that it doesn't have, starting with dashboards. You, Claude or Codex can write them, and Starwright comes with one: **Project Pulse**.
+
+- **🧩 Plugins sits beside Preview, Notes and Files.** It lists the project's own plugins (`.starwright/plugins/<name>` in the project, so they go into git with it) and the plugins for every project (Starwright's `plugins` folder).
+- **What a plugin is:** a folder with a `plugin.json` (name, version, description, what it asks for, and its panels) and the pages it shows. Its `plugin.json` is checked, and a plugin with problems says what's wrong. `docs/plugins.md` explains how to write one.
+- **Nothing runs until you approve it,** and only on the computer running Starwright. The approval screen lists what the plugin asks for in plain words. What you approve is a fingerprint of all its files as you saw them, so if any file changes, or it asks for something new, it won't open until you approve it again, with anything new marked. A plugin can be turned off and on again without losing its approval.
+- **A panel runs in a locked-down frame.** It gets the files you approved, copied when it opens, from an address of its own (`starwright-plugin://`). It has no internet, no other sites, no pop-ups or forms, and no way into Starwright's page, your keys or settings, or the rest of the computer.
+- **A panel reaches Starwright only through `window.starwright`,** and each call is checked against the plugin's permissions:
+  - reading this project's files (never files that usually hold keys, and nothing outside the project)
+  - its own small store of data (1 MB for each project)
+  - reading Starwright's records for this project: requests and how they ended, tokens by agent, hand-offs, and scheduled runs
+- **Panels follow the theme.** They get Starwright's colours and font as CSS variables, which update when the theme changes.
+- **Project Pulse** (in "Add the Project Pulse example") shows, for the last 7, 30 or 90 days:
+  - requests and how many were done
+  - requests each day, as a chart you can hover for details
+  - tokens by agent, read and written
+  - hand-offs by agent, with the models used and how many were done
+  - each scheduled run's last result
+  - how many files changed since the last checkpoint
+
+  It remembers the range you chose. It's drawn without any library, because a panel can't load anything from the internet.
+- **Not yet:** commands, buttons, hooks and schedules for plugins (part 2), tools for Claude and Codex to create, check and reload plugins, and plugins over Remote (part 3). From a phone or browser, the pane says plugins open on the computer for now.
+
+## 0.24.0 (2026-11-24)
+
+Memory learns which facts go together, so finding one brings along the others it's usually needed with.
+
+- **Facts that keep mattering in the same requests are linked.** Two facts count as mattering together when both were written during one request (by Claude, Codex, Cline or the note-taker) or when both are about files the request changed. A file that a lot of facts are about (more than 8, like a big shared file) doesn't link them, because changing it says little about which facts belong together. A request that was stopped or ended in an error doesn't count.
+- **A pair needs to matter together at least twice before it counts.** A request where a handful of facts mattered counts fully for each pair. One where many did counts less for each pair, and past 24 facts it isn't counted. Links fade by half every 60 days without counting again, and the faintest are removed.
+- **Being shown together doesn't link facts.** Being attached to a request or turning up in a search doesn't count, so facts aren't linked just because they were shown together, which would then get them shown together more.
+- **A fact found for a request brings up to three partners along**, even when they're worded nothing like the request. For example, "how do we release?" also gets "the build fails unless ELECTRON_RUN_AS_NODE is cleared". The agent is told that each one was brought along and which fact it came with. An agent's own memory search adds up to two partners of its top three results. Key facts neither bring partners nor come along, because they're in every request already.
+- **Links follow a fact through changes.** A fact that's corrected, merged in a tidy-up or replaced by a newer one keeps its links. Deleting a fact removes its links, and erasing a project removes all of its links.
+- **The Memory screen shows a fact's partners** on a 🔗 "Often needed with" line.
+- **Measured on the memory search evaluation.** Ten requests were each worded like only one fact of a pair. Without links, one got both facts attached. With links, four did: every request that found the first fact also got its partner. Agent searches still put the right answer in the first five 93% of the time, the other requests' attachments didn't get worse (19 → 20 of 60 right), and off-topic messages still get nothing.
+
 ## 0.23.0 (2026-11-23)
 
 A Files pane: look through the project's files without leaving the chat.

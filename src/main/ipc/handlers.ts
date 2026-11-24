@@ -90,6 +90,7 @@ import {
 import {
   GLOBAL_SCOPE,
   listFacts,
+  withGoesWith,
   rememberFact,
   updateFact,
   forgetFact,
@@ -101,7 +102,7 @@ import {
 import { searchStatus } from '../memory/meaning'
 import { memoryDb, memoryDbPath, memoryServerScriptPath } from '../memory/paths'
 import { tidyMemory, maybeTidy } from '../memory/tidy'
-import { noteRequestChanges } from '../memory/links'
+import { noteFactsUsedTogether, noteRequestChanges } from '../memory/links'
 import { maybeRefreshCodeMap } from '../memory/codeMap'
 import {
   ensureHistoryImported,
@@ -631,7 +632,7 @@ export function registerIpcHandlers(getSender: () => WebContents | undefined): v
       const relevant = await prefetchBlock(projectId, text)
       // First request in a project: start mapping the code now, in the background.
       maybeRefreshCodeMap(projectId, projectPath)
-      turnRecords.set(projectId, { request: text, replies: [], actions: [], commands: [], stopped: false, hadError: false })
+      turnRecords.set(projectId, { request: text, replies: [], actions: [], commands: [], stopped: false, hadError: false, startedAt: new Date().toISOString() })
       lastRequests.set(projectId, { text, element, images: prepared.map((p) => p.savedPath), snapshot })
       const message = [
         carried,
@@ -880,7 +881,7 @@ export function registerIpcHandlers(getSender: () => WebContents | undefined): v
   ipc.handle(
     'vibe:memory:list',
     (_event, projectId: string, scope: MemoryScope, includeForgotten?: boolean) =>
-      listFacts(memoryDb(), scopeKey(scope, projectId), !!includeForgotten)
+      withGoesWith(memoryDb(), listFacts(memoryDb(), scopeKey(scope, projectId), !!includeForgotten))
   )
 
   ipc.handle(
@@ -2172,10 +2173,20 @@ function wireSessionEvents(
         }
         // What the request changed counts against the facts about those files (they may be out of date now).
         const changed = path ? noteRequestChanges(projectId, path, lastRequests.get(projectId)?.snapshot) : Promise.resolve([])
+        // Facts that mattered in this request together are linked, once the note-taker has saved its own.
+        const linkFacts = (files: string[]): void => {
+          if (finished && !finished.stopped && !finished.hadError) noteFactsUsedTogether(projectId, finished.startedAt, files)
+        }
         if (finished && getSettings().autoMemory) {
           // On Cline when it's set up, otherwise Haiku if Claude has room.
           Promise.all([helpersAllowed(), changed])
-            .then(([allowed, files]) => (allowed ? runScribe(projectId, { ...finished, files, projectPath: path }) : undefined))
+            .then(async ([allowed, files]) => {
+              try {
+                if (allowed) await runScribe(projectId, { ...finished, files, projectPath: path })
+              } finally {
+                linkFacts(files)
+              }
+            })
             .catch((err: Error) => console.warn('Saving memory failed:', err.message))
             .finally(() => {
               if (path) syncAgentsFile(projectId, path)
@@ -2184,6 +2195,7 @@ function wireSessionEvents(
               if (path) maybeRefreshBrief(projectId, path)
             })
         } else {
+          void changed.then(linkFacts)
           if (path) syncAgentsFile(projectId, path)
           maybeTidy(projectId)
           maybeTidy(GLOBAL_SCOPE)

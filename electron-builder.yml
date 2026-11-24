@@ -26,6 +26,8 @@ files:
 extraResources:
   - from: resources/models
     to: models
+  - from: resources/plugins
+    to: plugins
 asarUnpack:
   - '**/node_modules/node-pty/**/*'
   - '**/node_modules/@anthropic-ai/**/*'

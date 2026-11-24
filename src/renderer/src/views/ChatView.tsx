@@ -24,6 +24,7 @@ import PreviewPane from '../components/PreviewPane'
 import ProjectTerminal from '../components/ProjectTerminal'
 import NotesPane from '../components/NotesPane'
 import FilesPane from '../components/FilesPane'
+import PluginsPane from '../components/PluginsPane'
 import DeployDialog from '../components/DeployDialog'
 import ScheduleDialog from '../components/ScheduleDialog'
 import GitHubSyncBanner from '../components/GitHubSyncBanner'
@@ -230,18 +231,18 @@ function readModePref(): ChatMode {
   }
 }
 
-type SidePane = 'preview' | 'notes' | 'files'
+type SidePane = 'preview' | 'notes' | 'files' | 'plugins'
 
 function readSidePref(): SidePane {
   try {
     const saved = localStorage.getItem(SIDE_PREF_KEY)
-    return saved === 'notes' || saved === 'files' ? saved : 'preview'
+    return saved === 'notes' || saved === 'files' || saved === 'plugins' ? saved : 'preview'
   } catch {
     return 'preview'
   }
 }
 
-const SIDE_NAMES: Record<SidePane, string> = { preview: 'preview', notes: 'notes', files: 'files' }
+const SIDE_NAMES: Record<SidePane, string> = { preview: 'preview', notes: 'notes', files: 'files', plugins: 'plugins' }
 
 /** How wide the chat is beside the preview or notes (percent of the space), dragged on the divider. */
 const CHAT_WIDTH_KEY = 'vibeapp.chatWidth'
@@ -1236,6 +1237,13 @@ function ChatView({ project, onBack, onOpenHistory, onOpenMemory, onError, think
             >
               📁 Files
             </button>
+            <button
+              className={showPreview && sidePane === 'plugins' ? 'active' : ''}
+              onClick={() => toggleSide('plugins')}
+              title="Plugins: dashboards and add-ons for this project, made by you, Claude or Codex"
+            >
+              🧩 Plugins
+            </button>
           </span>
         )}
         {headerCompact && (
@@ -1275,6 +1283,13 @@ function ChatView({ project, onBack, onOpenHistory, onOpenMemory, onError, think
                 title="This project's files, to look through"
               >
                 📁 Files
+              </button>
+              <button
+                className={showPreview && sidePane === 'plugins' ? 'active' : ''}
+                onClick={() => toggleSide('plugins')}
+                title="Plugins: dashboards and add-ons for this project, made by you, Claude or Codex"
+              >
+                🧩 Plugins
               </button>
             </>
           )}
@@ -1971,6 +1986,7 @@ function ChatView({ project, onBack, onOpenHistory, onOpenMemory, onError, think
           {sidePane === 'files' && (
             <FilesPane projectId={project.id} refreshToken={refreshToken} onMention={mentionFile} />
           )}
+          {sidePane === 'plugins' && <PluginsPane projectId={project.id} />}
           <div
             className={`terminal-drawer${terminalOpen ? ' open' : ''}${termResizing ? ' resizing' : ''}`}
             style={terminalOpen ? { height: terminalHeight } : undefined}

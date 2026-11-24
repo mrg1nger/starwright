@@ -255,6 +255,7 @@ function MemoryView({ project, onBack, onError }: MemoryViewProps) {
           {fact.forgottenAt ? ` · forgotten ${shortDate(fact.forgottenAt)}${fact.forgottenReason ? ` (${fact.forgottenReason})` : ''}` : ''}
         </span>
         {fact.forgottenAt && factText(fact.replacedBy) && <span className="memory-meta">Replaced by: {factText(fact.replacedBy)}</span>}
+        {!fact.forgottenAt && <GoesWith texts={(fact.goesWith ?? []).flatMap((id) => factText(id) ?? [])} />}
       </div>
       <div className="memory-row-actions">
         {fact.forgottenAt ? (
@@ -446,3 +447,18 @@ function MemoryView({ project, onBack, onError }: MemoryViewProps) {
 }
 
 export default MemoryView
+
+/** The facts one keeps mattering together with (strongly linked), which come along when it is found. */
+function GoesWith({ texts }: { texts: string[] }) {
+  if (!texts.length) return null
+  const clip = (t: string): string => (t.length > 90 ? `${t.slice(0, 89)}…` : t)
+  return (
+    <span
+      className="memory-meta memory-goes-with"
+      title="These kept mattering in the same requests (written together, or about the files a request changed). When this fact is found for a request, they come along."
+    >
+      🔗 Often needed with: {texts.slice(0, 2).map(clip).join(' · ')}
+      {texts.length > 2 ? ` and ${texts.length - 2} more` : ''}
+    </span>
+  )
+}

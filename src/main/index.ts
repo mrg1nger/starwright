@@ -1,9 +1,11 @@
-import { app, shell, BrowserWindow } from 'electron'
+import { app, shell, BrowserWindow, protocol } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { registerIpcHandlers } from './ipc/handlers'
 import { broadcaster } from './remote/bus'
 import { registerRemoteHandlers } from './remote/ipc'
+import { registerPluginHandlers } from './plugins/ipc'
+import { PANEL_SCHEME, panelResponse } from './plugins/registry'
 import { applyRemoteSettings, stopRemote } from './remote/server'
 import { stopAllPreviews } from './preview/preview'
 import { stopLeftoverPreviews } from './preview/leftovers'
@@ -114,6 +116,10 @@ if (process.env.VIBEAPP_USER_DATA) app.setPath('userData', process.env.VIBEAPP_U
 // Starwright: pinned here so a display name in package.json can never move it.
 else app.setPath('userData', join(app.getPath('appData'), 'vibeapp'))
 
+// Plugin panels load from starwright-plugin://<token>/..., a scheme of their own: the panel's files
+// as approved, with a policy that lets them reach nothing else (plugins/registry.ts).
+protocol.registerSchemesAsPrivileged([{ scheme: PANEL_SCHEME, privileges: { standard: true, secure: true } }])
+
 // One VibeApp at a time (per data folder): a second copy would start its own
 // Remote access server on the same port. Starting it again opens the window.
 const firstCopy = app.requestSingleInstanceLock()
@@ -148,6 +154,11 @@ app.whenReady().then(() => {
   const toScreens = broadcaster(() => currentWindow?.webContents)
   registerIpcHandlers(toScreens)
   registerRemoteHandlers()
+  registerPluginHandlers()
+  protocol.handle(PANEL_SCHEME, (request) => {
+    const answer = panelResponse(request.url)
+    return new Response(new Uint8Array(answer.body), { status: answer.status, headers: answer.headers })
+  })
   // New versions on GitHub Releases (a banner when there's one).
   startUpdateChecks((channel, ...args) => toScreens()?.send(channel, ...args))
   // New versions of Codex and Cline (and the built-in Claude SDK): a notice, never an install.

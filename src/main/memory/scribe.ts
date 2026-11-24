@@ -5,6 +5,7 @@ import { memoryDb } from './paths'
 import { recentNotableCommands } from './commands'
 import {
   carryFactFiles,
+  carryFactLinks,
   forgetFact,
   getFact,
   GLOBAL_SCOPE,
@@ -38,6 +39,8 @@ export interface TurnRecord {
   /** The project files the request changed, for linking what is saved to them. */
   files?: string[]
   projectPath?: string
+  /** When the request started: facts written since then mattered in it. */
+  startedAt?: string
 }
 
 export interface ScribeResult {
@@ -230,6 +233,7 @@ async function scribe(projectId: string, turn: TurnRecord): Promise<ScribeResult
     const saved = rememberFact(db, row.scope, item.text, 'scribe', { category: old.category, key: old.key }).fact
     db.prepare('UPDATE facts SET replaced_by = ? WHERE id = ? AND id != ?').run(saved.id, item.id, saved.id)
     carryFactFiles(db, item.id, saved.id)
+    carryFactLinks(db, item.id, saved.id)
     link(saved.id, saved.text, item.files, row.scope)
     written.push(item.text)
     result.updated++

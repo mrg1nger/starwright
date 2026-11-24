@@ -53,6 +53,7 @@ import type {
   ToolVersions,
   LiveUsageUpdate
 } from '@shared/types'
+import type { OpenedPanel, PluginInfo, PluginList } from '@shared/plugins'
 import type { ScheduleInput } from '@shared/schedule'
 
 // Everything the screens can ask of the app, as one definition shared by the
@@ -490,6 +491,18 @@ export function createVibeApi(ipcRenderer: IpcLike, host: 'electron' | 'browser'
     },
 
     /** The Files pane: the project's files, read-only. */
+    plugins: {
+      list: (projectId: string): Promise<PluginList> => ipcRenderer.invoke('vibe:plugins:list', projectId),
+      /** `hash` is the fingerprint shown when you looked: a plugin changed since isn't approved. */
+      approve: (projectId: string, key: string, hash: string): Promise<PluginInfo> => ipcRenderer.invoke('vibe:plugins:approve', projectId, key, hash),
+      setOff: (projectId: string, key: string, off: boolean): Promise<PluginInfo> => ipcRenderer.invoke('vibe:plugins:setOff', projectId, key, off),
+      addExample: (): Promise<void> => ipcRenderer.invoke('vibe:plugins:addExample'),
+      openPanel: (projectId: string, key: string, panelId: string): Promise<OpenedPanel> => ipcRenderer.invoke('vibe:plugins:openPanel', projectId, key, panelId),
+      closePanel: (token: string): Promise<void> => ipcRenderer.invoke('vibe:plugins:closePanel', token),
+      /** A call from an open panel (its token), answered within its plugin's permissions. */
+      call: (token: string, method: string, args: unknown[]): Promise<unknown> => ipcRenderer.invoke('vibe:plugins:call', token, method, args),
+      openFolder: (projectId: string, which: 'project' | 'global'): Promise<void> => ipcRenderer.invoke('vibe:plugins:openFolder', projectId, which)
+    },
     files: {
       list: (projectId: string): Promise<ProjectFileList> => ipcRenderer.invoke('vibe:files:list', projectId),
       read: (projectId: string, path: string): Promise<ProjectFileContent> => ipcRenderer.invoke('vibe:files:read', projectId, path),

@@ -2,12 +2,28 @@ import { readFileSync } from 'fs'
 import { join } from 'path'
 import { changesSince } from '../git/snapshots'
 import { memoryDb } from './paths'
-import { linkFactFiles, linkNamedFiles, listCodeFiles, namedFiles, noteFileChanges } from './store'
+import { factsThatMattered, linkFactFiles, linkNamedFiles, listCodeFiles, namedFiles, noteFileChanges, strengthenLinks } from './store'
 
 // Which files each fact is about, kept up to date from the app's side (store.ts keeps the
 // links). The note-taker links what it saves to the files the request changed; any fact that
 // names a mapped file is linked to it; and every request's changes are counted against the
 // facts about those files, so a fact whose files changed a lot can be marked "may be out of date".
+
+/**
+ * Links the project's facts that mattered in a request that ended properly: written since it
+ * started, or about the files it changed (see "facts that go together" in store.ts). Run after
+ * the note-taker, so what it saved counts too. Returns the pairs linked. Never throws.
+ */
+export function noteFactsUsedTogether(projectId: string, since: string | undefined, changed: string[]): number {
+  if (!since) return 0
+  try {
+    const db = memoryDb()
+    return strengthenLinks(db, projectId, factsThatMattered(db, projectId, since, changed))
+  } catch (err) {
+    console.warn('Linking the facts used together failed:', (err as Error).message)
+    return 0
+  }
+}
 
 /** Lines in a project file now (0 if it can't be read). */
 export function lineCount(projectPath: string, path: string): number {

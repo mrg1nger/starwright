@@ -5,9 +5,11 @@ import { searchModelFolder } from './paths'
 import {
   codeText,
   comparesVectorsInDatabase,
+  factsByIds,
   factsMissingVectors,
   filesMissingVectors,
   GLOBAL_SCOPE,
+  linkPartners,
   markUsed,
   nearestCode,
   nearestFacts,
@@ -41,6 +43,37 @@ export const CLOSE = 0.84
 export const NEAR = 0.8
 
 export const attaches = (similarity: number, keywordToo: boolean): boolean => similarity >= CLOSE || (keywordToo && similarity >= NEAR)
+
+/** Facts a request's facts may bring along (strongly linked, see "facts that go together" in store.ts), and an agent's search. */
+export const PARTNERS_PER_REQUEST = 3
+export const PARTNERS_PER_SEARCH = 2
+
+/** A fact found for a request; `cameWith` is set when it came along with another one (its id). */
+export type AttachedFact = MemoryFact & { cameWith?: string }
+
+/**
+ * The found facts, then up to `limit` facts strongly linked to them (the first `seeds` of them) that weren't found, each
+ * saying which found fact it came with. Key facts neither bring partners nor come along (they are
+ * in every request's instructions already). Partners count as looked up. Never throws.
+ */
+export function withPartners(db: DatabaseSync, projectId: string, found: MemoryFact[], limit: number, seeds = found.length): AttachedFact[] {
+  try {
+    const from = found.slice(0, seeds).filter((f) => !f.key).map((f) => f.id)
+    const partners = linkPartners(db, from, new Set(found.map((f) => f.id)), limit * 3)
+    const facts = new Map(factsByIds(db, projectId, partners.map((p) => p.id)).map((f) => [f.id, f]))
+    const extra = partners
+      .flatMap((p) => {
+        const fact = facts.get(p.id)
+        return fact && !fact.key ? [{ ...fact, cameWith: p.with }] : []
+      })
+      .slice(0, limit)
+    markUsed(db, extra.map((f) => f.id))
+    return [...found, ...extra]
+  } catch (err) {
+    console.warn('Finding the facts that go with these failed:', (err as Error).message)
+    return found
+  }
+}
 
 /** A search waits this long for missing vectors (a handful of new facts), then uses keywords this once. */
 const WAIT_FOR_VECTORS_MS = 1200
@@ -183,20 +216,24 @@ function keywordInstead(what: string, err: unknown): void {
   console.warn(`${what} by meaning failed, searching by keyword instead:`, (err as Error).message)
 }
 
-/** A search an agent asked for (the recall tool): the best matches in this project and the global facts. */
-export async function recallFacts(db: DatabaseSync, projectId: string, text: string, limit = 10): Promise<MemoryFact[]> {
+/**
+ * A search an agent asked for (the recall tool): the best matches in this project and the global
+ * facts, then up to PARTNERS_PER_SEARCH facts that go with the first three.
+ */
+export async function recallFacts(db: DatabaseSync, projectId: string, text: string, limit = 10): Promise<AttachedFact[]> {
+  let found: MemoryFact[] | undefined
   try {
     const r = await ready(db, projectId, text)
     if (r) {
       const near = nearestFacts(db, projectId, r.model, r.question, limit).map((n) => n.fact)
-      const found = withExactMatch(near, searchFacts(db, projectId, text, 1, false)[0], (f) => f.id, limit)
+      found = withExactMatch(near, searchFacts(db, projectId, text, 1, false)[0], (f) => f.id, limit)
       markUsed(db, found.map((f) => f.id))
-      return found
     }
   } catch (err) {
     keywordInstead('Searching memory', err)
   }
-  return searchFacts(db, projectId, text, limit)
+  found ??= searchFacts(db, projectId, text, limit)
+  return withPartners(db, projectId, found, PARTNERS_PER_SEARCH, 3)
 }
 
 /** The where tool: the mapped files that best fit the question. */
@@ -215,23 +252,25 @@ export async function findCode(db: DatabaseSync, projectId: string, text: string
 
 /**
  * Facts to put in front of an agent with a request, so it needn't search: only those close
- * enough in meaning (see CLOSE and NEAR), and never key facts (they are in its instructions already).
+ * enough in meaning (see CLOSE and NEAR), and never key facts (they are in its instructions
+ * already); then up to PARTNERS_PER_REQUEST facts that go with them.
  */
-export async function factsForRequest(db: DatabaseSync, projectId: string, text: string, limit = 5): Promise<MemoryFact[]> {
+export async function factsForRequest(db: DatabaseSync, projectId: string, text: string, limit = 5): Promise<AttachedFact[]> {
+  let found: MemoryFact[] | undefined
   try {
     const r = await ready(db, projectId, text)
     if (r) {
       const keyword = new Set(relevantFacts(db, projectId, text, limit, false).map((f) => f.id))
-      const found = nearestFacts(db, projectId, r.model, r.question, limit, true)
+      found = nearestFacts(db, projectId, r.model, r.question, limit, true)
         .filter((n) => attaches(n.similarity, keyword.has(n.fact.id)))
         .map((n) => n.fact)
       markUsed(db, found.map((f) => f.id))
-      return found
     }
   } catch (err) {
     keywordInstead('Finding facts for the request', err)
   }
-  return relevantFacts(db, projectId, text, limit)
+  found ??= relevantFacts(db, projectId, text, limit)
+  return withPartners(db, projectId, found, PARTNERS_PER_REQUEST)
 }
 
 /** Files to put in front of an agent with a request, chosen the same way. */

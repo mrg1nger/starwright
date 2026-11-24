@@ -473,6 +473,142 @@ try {
     }
   })
 
+  await step('a plugin needs approving, then its panel opens in a locked-down frame and reads the project through the API', async () => {
+    const pane = `document.querySelector('.plugins-pane')?.innerText ?? ''`
+    try {
+      await click('Plugins', '.chat-header button')
+      await waitFor(`/No plugins yet/.test(${pane})`, 'the empty plugin list', 10_000)
+      await click('Add the Project Pulse example', '.plugins-pane button')
+      await waitFor(`/Needs your approval/.test(${pane})`, 'the example, waiting for approval', 10_000)
+      const asking = await evaluate(pane)
+      if (!/Read Starwright's records/.test(asking) || !/Read this project's files/.test(asking) || !/no internet/.test(asking)) {
+        throw new Error(`the approval doesn't say what it asks for: ${asking}`)
+      }
+      const early = await evaluate(`window.vibe.plugins.openPanel(${JSON.stringify(PROJECT_ID)}, 'global:project-pulse', 'pulse').then(() => 'opened', (e) => e.message)`)
+      if (!/needs approving/.test(early)) throw new Error(`opened before it was approved: ${early}`)
+      await shot('plugin-approval')
+      // A few days of records for it to show.
+      {
+        const { DatabaseSync } = await import('node:sqlite')
+        const db = new DatabaseSync(join(data, 'memory.db'))
+        try {
+          const day = (n, h) => new Date(Date.now() - n * 86400000 - h * 3600000).toISOString()
+          const request = db.prepare("INSERT INTO request_log (at, project_id, mode, text, outcome, seconds) VALUES (?, ?, 'build', ?, ?, 30)")
+          const use = db.prepare('INSERT INTO usage_log (at, project_id, kind, agent, model, fresh, cached, output) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+          for (const [n, outcome] of [[0, 'done'], [0, 'done'], [1, 'stopped'], [3, 'done'], [3, 'error'], [3, 'done']]) {
+            request.run(day(n, 1), PROJECT_ID, 'pulse e2e request', outcome)
+            use.run(day(n, 1), PROJECT_ID, 'turn', 'claude', 'sonnet', 4000, 60000, 1500)
+          }
+          use.run(day(1, 2), PROJECT_ID, 'handoff', 'codex', 'gpt-5.5', 20000, 90000, 6000)
+          const handoff = db.prepare("INSERT INTO handoffs (project_id, agent, brief, status, started_at, finished_at, files, model) VALUES (?, ?, 'pulse e2e', ?, ?, ?, '[\"a.js\"]', ?)")
+          handoff.run(PROJECT_ID, 'codex', 'done', day(1, 2), day(1, 1), 'gpt-5.5')
+          handoff.run(PROJECT_ID, 'cline', 'failed', day(3, 2), day(3, 1), 'qwen3.6-plus')
+        } finally {
+          db.close()
+        }
+      }
+      await click('Approve', '.plugin-approval button')
+      await click('Open Pulse', '.plugin-actions button')
+      await waitFor(`document.querySelector('iframe.plugin-frame')?.getAttribute('sandbox') === 'allow-scripts'`, 'the sandboxed frame', 10_000)
+
+      // Inside the frame: its own page (a frame of its own in DevTools, or reached through the main page).
+      let frame = null
+      for (let i = 0; i < 20 && !frame; i++) {
+        frame = await attach((t) => (t.url ?? '').startsWith('starwright-plugin://')).catch(() => null)
+        if (!frame) {
+          const tree = await cdp('Page.getFrameTree')
+          const child = (tree.result?.frameTree?.childFrames ?? []).find((f) => f.frame.url.startsWith('starwright-plugin://'))
+          if (child) {
+            const world = await cdp('Page.createIsolatedWorld', { frameId: child.frame.id, worldName: 'e2e' })
+            const contextId = world.result?.executionContextId
+            if (contextId) {
+              frame = {
+                async evaluate(expression) {
+                  const m = await cdp('Runtime.evaluate', { expression, contextId, returnByValue: true, awaitPromise: true })
+                  if (m.result?.exceptionDetails) throw new Error(m.result.exceptionDetails.exception?.description ?? 'evaluate failed')
+                  return m.result?.result?.value
+                },
+                close: () => undefined,
+                isolated: true
+              }
+            }
+          }
+        }
+        if (!frame) await sleep(500)
+      }
+      if (!frame) throw new Error("couldn't reach the plugin's frame")
+      try {
+        await waitFor(`/^Updated/.test(document.getElementById('status')?.textContent ?? '')`, 'Pulse to read the records', 15_000, frame)
+        const seen = await frame.evaluate(`({
+          title: document.getElementById('title').textContent,
+          tiles: document.querySelectorAll('.tile').length,
+          bars: document.querySelectorAll('#per-day .hit').length,
+          drawn: document.querySelectorAll('#per-day path.bar').length,
+          requests: document.querySelector('.tile .value')?.textContent,
+          agents: [...document.querySelectorAll('#handoffs tbody tr')].map((r) => r.cells[0].textContent),
+          tokenRows: document.querySelectorAll('#tokens .hbar').length,
+          bg: getComputedStyle(document.documentElement).getPropertyValue('--sw-bg').trim(),
+          theme: document.documentElement.dataset.theme
+        })`)
+        if (seen.title !== 'Project Pulse · e2e-game') throw new Error(`the title: ${seen.title}`)
+        if (seen.tiles !== 5 || seen.bars !== 30 || seen.drawn !== 3 || seen.requests !== '6' || seen.tokenRows !== 2 || seen.agents.length !== 2) {
+          throw new Error(`what Pulse drew: ${JSON.stringify(seen)}`)
+        }
+        if (!seen.bg || !seen.theme) throw new Error(`the theme didn't reach the panel: ${JSON.stringify(seen)}`)
+        if (frame.isolated) console.log('    (frame reached through the main page: the network and parent checks are skipped)')
+        else {
+          // Locked down: no network, and Starwright's page is out of reach.
+          const net = await frame.evaluate(`fetch('https://example.com/').then(() => 'fetched', () => 'blocked')`)
+          if (net !== 'blocked') throw new Error('the panel reached the internet')
+          const parent = await frame.evaluate(`(() => { try { return window.parent.document.title || 'read' } catch { return 'blocked' } })()`)
+          if (parent !== 'blocked') throw new Error("the panel read Starwright's page")
+          const api = await frame.evaluate(`typeof window.vibe`)
+          if (api !== 'undefined') throw new Error("the panel has Starwright's own API")
+        }
+        await frame.evaluate(`window.scrollTo(0, document.body.scrollHeight)`)
+        await shot('plugin-pulse-tables')
+        await frame.evaluate(`window.scrollTo(0, 0)`)
+        // Remembers the range it was on (its storage), across opening again.
+        await frame.evaluate(`document.querySelector('[data-days="7"]').click()`)
+        await sleep(800)
+      } finally {
+        frame.close()
+      }
+      await shot('plugin-pulse')
+      await click('↻', '.plugins-pane .files-bar button')
+      let again = null
+      for (let i = 0; i < 20 && !again; i++) {
+        again = await attach((t) => (t.url ?? '').startsWith('starwright-plugin://')).catch(() => null)
+        if (!again) await sleep(500)
+      }
+      if (!again) throw new Error("couldn't reach the reopened panel")
+      try {
+        await waitFor(`document.querySelector('[data-days="7"]')?.getAttribute('aria-pressed') === 'true'`, 'the range it was on', 10_000, again)
+      } finally {
+        again.close()
+      }
+      await click('← Plugins', '.plugins-pane button')
+      await click('Turn off', '.plugin-actions button')
+      await waitFor(`/Turned off/.test(${pane})`, 'the plugin turned off', 10_000)
+    } finally {
+      {
+        // The records made up for it go again: later steps count the real ones.
+        const { DatabaseSync } = await import('node:sqlite')
+        const db = new DatabaseSync(join(data, 'memory.db'))
+        try {
+          db.prepare("DELETE FROM request_log WHERE project_id = ? AND text = 'pulse e2e request'").run(PROJECT_ID)
+          db.prepare("DELETE FROM usage_log WHERE project_id = ? AND ((fresh = 4000 AND cached = 60000) OR (fresh = 20000 AND cached = 90000))").run(PROJECT_ID)
+          db.prepare("DELETE FROM handoffs WHERE project_id = ? AND brief = 'pulse e2e'").run(PROJECT_ID)
+        } finally {
+          db.close()
+        }
+      }
+      rmSync(join(data, 'plugins'), { recursive: true, force: true })
+      rmSync(join(data, 'plugins-approved.json'), { force: true })
+      await click('Preview', '.chat-header button').catch(() => undefined)
+    }
+  })
+
   await step('an error in the page shows the "Something broke" banner', async () => {
     if (!preview) throw new Error('no preview page')
     writeFileSync(join(project, 'index.html'), PAGE.replace('</body>', '<script>throw new Error("e2e boom")</script></body>'))
@@ -1709,6 +1845,37 @@ try {
     await waitFor(`!/Project brief/.test(document.body.innerText)`, 'the all-projects memory', 10_000)
     await click('← Back', '.chat-header button')
     await waitFor(`!!document.querySelector('textarea.chat-input')`, 'the chat again')
+  })
+
+  await step('two facts that kept mattering together show it on the Memory screen', async () => {
+    const add = (text) => evaluate(`window.vibe.memory.add(${JSON.stringify(PROJECT_ID)}, 'project', ${JSON.stringify(text)}, 'setup', false).then((f) => f.id)`)
+    const release = await add('Releases are published with the release script once the version is bumped.')
+    const gotcha = await add('The build fails unless ELECTRON_RUN_AS_NODE is cleared first.')
+    const alone = await add('The score table is reset every month.')
+    // As two requests would leave it: both facts mattered in each (see "facts that go together" in store.ts).
+    const { DatabaseSync } = await import('node:sqlite')
+    const db = new DatabaseSync(join(data, 'memory.db'))
+    try {
+      const [a, b] = [release, gotcha].sort()
+      db.prepare('INSERT INTO fact_links (project_id, a, b, weight, times, last_at) VALUES (?, ?, ?, 2, 2, ?)').run(PROJECT_ID, a, b, new Date().toISOString())
+    } finally {
+      db.close()
+    }
+    try {
+      await click('🧠 Memory', '.chat-header-actions button')
+      // By the fact's own text: a row's "Often needed with" line quotes its partner's.
+      const rowOf = (id) =>
+        `[...document.querySelectorAll('.memory-row')].find((r) => r.querySelector('.memory-text')?.textContent.includes(${JSON.stringify(id === release ? 'release script' : id === gotcha ? 'ELECTRON_RUN_AS_NODE' : 'score table')}))`
+      await waitFor(`/Often needed with: The build fails/.test(${rowOf(release)}?.innerText ?? '')`, 'the release fact to name its partner', 15_000)
+      if (!/Often needed with: Releases are published/.test(await evaluate(`${rowOf(gotcha)}?.innerText ?? ''`))) throw new Error('the partner does not name the release fact')
+      if (/Often needed with/.test(await evaluate(`${rowOf(alone)}?.innerText ?? ''`))) throw new Error('a fact with no links says it has some')
+      await evaluate(`${rowOf(release)}?.scrollIntoView({ block: 'center' })`)
+      await shot('memory-goes-with')
+      await click('← Back', '.chat-header button')
+      await waitFor(`!!document.querySelector('textarea.chat-input')`, 'the chat again')
+    } finally {
+      for (const id of [release, gotcha, alone]) await evaluate(`window.vibe.memory.delete(${JSON.stringify(id)})`)
+    }
   })
 
   await step('nothing was saved to memory while automatic saving was off', async () => {

@@ -226,6 +226,24 @@ CREATE TRIGGER IF NOT EXISTS fact_files_au AFTER UPDATE OF text ON facts WHEN ol
   DELETE FROM fact_files WHERE fact_id = old.id AND gone_at IS NOT NULL;
   UPDATE fact_files SET churn = 0 WHERE fact_id = old.id;
 END;
+
+-- Facts that turned out to matter in the same requests (written in the same request, or about
+-- the files a request changed), so one can bring the other along. One row per pair, a < b; the
+-- weight fades with time since the pair last counted (see linkStrength).
+CREATE TABLE IF NOT EXISTS fact_links (
+  project_id TEXT NOT NULL,
+  a TEXT NOT NULL,
+  b TEXT NOT NULL,
+  weight REAL NOT NULL,
+  times INTEGER NOT NULL,
+  last_at TEXT NOT NULL,
+  PRIMARY KEY (a, b)
+);
+CREATE INDEX IF NOT EXISTS fact_links_b ON fact_links(b);
+CREATE INDEX IF NOT EXISTS fact_links_project ON fact_links(project_id);
+CREATE TRIGGER IF NOT EXISTS fact_links_ad AFTER DELETE ON facts BEGIN
+  DELETE FROM fact_links WHERE a = old.id OR b = old.id;
+END;
 `
 
 const databases = new Map<string, DatabaseSync>()
@@ -786,6 +804,193 @@ export function carryFactFiles(db: DatabaseSync, fromId: string, toId: string): 
     `INSERT OR IGNORE INTO fact_files (fact_id, path, lines, churn, gone_at, linked_at)
      SELECT ?, path, lines, 0, NULL, ? FROM fact_files WHERE fact_id = ? AND gone_at IS NULL`
   ).run(toId, now(), fromId)
+}
+
+// ---- facts that go together ------------------------------------------------------
+//
+// "Fire together, wire together": facts that keep mattering in the same requests are linked, and
+// a fact found for a request brings its strongest partners along, even when they aren't worded
+// like the request ("how do we release?" also gets "the build fails unless ELECTRON_RUN_AS_NODE
+// is cleared"). Only signs that a fact really mattered count: it was written during the request
+// (by an agent or the note-taker), or it is about a file the request changed. Being attached to
+// a request or turning up in a search doesn't: that would link facts because they were shown
+// together, and then show them together because they are linked.
+
+/** A link loses half its weight in this many days without counting again. */
+export const LINK_HALF_LIFE_DAYS = 60
+/** A link brings a partner along at this weight, once it has counted at least LINK_MIN_TIMES. */
+export const LINK_MIN_WEIGHT = 1.5
+export const LINK_MIN_TIMES = 2
+/** A request with more facts than this that mattered says little about which go together: skipped. */
+export const LINK_MAX_FACTS = 24
+/** A file more facts than this are about (a big shared file) doesn't link them: changing it says little. */
+export const LINK_HUB_FILE_FACTS = 8
+/** Links that have faded below this are removed. */
+const LINK_PRUNE_WEIGHT = 0.1
+
+const DAY_MS = 24 * 60 * 60 * 1000
+
+interface FactLinkRow {
+  a: string
+  b: string
+  weight: number
+  times: number
+  last_at: string
+}
+
+/** A link's weight now, after fading since it last counted. */
+export function linkStrength(weight: number, lastAt: string, at: number = Date.now()): number {
+  const days = Math.max(0, (at - Date.parse(lastAt)) / DAY_MS)
+  return weight * Math.pow(0.5, days / LINK_HALF_LIFE_DAYS)
+}
+
+const isStrong = (row: FactLinkRow, at: number): boolean => row.times >= LINK_MIN_TIMES && linkStrength(row.weight, row.last_at, at) >= LINK_MIN_WEIGHT
+
+/**
+ * The project's facts that mattered in a request: written (saved or reworded) since `since`, or
+ * about one of the `changed` files, unless that file has more than LINK_HUB_FILE_FACTS facts.
+ */
+export function factsThatMattered(db: DatabaseSync, projectId: string, since: string, changed: string[]): string[] {
+  const ids = new Set<string>()
+  const written = db
+    .prepare('SELECT id FROM facts WHERE scope = ? AND forgotten_at IS NULL AND (created_at >= ? OR updated_at >= ?)')
+    .all(projectId, since, since) as { id: string }[]
+  for (const r of written) ids.add(r.id)
+  const about = db.prepare(
+    `SELECT ff.fact_id AS id FROM fact_files ff JOIN facts f ON f.id = ff.fact_id
+     WHERE ff.path = ? AND ff.gone_at IS NULL AND f.scope = ? AND f.forgotten_at IS NULL`
+  )
+  for (const path of new Set(changed)) {
+    const facts = about.all(path, projectId) as { id: string }[]
+    if (facts.length <= LINK_HUB_FILE_FACTS) for (const r of facts) ids.add(r.id)
+  }
+  return [...ids]
+}
+
+/**
+ * Strengthens the link between every two of these facts (which mattered in one request). Each
+ * pair gains 1 when a handful of facts mattered, less when many did. Returns the pairs touched.
+ */
+export function strengthenLinks(db: DatabaseSync, projectId: string, factIds: string[], at: Date = new Date()): number {
+  const ids = [...new Set(factIds)].sort()
+  if (ids.length < 2 || ids.length > LINK_MAX_FACTS) return 0
+  const gain = Math.min(1, 3 / (ids.length - 1))
+  const atMs = at.getTime()
+  const iso = at.toISOString()
+  const get = db.prepare('SELECT a, b, weight, times, last_at FROM fact_links WHERE a = ? AND b = ?')
+  const put = db.prepare(
+    `INSERT INTO fact_links (project_id, a, b, weight, times, last_at) VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(a, b) DO UPDATE SET weight = excluded.weight, times = excluded.times, last_at = excluded.last_at`
+  )
+  let pairs = 0
+  transaction(db, () => {
+    for (let i = 0; i < ids.length; i++) {
+      for (let j = i + 1; j < ids.length; j++) {
+        const old = get.get(ids[i], ids[j]) as unknown as FactLinkRow | undefined
+        const weight = (old ? linkStrength(old.weight, old.last_at, atMs) : 0) + gain
+        put.run(projectId, ids[i], ids[j], weight, (old?.times ?? 0) + 1, iso)
+        pairs++
+      }
+    }
+    pruneLinks(db, projectId, atMs)
+  })
+  return pairs
+}
+
+/** Removes the project's links that have faded to almost nothing. */
+function pruneLinks(db: DatabaseSync, projectId: string, at: number): void {
+  // Only links that haven't counted for a while can have faded that far (a fresh one weighs at least 3/23).
+  const before = new Date(at - 30 * DAY_MS).toISOString()
+  const rows = db.prepare('SELECT a, b, weight, times, last_at FROM fact_links WHERE project_id = ? AND last_at < ?').all(projectId, before) as unknown as FactLinkRow[]
+  const drop = db.prepare('DELETE FROM fact_links WHERE a = ? AND b = ?')
+  for (const r of rows) if (linkStrength(r.weight, r.last_at, at) < LINK_PRUNE_WEIGHT) drop.run(r.a, r.b)
+}
+
+/** A fact said again under a new id (a correction) or merged into another keeps its links. */
+export function carryFactLinks(db: DatabaseSync, fromId: string, toId: string): void {
+  if (fromId === toId) return
+  const rows = db.prepare('SELECT project_id, a, b, weight, times, last_at FROM fact_links WHERE a = ? OR b = ?').all(fromId, fromId) as unknown as (FactLinkRow & {
+    project_id: string
+  })[]
+  const get = db.prepare('SELECT a, b, weight, times, last_at FROM fact_links WHERE a = ? AND b = ?')
+  const put = db.prepare(
+    `INSERT INTO fact_links (project_id, a, b, weight, times, last_at) VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(a, b) DO UPDATE SET weight = excluded.weight, times = excluded.times, last_at = excluded.last_at`
+  )
+  const at = Date.now()
+  for (const r of rows) {
+    const other = r.a === fromId ? r.b : r.a
+    if (other === toId) continue
+    const [a, b] = [toId, other].sort()
+    const old = get.get(a, b) as unknown as FactLinkRow | undefined
+    // Two links into one: their weights (as they are now) add up, and it counts from now.
+    const weight = linkStrength(r.weight, r.last_at, at) + (old ? linkStrength(old.weight, old.last_at, at) : 0)
+    put.run(r.project_id, a, b, weight, (old?.times ?? 0) + r.times, new Date(at).toISOString())
+  }
+}
+
+export interface Partner {
+  /** The partner fact's id. */
+  id: string
+  /** The found fact it is most strongly linked to. */
+  with: string
+  strength: number
+}
+
+/**
+ * The facts strongly linked to `seeds` (one step out), strongest first, leaving out `exclude`.
+ * A partner linked to several seeds adds their strengths up. Only ids: the caller reads the facts
+ * (and so leaves out forgotten ones and other projects').
+ */
+export function linkPartners(db: DatabaseSync, seeds: string[], exclude: Set<string>, limit: number, at: number = Date.now()): Partner[] {
+  if (!seeds.length || limit <= 0) return []
+  const stmt = db.prepare('SELECT a, b, weight, times, last_at FROM fact_links WHERE a = ? OR b = ?')
+  const found = new Map<string, Partner>()
+  for (const seed of seeds) {
+    for (const row of stmt.all(seed, seed) as unknown as FactLinkRow[]) {
+      if (!isStrong(row, at)) continue
+      const other = row.a === seed ? row.b : row.a
+      if (exclude.has(other) || seeds.includes(other)) continue
+      const strength = linkStrength(row.weight, row.last_at, at)
+      const known = found.get(other)
+      if (!known) found.set(other, { id: other, with: seed, strength })
+      else found.set(other, { id: other, with: strength > known.strength ? seed : known.with, strength: known.strength + strength })
+    }
+  }
+  return [...found.values()].sort((x, y) => y.strength - x.strength).slice(0, limit)
+}
+
+/** The facts with the ids of the facts each is strongly linked to (for the Memory screen). */
+export function withGoesWith(db: DatabaseSync, facts: MemoryFact[]): MemoryFact[] {
+  const links = strongLinksOf(db, facts.filter((f) => !f.forgottenAt).map((f) => f.id))
+  return facts.map((f) => (links.has(f.id) ? { ...f, goesWith: links.get(f.id) } : f))
+}
+
+/** For each of these facts, the ids of the facts it is strongly linked to, strongest first. */
+function strongLinksOf(db: DatabaseSync, ids: string[], at: number = Date.now()): Map<string, string[]> {
+  const out = new Map<string, { id: string; s: number }[]>()
+  if (!ids.length) return new Map()
+  const wanted = new Set(ids)
+  const rows: FactLinkRow[] = []
+  for (let i = 0; i < ids.length; i += 400) {
+    const chunk = ids.slice(i, i + 400)
+    const marks = chunk.map(() => '?').join(',')
+    rows.push(...(db.prepare(`SELECT a, b, weight, times, last_at FROM fact_links WHERE a IN (${marks}) OR b IN (${marks})`).all(...chunk, ...chunk) as unknown as FactLinkRow[]))
+  }
+  const seen = new Set<string>()
+  for (const r of rows) {
+    const pair = `${r.a}\n${r.b}`
+    if (seen.has(pair) || !isStrong(r, at)) continue
+    seen.add(pair)
+    const s = linkStrength(r.weight, r.last_at, at)
+    for (const [from, to] of [
+      [r.a, r.b],
+      [r.b, r.a]
+    ]) {
+      if (wanted.has(from)) out.set(from, [...(out.get(from) ?? []), { id: to, s }])
+    }
+  }
+  return new Map([...out].map(([id, list]) => [id, list.sort((x, y) => y.s - x.s).map((l) => l.id)]))
 }
 
 // ---- facts nobody looks up -------------------------------------------------------------
@@ -1788,6 +1993,7 @@ export function eraseProjectFromMemory(
     count('DELETE FROM request_log WHERE project_id = ?')
     count('DELETE FROM todos WHERE project_id = ?')
     count('DELETE FROM notes WHERE project_id = ?')
+    count('DELETE FROM fact_links WHERE project_id = ?')
     db.prepare('DELETE FROM meta WHERE key IN (?, ?, ?, ?)').run(
       `history_imported:${projectId}`,
       `tidy:${projectId}`,
