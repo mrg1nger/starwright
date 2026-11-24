@@ -103,6 +103,8 @@ import { searchStatus } from '../memory/meaning'
 import { memoryDb, memoryDbPath, memoryServerScriptPath } from '../memory/paths'
 import { tidyMemory, maybeTidy } from '../memory/tidy'
 import { noteFactsUsedTogether, noteRequestChanges } from '../memory/links'
+import { pluginEvent, startPluginRuntime } from '../plugins/runtime'
+import { onHandoffFinished } from '../memory/store'
 import { maybeRefreshCodeMap } from '../memory/codeMap'
 import {
   ensureHistoryImported,
@@ -1000,7 +1002,27 @@ export function registerIpcHandlers(getSender: () => WebContents | undefined): v
   const scheduleChat = (projectId: string, event: VibeEvent): void => {
     postChatEvent(projectId, event, getSender)
   }
-  deployEvents.on('event', (projectId: string, event: DeployEvent) => watchDeployEvent(projectId, event))
+  deployEvents.on('event', (projectId: string, event: DeployEvent) => {
+    watchDeployEvent(projectId, event)
+    if (event.type === 'finished') pluginEvent(projectId, 'deploy-end', { ok: event.ok, stopped: !!event.stopped, failedStep: event.failedStep ?? null })
+  })
+  // Plugins: their commands run from their buttons, panels, hooks and schedules.
+  startPluginRuntime({
+    chatEvent: (projectId, event) => postChatEvent(projectId, event, getSender),
+    notify: notifyUser,
+    send: (channel, ...args) => getSender()?.send(channel, ...args)
+  })
+  onHandoffFinished((id) => {
+    const row = memoryDb().prepare('SELECT project_id, agent, status, task_kind, model, files FROM handoffs WHERE id = ?').get(id) as Record<string, unknown> | undefined
+    if (!row) return
+    let files: string[] = []
+    try {
+      files = JSON.parse(String(row.files ?? '[]')) as string[]
+    } catch {
+      files = []
+    }
+    pluginEvent(String(row.project_id), 'handoff-end', { agent: row.agent, status: row.status, kind: row.task_kind ?? null, model: row.model ?? null, files })
+  })
   addEventSink((channel, args) => {
     if (channel !== 'vibe:chat:event') return
     watchChatEvent(args[0] as string, args[1] as VibeEvent)
@@ -2045,6 +2067,15 @@ function postChatEvent(projectId: string, event: VibeEvent, getSender: () => Web
   return shown
 }
 
+/** A request changed a project's own plugin (an agent wrote or edited it): it needs approving before it runs. */
+function noteChangedPlugins(projectId: string, files: string[], getSender: () => WebContents | undefined): void {
+  const names = [...new Set(files.map((f) => /^\.starwright[\\/]plugins[\\/]([^\\/]+)[\\/]/.exec(f)?.[1]).filter((n): n is string => !!n))]
+  if (!names.length) return
+  const which = names.length === 1 ? `The plugin "${names[0]}" changed` : `The plugins ${names.map((n) => `"${n}"`).join(', ')} changed`
+  postChatEvent(projectId, { type: 'note', text: `🧩 ${which}: check and approve ${names.length === 1 ? 'it' : 'them'} in 🧩 Plugins before ${names.length === 1 ? 'it runs' : 'they run'}.` }, getSender)
+  getSender()?.send('vibe:plugins:changed', projectId)
+}
+
 const wiredSessions = new WeakSet<object>()
 
 function wireSessionEvents(
@@ -2177,6 +2208,14 @@ function wireSessionEvents(
         const linkFacts = (files: string[]): void => {
           if (finished && !finished.stopped && !finished.hadError) noteFactsUsedTogether(projectId, finished.startedAt, files)
         }
+        // Plugins hear that the request finished (and what it changed), and a plugin an agent wrote or
+        // changed is pointed out: it needs approving before it runs.
+        void changed.then((files) => {
+          const outcome = finished?.stopped ? 'stopped' : finished?.hadError ? 'error' : 'done'
+          pluginEvent(projectId, 'request-end', { outcome, request: (finished?.request ?? '').slice(0, 200), files })
+          if (files.length) pluginEvent(projectId, 'files-changed', { files })
+          noteChangedPlugins(projectId, files, getSender)
+        })
         if (finished && getSettings().autoMemory) {
           // On Cline when it's set up, otherwise Haiku if Claude has room.
           Promise.all([helpersAllowed(), changed])

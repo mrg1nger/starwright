@@ -51,7 +51,7 @@ export type HookDecision =
   | { allow: false; reason: string; cancel: true }
 
 /** Memory tools that only read. */
-const MEMORY_READS = new Set(['recall', 'where', 'history', 'handoffs', 'plans', 'todos', 'notes'])
+const MEMORY_READS = new Set(['recall', 'where', 'history', 'handoffs', 'plans', 'todos', 'notes', 'plugin_guide', 'plugin_check'])
 /** Memory tools that change the shared memory (allowed when building). */
 const MEMORY_WRITES = new Set(['remember', 'update', 'forget', 'add_todo', 'complete_todo'])
 

@@ -1175,6 +1175,13 @@ function ChatView({ project, onBack, onOpenHistory, onOpenMemory, onError, think
     setTimeout(() => inputRef.current?.focus(), 0)
   }, [])
 
+  /** A plugin's panel put text in the message box (chat:draft): it waits there, not sent. */
+  const draftFromPlugin = useCallback((text: string) => {
+    setInput((prev) => (prev.trim() ? `${prev.replace(/\s+$/, '')}\n${text}` : text))
+    setPhonePane('chat')
+    setTimeout(() => inputRef.current?.focus(), 0)
+  }, [])
+
   const handlePicked = useCallback((element: PickedElement) => {
     setPicked(element)
     // On a phone the chat is a separate pane: go back to it to type what should change.
@@ -1343,7 +1350,7 @@ function ChatView({ project, onBack, onOpenHistory, onOpenMemory, onError, think
           >
             💬 Chat
           </button>
-          {(['preview', 'notes', 'files'] as const).map((pane) => {
+          {(['preview', 'notes', 'files', 'plugins'] as const).map((pane) => {
             const on = showPreview && phonePane === 'preview' && sidePane === pane
             return (
               <button
@@ -1357,7 +1364,7 @@ function ChatView({ project, onBack, onOpenHistory, onOpenMemory, onError, think
                   setPhonePane('preview')
                 }}
               >
-                {pane === 'preview' ? '👁 Preview' : pane === 'notes' ? '📝 Notes' : '📁 Files'}
+                {pane === 'preview' ? '👁 Preview' : pane === 'notes' ? '📝 Notes' : pane === 'files' ? '📁 Files' : '🧩 Plugins'}
               </button>
             )
           })}
@@ -1986,7 +1993,7 @@ function ChatView({ project, onBack, onOpenHistory, onOpenMemory, onError, think
           {sidePane === 'files' && (
             <FilesPane projectId={project.id} refreshToken={refreshToken} onMention={mentionFile} />
           )}
-          {sidePane === 'plugins' && <PluginsPane projectId={project.id} />}
+          {sidePane === 'plugins' && <PluginsPane projectId={project.id} onDraft={draftFromPlugin} />}
           <div
             className={`terminal-drawer${terminalOpen ? ' open' : ''}${termResizing ? ' resizing' : ''}`}
             style={terminalOpen ? { height: terminalHeight } : undefined}

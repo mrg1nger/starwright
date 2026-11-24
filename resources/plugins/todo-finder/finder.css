@@ -1,0 +1,162 @@
+:root {
+  --sw-bg: #1a1d24;
+  --sw-surface: #333844;
+  --sw-sunken: #0d0f14;
+  --sw-text: #e8e8ec;
+  --sw-muted: #9aa0ab;
+  --sw-border: #2a2e38;
+  --sw-accent: #3b5bdb;
+  --sw-accent-text: #ffffff;
+  --sw-good: #7be3a0;
+  --sw-warn: #e3a97b;
+  --sw-bad: #e37b7b;
+  --sw-font: system-ui, sans-serif;
+  --sw-radius: 8px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 12px 16px 24px;
+  background: var(--sw-bg);
+  color: var(--sw-text);
+  font: 14px/1.45 var(--sw-font);
+}
+
+header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+h1 {
+  flex: 1;
+  margin: 0;
+  font-size: 17px;
+}
+
+.muted {
+  color: var(--sw-muted);
+}
+
+button,
+input {
+  font: inherit;
+  color: var(--sw-text);
+  background: var(--sw-surface);
+  border: 1px solid var(--sw-border);
+  border-radius: var(--sw-radius);
+  padding: 4px 10px;
+}
+
+button {
+  cursor: pointer;
+}
+
+button.primary,
+button.active {
+  background: var(--sw-accent);
+  border-color: var(--sw-accent);
+  color: var(--sw-accent-text);
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0 12px;
+}
+
+.filters input {
+  flex: 1;
+  min-width: 120px;
+}
+
+.file {
+  margin: 0 0 12px;
+  border: 1px solid var(--sw-border);
+  border-radius: var(--sw-radius);
+  overflow: hidden;
+}
+
+.file h2 {
+  margin: 0;
+  padding: 6px 10px;
+  font-size: 13px;
+  font-weight: 600;
+  background: var(--sw-sunken);
+  display: flex;
+  gap: 8px;
+  overflow-wrap: anywhere;
+}
+
+.file h2 .count {
+  margin-left: auto;
+  color: var(--sw-muted);
+  font-weight: 400;
+}
+
+.item {
+  display: grid;
+  grid-template-columns: 44px 56px 1fr auto;
+  gap: 8px;
+  align-items: baseline;
+  padding: 5px 10px;
+  border-top: 1px solid var(--sw-border);
+}
+
+.item:first-of-type {
+  border-top: 0;
+}
+
+.line {
+  color: var(--sw-muted);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.kind {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.kind-FIXME,
+.kind-XXX {
+  color: var(--sw-bad);
+}
+
+.kind-HACK {
+  color: var(--sw-warn);
+}
+
+.text {
+  overflow-wrap: anywhere;
+}
+
+.ask {
+  font-size: 12px;
+  padding: 1px 8px;
+}
+
+.empty {
+  padding: 24px 0;
+  text-align: center;
+}
+
+@media (max-width: 420px) {
+  .item {
+    grid-template-columns: 36px 1fr auto;
+  }
+  .kind {
+    display: none;
+  }
+}

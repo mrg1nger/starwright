@@ -39,6 +39,13 @@ import {
   outdatedSuffix
 } from './store'
 import { askApp } from './searchClient'
+import { existsSync, readdirSync, readFileSync } from 'fs'
+import { dirname } from 'path'
+import { checkPluginFolder, pluginWarnings, PROJECT_PLUGINS_DIR } from '../plugins/check'
+import PLUGIN_GUIDE from '../../../docs/plugins.md'
+
+/** Where a project's plugins go, as the agents write it. */
+const PLUGINS_DIR = '.starwright/plugins'
 
 // The arguments can also come as a JSON list in VIBE_MEMORY_ARGS: Cline starts
 // tool servers through a shell, which splits paths with spaces in them.
@@ -322,6 +329,59 @@ server.registerTool(
   async () => {
     const notes = getNotes(db, projectId)
     return text(notes.text.trim() ? `The user's notes:\n${notes.text}` : 'The user has no notes for this project.')
+  }
+)
+
+// ---- plugins: what the agents need to write one (the user approves it in Starwright) ----
+
+server.registerTool(
+  'plugin_guide',
+  {
+    description:
+      "How to write a Starwright plugin: a folder in .starwright/plugins/<name> with a plugin.json, that adds something Starwright doesn't have to this project (a dashboard panel beside the chat, buttons that run a command, commands that run after each request, hand-off or deploy, or on a schedule). Read this before writing or changing a plugin.",
+    inputSchema: {}
+  },
+  async () => text(PLUGIN_GUIDE)
+)
+
+function approvalOf(name, hash) {
+  try {
+    const approvals = JSON.parse(readFileSync(join(dirname(dbPath), 'plugins-approved.json'), 'utf-8'))
+    const a = approvals[`${projectId}:${name}`]
+    if (!a) return 'not approved yet: the user approves it in the 🧩 Plugins pane'
+    if (a.hash !== hash) return 'changed since the user approved it: they approve it again in the 🧩 Plugins pane before it runs'
+    return a.off ? 'approved, but turned off' : 'approved and on'
+  } catch {
+    return 'not approved yet: the user approves it in the 🧩 Plugins pane'
+  }
+}
+
+server.registerTool(
+  'plugin_check',
+  {
+    description:
+      "Check a plugin in this project's .starwright/plugins folder after writing or changing it: whether plugin.json is right, the files it names are there, its scripts parse, and nothing it does will be blocked (like loading from the internet in a panel). Also says whether the user has approved it. Without a name, lists the project's plugins.",
+    inputSchema: { name: z.string().optional().describe("The plugin's folder name, e.g. \"todo-finder\".") }
+  },
+  async ({ name }) => {
+    const root = join(projectPath, PROJECT_PLUGINS_DIR)
+    const names = existsSync(root) ? readdirSync(root, { withFileTypes: true }).filter((d) => d.isDirectory() && !d.name.startsWith('.')).map((d) => d.name) : []
+    if (!name) return text(names.length ? `This project's plugins: ${names.join(', ')}. Check one by name.` : `This project has no plugins yet (they go in ${PLUGINS_DIR}/<name>). See plugin_guide.`)
+    if (!/^[a-z0-9][a-z0-9-]{0,39}$/.test(name)) return text('A plugin name is lower-case letters, digits and dashes.')
+    if (!names.includes(name)) return text(`There's no plugin "${name}" in ${PLUGINS_DIR}${names.length ? ` (there is: ${names.join(', ')})` : ''}.`)
+    const checked = checkPluginFolder(join(root, name), name)
+    const warnings = checked.files ? pluginWarnings(checked.files, checked.manifest) : []
+    const lines = []
+    if (checked.problems.length) lines.push(`Problems (Starwright shows it as broken until they're fixed):\n${checked.problems.map((p) => `- ${p}`).join('\n')}`)
+    else {
+      const m = checked.manifest
+      lines.push(`plugin.json is fine: ${m.title} ${m.version}, ${m.panels.length} panel(s), ${m.commands.length} command(s), ${m.buttons.length} button(s), ${m.hooks.length} hook(s), ${m.schedules.length} schedule(s); asks for: ${m.permissions.join(', ') || 'nothing'}.`)
+    }
+    if (warnings.length) lines.push(`Worth fixing:\n${warnings.map((w) => `- ${w}`).join('\n')}`)
+    else if (!checked.problems.length) lines.push('Its scripts parse and nothing it loads would be blocked.')
+    if (checked.hash) lines.push(`Status: ${approvalOf(name, checked.hash)}.`)
+    lines.push("You can't approve or run it yourself: tell the user what it does and that it's waiting in 🧩 Plugins.")
+    return text(lines.join('\n\n'))
   }
 )
 

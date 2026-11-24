@@ -10,6 +10,7 @@ import { WebSocketServer, type WebSocket } from 'ws'
 import type { RemoteStatus } from '@shared/types'
 import { getSettings } from '../settings/store'
 import { findPreview } from '../preview/preview'
+import { remotePanelResponse } from '../plugins/registry'
 import { addEventSink, hasChannel, invoke } from './bus'
 import {
   checkRemoteCall,
@@ -358,6 +359,13 @@ async function handle(req: IncomingMessage, res: ServerResponse, secure: boolean
 
   if (!hostOk(req, secure)) return send(res, 421, { error: 'Open Starwright at localhost.' })
   if (servePwa(path, res)) return
+
+  // A plugin's open panel: its address holds the panel's own secret (see plugins/registry.ts).
+  const panel = remotePanelResponse(path, `${secure ? 'https' : 'http'}://${req.headers.host}`)
+  if (panel) {
+    res.writeHead(panel.status, panel.headers)
+    return void res.end(panel.body)
+  }
 
   if (path === '/login') return send(res, 200, LOGIN_PAGE, { 'Content-Security-Policy': "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; frame-ancestors 'none'" })
 

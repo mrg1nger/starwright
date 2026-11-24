@@ -18,6 +18,7 @@ const DEFAULTS: AppSettings = {
   codexEffort: null,
   trayMode: false,
   schedulesPaused: false,
+  pluginsPaused: false,
   startWithWindows: false,
   backupDaily: true,
   backupDir: null,

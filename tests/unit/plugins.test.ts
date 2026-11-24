@@ -56,11 +56,13 @@ test('plugin.json is checked: name, version, known permissions, panels inside th
   assert.match(bad, /1\.0\.0/)
   assert.match(bad, /Unknown permission "network"/)
   assert.match(bad, /inside the plugin's folder/)
-  assert.match(parseManifest({ ...MANIFEST, panels: [] }, 'demo').problems.join(), /at least one panel/)
+  assert.match(parseManifest({ ...MANIFEST, panels: [] }, 'demo').problems.join(), /at least one panel or command/)
   assert.match(parseManifest([], 'demo').problems.join(), /JSON object/)
   // The example Starwright comes with passes its own check.
-  const example = JSON.parse(readFileSync(join(examplesFolder(), EXAMPLE_PLUGIN, 'plugin.json'), 'utf-8'))
-  assert.deepEqual(parseManifest(example, EXAMPLE_PLUGIN).problems, [])
+  for (const name of [EXAMPLE_PLUGIN, 'todo-finder']) {
+    const example = JSON.parse(readFileSync(join(examplesFolder(), name, 'plugin.json'), 'utf-8'))
+    assert.deepEqual(parseManifest(example, name).problems, [], name)
+  }
 })
 
 test('a plugin runs only as approved: what you saw, and again after any change', () => {
@@ -79,7 +81,7 @@ test('a plugin runs only as approved: what you saw, and again after any change',
     info = one(id)
     assert.equal(info.status, 'changed')
     assert.deepEqual(info.newPermissions, [])
-    assert.throws(() => openPanel(id, info.key, 'main'), /needs approving/)
+    assert.throws(() => openPanel(id, info.key, 'main'), /approve it again/)
     info = approvePlugin(id, info.key, info.hash!)
 
     // Asking for more is a change too, and says what's new.
@@ -225,12 +227,13 @@ test('calls are answered within the approved permissions, for the project the pa
 test('the example can be added for every project, once', () => {
   const { id } = projectWithPlugin({ ...MANIFEST, name: 'other' })
   rmSync(join(globalPluginsFolder(), EXAMPLE_PLUGIN), { recursive: true, force: true })
-  assert.equal(listPlugins(id).canAddExample, true)
+  assert.ok(listPlugins(id).examples.some((e) => e.name === EXAMPLE_PLUGIN))
   addExamplePlugin()
   const example = listPlugins(id).plugins.find((p) => p.key === `global:${EXAMPLE_PLUGIN}`)!
   assert.equal(example.status, 'needs-approval')
   assert.deepEqual(example.manifest!.permissions, ['records:read', 'files:read', 'storage'])
-  assert.equal(listPlugins(id).canAddExample, false)
+  assert.ok(!listPlugins(id).examples.some((e) => e.name === EXAMPLE_PLUGIN))
+  assert.throws(() => addExamplePlugin('not-an-example'), /doesn't come with/)
   assert.throws(() => addExamplePlugin(), /already there/)
   // A plugin for every project is approved once, for all of them.
   approvePlugin(id, example.key, example.hash!)
@@ -239,11 +242,32 @@ test('the example can be added for every project, once', () => {
   rmSync(join(globalPluginsFolder(), EXAMPLE_PLUGIN), { recursive: true, force: true })
 })
 
-test('the panel helper script is valid JavaScript, and plugins are for the computer only', () => {
+test('the panel helper script is valid JavaScript, and over Remote plugins are looked at and used, not approved', () => {
   assert.doesNotThrow(() => new Function(PANEL_API_SCRIPT))
-  for (const channel of ['vibe:plugins:list', 'vibe:plugins:approve', 'vibe:plugins:openPanel', 'vibe:plugins:call']) {
-    const check = checkRemoteCall(channel, ['p'], false)
-    assert.equal(check.allowed, false, channel)
-    assert.match(check.reason ?? '', /computer running Starwright/)
+  // Deciding what runs on this computer stays at it, whatever the device.
+  for (const channel of ['vibe:plugins:approve', 'vibe:plugins:setOff', 'vibe:plugins:addExample', 'vibe:plugins:openFolder', 'vibe:plugins:setPaused']) {
+    for (const readOnly of [false, true]) {
+      const check = checkRemoteCall(channel, ['p'], readOnly)
+      assert.equal(check.allowed, false, channel)
+      assert.match(check.reason ?? '', /computer running Starwright/)
+    }
   }
+  // A device with full access can open panels and run approved commands.
+  for (const channel of ['vibe:plugins:list', 'vibe:plugins:openPanel', 'vibe:plugins:run', 'vibe:plugins:stop', 'vibe:plugins:runs']) {
+    assert.equal(checkRemoteCall(channel, ['p'], false).allowed, true, channel)
+  }
+  assert.equal(checkRemoteCall('vibe:plugins:call', ['t', 'commands.run', ['scan']], false).allowed, true)
+  // A read-only one can look: list, open panels, and only the calls that read.
+  for (const channel of ['vibe:plugins:list', 'vibe:plugins:openPanel', 'vibe:plugins:closePanel', 'vibe:plugins:runs']) {
+    assert.equal(checkRemoteCall(channel, ['p'], true).allowed, true, channel)
+  }
+  for (const method of ['hello', 'records.requests', 'storage.get', 'files.list', 'commands.runs']) {
+    assert.equal(checkRemoteCall('vibe:plugins:call', ['t', method, []], true).allowed, true, method)
+  }
+  for (const method of ['commands.run', 'storage.set', 'storage.remove', 'notify', 'files.read', 'anything']) {
+    const check = checkRemoteCall('vibe:plugins:call', ['t', method, []], true)
+    assert.equal(check.allowed, false, method)
+    assert.match(check.reason ?? '', /read-only/)
+  }
+  for (const channel of ['vibe:plugins:run', 'vibe:plugins:stop']) assert.equal(checkRemoteCall(channel, ['p'], true).allowed, false, channel)
 })

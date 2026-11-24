@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TODO Finder</title>
+    <link rel="stylesheet" href="finder.css" />
+    <script src="/_starwright/api.js"></script>
+  </head>
+  <body>
+    <header>
+      <h1>TODOs</h1>
+      <button id="scan" class="primary">Scan now</button>
+    </header>
+    <p id="status" class="muted" role="status">Loading…</p>
+    <div class="filters" role="group" aria-label="Show">
+      <button data-kind="" class="active">All</button>
+      <button data-kind="TODO">TODO</button>
+      <button data-kind="FIXME">FIXME</button>
+      <button data-kind="HACK">HACK</button>
+      <input id="find" type="search" placeholder="Find…" aria-label="Find in the list" />
+    </div>
+    <div id="list"></div>
+    <script src="finder.js"></script>
+  </body>
+</html>

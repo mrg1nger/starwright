@@ -1306,6 +1306,13 @@ export function handoffCountsSince(db: DatabaseSync, sinceIso: string): Record<s
   return Object.fromEntries(rows.map((r) => [r.agent, r.n]))
 }
 
+const handoffListeners: ((id: number) => void)[] = []
+
+/** Called with a hand-off's id each time one finishes (plugins listen for it). */
+export function onHandoffFinished(listener: (id: number) => void): void {
+  handoffListeners.push(listener)
+}
+
 export function finishHandoff(
   db: DatabaseSync,
   id: number,
@@ -1323,6 +1330,13 @@ export function finishHandoff(
     result.effort ?? null,
     id
   )
+  for (const listener of handoffListeners) {
+    try {
+      listener(id)
+    } catch (err) {
+      console.warn('A hand-off listener failed:', (err as Error).message)
+    }
+  }
 }
 
 // ---- track record: how each agent and model has done on each kind of task ----

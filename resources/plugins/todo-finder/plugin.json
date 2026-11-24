@@ -1,0 +1,12 @@
+{
+  "name": "todo-finder",
+  "title": "TODO Finder",
+  "version": "1.0.0",
+  "description": "Finds the TODO, FIXME and HACK comments in the project's code: after each request that changes files, every morning, or when you press Scan now. Lists them by file, ready to hand to Claude.",
+  "permissions": ["commands", "chat:draft"],
+  "panels": [{ "id": "list", "title": "TODOs", "entry": "panel.html" }],
+  "commands": [{ "id": "scan", "title": "Scan for TODOs", "run": ["node", "{plugin}/scan.js"], "timeout": 60 }],
+  "buttons": [{ "title": "Scan now", "command": "scan" }],
+  "hooks": [{ "on": "files-changed", "command": "scan" }],
+  "schedules": [{ "id": "morning", "command": "scan", "when": { "kind": "daily", "time": "09:00" } }]
+}

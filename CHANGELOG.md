@@ -2,6 +2,29 @@
 
 The version goes up with each improvement that ships: the middle number for new features, the last for fixes only. Settings shows the version a computer is running. (Starwright was called VibeApp up to 0.10.0.)
 
+## 0.26.0 (2026-11-24)
+
+Plugins, parts 2 and 3: a plugin can now do things as well as show them. It can run commands from a button, after each request, hand-off or Deploy, or on a schedule. Claude and Codex know how to write plugins, and their panels open over Remote. Starwright comes with a second example, **TODO Finder**, that uses all of it.
+
+- **Commands.** A plugin can list programs it runs on this computer, from the project's folder: a list like `["node", "{plugin}/scan.js"]` (`node` is Starwright's own, so it works without Node installed), or a command line for the shell. It doesn't get the project's secrets.
+  - **Shown word for word.** Each command is on the approval screen exactly as it will run, with when it runs by itself.
+  - **Only the approved copy runs.** Its own scripts run from a copy of the files you approved, so a script changed afterwards never runs; the plugin waits for you to approve it again.
+  - **What it prints is kept** with each run (secrets masked). Lines starting `::status`, `::note`, `::notify` and `::json` give the run a one-line summary, add a line to the chat, send you an alert (with the new `notify` permission), or hand data to the plugin's panel.
+  - **Stopped when it runs too long:** after 2 minutes, unless the plugin says otherwise (up to an hour).
+- **Buttons** in the Plugins pane run a command, and how it went shows in the chat. Each plugin's card shows its latest run, with a list of runs and what each printed, and a Stop link while one is running.
+- **Hooks** run a command when something happens in the project: a request finishes, a request changed files, a hand-off finishes, or a Deploy finishes. The command gets the event as JSON. Open panels with `records:read` hear the same events.
+- **Schedules** run a command daily at a time or every so many minutes (at least 5), while Starwright is running. A time missed by more than 3 hours is skipped, and they stop while schedules are paused. A plugin for every project runs its schedules in each project opened in the last two weeks.
+- **A plugin that keeps failing is turned off.** If its runs from hooks and schedules fail 3 times in a row, Starwright turns it off and says why in the chat and on its card.
+- **Pause all** in the Plugins pane stops every plugin at once: no panels, commands, hooks or schedules until you resume them. Starting Starwright with `--safe-mode` starts with them all paused.
+- **More for panels:** `starwright.commands.run` and `.runs`, `starwright.onEvent`, `starwright.notify` (with `notify`), and `starwright.chat.draft`, which puts text in the message box for you to send or not (with the new `chat:draft` permission).
+- **Claude, Codex and Cline can write plugins.** They have two new tools:
+  - `plugin_guide` hands them `docs/plugins.md`.
+  - `plugin_check` checks a plugin they wrote: plugin.json, the files it names, whether its scripts parse, and whether anything a panel loads would be blocked. It also says whether you've approved it.
+
+  Claude is told to use them when you ask for something Starwright doesn't have. They can't approve or run a plugin. When a request changes a project's plugin, the chat says it needs approving.
+- **Over Remote,** the Plugins pane lists plugins and opens their panels, served from Remote's own address under a one-time token, in the same locked-down frame. A device with full access can use their buttons. A read-only device's panels can only read. Approving, turning on and off, adding and pausing stay on the computer. On a phone, Plugins is a tab beside Chat, Preview, Notes and Files.
+- **TODO Finder** (Add TODO Finder in the Plugins pane) finds the TODO, FIXME and HACK comments in the project's code: after each request that changes files, every morning, and when you press Scan now. Its panel lists them by file, and Ask Claude puts a request about one in the message box. When a scan finds more than last time, it says so in the chat.
+
 ## 0.25.0 (2026-11-24)
 
 Plugins, part 1: add things to Starwright that it doesn't have, starting with dashboards. You, Claude or Codex can write them, and Starwright comes with one: **Project Pulse**.

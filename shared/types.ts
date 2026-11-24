@@ -692,6 +692,8 @@ export interface AppSettings {
   trayMode: boolean
   /** Every project's schedules are paused (they don't run, and nothing is made up for afterwards). */
   schedulesPaused: boolean
+  /** Every plugin is paused: no panels, commands, hooks or schedules (see Plugins). */
+  pluginsPaused: boolean
   /** Start VibeApp with Windows, in the tray (installed app only). */
   startWithWindows: boolean
   /** Back up VibeApp's data once a day. */

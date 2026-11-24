@@ -78,6 +78,10 @@ function friendlyToolLabel(name: string, input: unknown): string {
       return 'Ticked off a to-do'
     case 'mcp__vibe_memory__notes':
       return 'Read your notes'
+    case 'mcp__vibe_memory__plugin_guide':
+      return 'Read how to write a plugin'
+    case 'mcp__vibe_memory__plugin_check':
+      return `Checked the plugin ${(input as { name?: string })?.name ?? ''}`.trim()
     case 'MultiEdit':
       return `Edited ${(input as { file_path?: string })?.file_path ?? 'a file'}`
     case 'NotebookEdit':

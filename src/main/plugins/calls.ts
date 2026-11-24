@@ -7,10 +7,11 @@ import { listProjectFiles, readProjectFile } from '../files/projectFiles'
 import { memoryDb } from '../memory/paths'
 import { listSchedules } from '../schedule/scheduler'
 import { openPanelFor, projectFolderOf, requirePermission } from './registry'
+import { pluginNotify, pluginRuns, runPluginCommand } from './runtime'
 
 // What a panel can ask Starwright for, each call checked against the permissions its plugin was
 // approved with. Everything is about the project the panel is open in, and read-only, apart from
-// the plugin's own store.
+// the plugin's own store and running its own approved commands.
 
 /** A plugin's store, for each project: at most this much. */
 export const MAX_STORAGE_BYTES = 1024 * 1024
@@ -150,7 +151,8 @@ export async function callPlugin(token: string, method: unknown, args: unknown):
       return {
         project: { name: getProject(projectId)?.name ?? '' },
         plugin: { name: panel.manifest.name, title: panel.manifest.title, version: panel.manifest.version },
-        permissions: [...panel.permissions]
+        permissions: [...panel.permissions],
+        commands: panel.manifest.commands.map((c) => ({ id: c.id, title: c.title }))
       }
     case 'files.list':
       requirePermission(panel, 'files:read')
@@ -197,6 +199,26 @@ export async function callPlugin(token: string, method: unknown, args: unknown):
     case 'records.schedules':
       requirePermission(panel, 'records:read')
       return schedules(projectId)
+    case 'commands.run':
+      requirePermission(panel, 'commands')
+      return runPluginCommand(projectId, panel.key, String(list[0] ?? ''), 'panel', list[1])
+    case 'commands.runs':
+      requirePermission(panel, 'commands')
+      return pluginRuns(projectId, panel.key).filter((r) => list[0] === undefined || r.command === list[0])
+    case 'notify': {
+      requirePermission(panel, 'notify')
+      const body = clip(list[0], 300).trim()
+      if (!body) throw new Error('notify needs some text.')
+      pluginNotify(projectId, panel.manifest.title, body)
+      return true
+    }
+    case 'chat.draft': {
+      requirePermission(panel, 'chat:draft')
+      const text = clip(list[0], 4000)
+      if (!text.trim()) throw new Error('chat.draft needs some text.')
+      // Starwright's screen puts it in the message box; nothing is sent.
+      return { draft: text }
+    }
     default:
       throw new Error(`Starwright has no "${String(method).slice(0, 60)}" for plugins.`)
   }

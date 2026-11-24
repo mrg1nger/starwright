@@ -10,6 +10,7 @@ export const PANEL_API_SCRIPT = `(() => {
   if (window.starwright) return
   const pending = new Map()
   const themeListeners = []
+  const eventListeners = []
   let next = 1
   const call = (method, ...args) =>
     new Promise((resolve, reject) => {
@@ -37,6 +38,12 @@ export const PANEL_API_SCRIPT = `(() => {
       }
       return
     }
+    if (data.event === 'plugin-event') {
+      for (const listener of eventListeners) {
+        try { listener(data.data) } catch (err) { console.error(err) }
+      }
+      return
+    }
     const waiting = pending.get(data.id)
     if (!waiting) return
     pending.delete(data.id)
@@ -49,7 +56,7 @@ export const PANEL_API_SCRIPT = `(() => {
   })
   const days = (options) => (options && typeof options.days === 'number' ? options.days : 30)
   window.starwright = {
-    /** Resolves to { project: { name }, plugin: { name, title, version }, permissions, theme } once connected. */
+    /** Resolves to { project: { name }, plugin: { name, title, version }, permissions, commands, theme } once connected. */
     ready,
     call,
     files: {
@@ -68,6 +75,20 @@ export const PANEL_API_SCRIPT = `(() => {
       handoffs: (options) => call('records.handoffs', { days: days(options) }),
       schedules: () => call('records.schedules')
     },
+    commands: {
+      /** Runs one of the plugin's commands and resolves to the run: { ok, exitCode, output, seconds, status, result }. */
+      run: (id, input) => call('commands.run', id, input),
+      /** The latest runs (of one command, or all), newest first. */
+      runs: (id) => call('commands.runs', id)
+    },
+    /** Sends the user an alert. */
+    notify: (text) => call('notify', text),
+    chat: {
+      /** Puts text in the chat's message box; the user decides whether to send it. */
+      draft: (text) => call('chat.draft', text)
+    },
+    /** Called with each event in the project while the panel is open: { type: 'request-end' | 'files-changed' | 'handoff-end' | 'deploy-end', at, ... }. Needs records:read. */
+    onEvent: (listener) => { if (typeof listener === 'function') eventListeners.push(listener) },
     /** Called with the new theme when Starwright's theme changes (the CSS variables are already set). */
     onTheme: (listener) => { if (typeof listener === 'function') themeListeners.push(listener) }
   }

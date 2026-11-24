@@ -53,7 +53,7 @@ import type {
   ToolVersions,
   LiveUsageUpdate
 } from '@shared/types'
-import type { OpenedPanel, PluginInfo, PluginList } from '@shared/plugins'
+import type { OpenedPanel, PluginEvent, PluginInfo, PluginList, PluginRun } from '@shared/plugins'
 import type { ScheduleInput } from '@shared/schedule'
 
 // Everything the screens can ask of the app, as one definition shared by the
@@ -490,13 +490,31 @@ export function createVibeApi(ipcRenderer: IpcLike, host: 'electron' | 'browser'
       }
     },
 
-    /** The Files pane: the project's files, read-only. */
+    /** Plugins: approve them, open their panels, run their commands. */
     plugins: {
       list: (projectId: string): Promise<PluginList> => ipcRenderer.invoke('vibe:plugins:list', projectId),
       /** `hash` is the fingerprint shown when you looked: a plugin changed since isn't approved. */
       approve: (projectId: string, key: string, hash: string): Promise<PluginInfo> => ipcRenderer.invoke('vibe:plugins:approve', projectId, key, hash),
       setOff: (projectId: string, key: string, off: boolean): Promise<PluginInfo> => ipcRenderer.invoke('vibe:plugins:setOff', projectId, key, off),
-      addExample: (): Promise<void> => ipcRenderer.invoke('vibe:plugins:addExample'),
+      addExample: (name?: string): Promise<void> => ipcRenderer.invoke('vibe:plugins:addExample', name),
+      /** Runs one of an approved plugin's commands (a button) and resolves when it's done. */
+      run: (projectId: string, key: string, command: string): Promise<PluginRun> => ipcRenderer.invoke('vibe:plugins:run', projectId, key, command),
+      stop: (projectId: string, key: string): Promise<boolean> => ipcRenderer.invoke('vibe:plugins:stop', projectId, key),
+      runs: (projectId: string, key: string): Promise<PluginRun[]> => ipcRenderer.invoke('vibe:plugins:runs', projectId, key),
+      /** Pauses every plugin, or resumes them (also leaving safe mode). */
+      setPaused: (paused: boolean): Promise<void> => ipcRenderer.invoke('vibe:plugins:setPaused', paused),
+      /** A project's plugins changed (a run started or ended, one was turned off, an agent edited one). */
+      onChanged: (cb: (projectId: string) => void): (() => void) => {
+        const listener = (_event: unknown, projectId: string): void => cb(projectId)
+        ipcRenderer.on('vibe:plugins:changed', listener)
+        return () => ipcRenderer.removeListener('vibe:plugins:changed', listener)
+      },
+      /** Something happened that an open panel (by its token) may hear about. */
+      onEvent: (cb: (token: string, event: PluginEvent) => void): (() => void) => {
+        const listener = (_event: unknown, token: string, event: PluginEvent): void => cb(token, event)
+        ipcRenderer.on('vibe:plugins:event', listener)
+        return () => ipcRenderer.removeListener('vibe:plugins:event', listener)
+      },
       openPanel: (projectId: string, key: string, panelId: string): Promise<OpenedPanel> => ipcRenderer.invoke('vibe:plugins:openPanel', projectId, key, panelId),
       closePanel: (token: string): Promise<void> => ipcRenderer.invoke('vibe:plugins:closePanel', token),
       /** A call from an open panel (its token), answered within its plugin's permissions. */

@@ -154,9 +154,10 @@ app.whenReady().then(() => {
   const toScreens = broadcaster(() => currentWindow?.webContents)
   registerIpcHandlers(toScreens)
   registerRemoteHandlers()
-  registerPluginHandlers()
+  registerPluginHandlers((settings) => toScreens()?.send('vibe:settings:changed', settings))
   protocol.handle(PANEL_SCHEME, (request) => {
     const answer = panelResponse(request.url)
+    // (Over Remote, panels are served by the Remote server: see remote/server.ts.)
     return new Response(new Uint8Array(answer.body), { status: answer.status, headers: answer.headers })
   })
   // New versions on GitHub Releases (a banner when there's one).

@@ -478,7 +478,7 @@ try {
     try {
       await click('Plugins', '.chat-header button')
       await waitFor(`/No plugins yet/.test(${pane})`, 'the empty plugin list', 10_000)
-      await click('Add the Project Pulse example', '.plugins-pane button')
+      await click('Add Project Pulse', '.plugins-pane button')
       await waitFor(`/Needs your approval/.test(${pane})`, 'the example, waiting for approval', 10_000)
       const asking = await evaluate(pane)
       if (!/Read Starwright's records/.test(asking) || !/Read this project's files/.test(asking) || !/no internet/.test(asking)) {
@@ -606,6 +606,126 @@ try {
       rmSync(join(data, 'plugins'), { recursive: true, force: true })
       rmSync(join(data, 'plugins-approved.json'), { force: true })
       await click('Preview', '.chat-header button').catch(() => undefined)
+    }
+  })
+
+  await step('a plugin with a command: shown word for word to approve, run by its button, its panel lists what it found and drafts a request; Pause all stops it', async () => {
+    const pane = `document.querySelector('.plugins-pane')?.innerText ?? ''`
+    const marker = join(project, 'todo-e2e.js')
+    writeFileSync(marker, '// TODO: e2e marker comment\n')
+    try {
+      await click('Plugins', '.chat-header button')
+      await click('Add TODO Finder', '.plugins-pane button')
+      await waitFor(`/Needs your approval/.test(${pane})`, 'TODO Finder, waiting for approval', 10_000)
+      const asking = await evaluate(pane)
+      if (!asking.includes('node {plugin}/scan.js') || !/Run programs on this computer/.test(asking) || !/When a request changed files: Scan for TODOs/.test(asking) || !/Every day at 09:00/.test(asking)) {
+        throw new Error(`the approval doesn't show the command and when it runs: ${asking}`)
+      }
+      await shot('plugin-command-approval')
+      const early = await evaluate(`window.vibe.plugins.run(${JSON.stringify(PROJECT_ID)}, 'global:todo-finder', 'scan').then(() => 'ran', (e) => e.message)`)
+      if (!/needs approving/.test(early)) throw new Error(`ran before it was approved: ${early}`)
+      await click('Approve', '.plugin-approval button')
+      await click('▶ Scan now', '.plugin-actions button')
+      await waitFor(`/TODO Finder · Scan for TODOs finished in [\\d.]+ s: Found 1 /.test(document.querySelector('.chat-log')?.innerText ?? '')`, 'the run in the chat', 30_000)
+      await waitFor(`/✓ Scan for TODOs done/.test(${pane})`, 'the run on its card', 10_000)
+
+      await click('Open TODOs', '.plugin-actions button')
+      let frame = null
+      for (let i = 0; i < 20 && !frame; i++) {
+        frame = await attach((t) => (t.url ?? '').startsWith('starwright-plugin://')).catch(() => null)
+        if (!frame) await sleep(500)
+      }
+      if (!frame) throw new Error("couldn't reach the panel's frame")
+      try {
+        await waitFor(`[...document.querySelectorAll('.item .text')].some((t) => t.textContent === 'e2e marker comment')`, 'the TODO in the panel', 15_000, frame)
+        await frame.evaluate(`[...document.querySelectorAll('.item')].find((i) => /e2e marker/.test(i.textContent)).querySelector('.ask').click()`)
+      } finally {
+        frame.close()
+      }
+      await waitFor(`/todo-e2e\.js at line 1: "e2e marker comment"/.test(document.querySelector('textarea.chat-input')?.value ?? '')`, 'the request in the message box', 10_000)
+      await shot('plugin-todo-panel')
+      await fill('textarea.chat-input', '')
+
+      await click('← Plugins', '.plugins-pane button')
+      await click('Pause all', '.plugins-pane .files-bar button')
+      await waitFor(`/Every plugin is paused/.test(${pane})`, 'plugins paused', 10_000)
+      const paused = await evaluate(`window.vibe.plugins.run(${JSON.stringify(PROJECT_ID)}, 'global:todo-finder', 'scan').then(() => 'ran', (e) => e.message)`)
+      if (!/paused/.test(paused)) throw new Error(`ran while paused: ${paused}`)
+      await shot('plugins-paused')
+      await click('Resume plugins', '.plugin-paused button')
+      await waitFor(`!/Every plugin is paused/.test(${pane}) && /▶ Scan now/.test(${pane})`, 'plugins resumed', 10_000)
+    } finally {
+      rmSync(marker, { force: true })
+      await evaluate(`window.vibe.plugins.setPaused(false)`).catch(() => undefined)
+      rmSync(join(data, 'plugins'), { recursive: true, force: true })
+      rmSync(join(data, 'plugins-approved.json'), { force: true })
+      await click('Preview', '.chat-header button').catch(() => undefined)
+    }
+  })
+
+  await step('over Remote: a device opens a plugin panel from its own address and uses its button; a read-only one can only look; approving stays on the computer', async () => {
+    const port = 7491
+    const base = `http://localhost:${port}`
+    const PID = JSON.stringify(PROJECT_ID)
+    const KEY = 'global:todo-finder'
+    const before = await evaluate(`window.vibe.settings.get()`)
+    try {
+      await evaluate(`window.vibe.plugins.addExample('todo-finder')`)
+      const hash = await evaluate(`window.vibe.plugins.list(${PID}).then((l) => l.plugins.find((p) => p.key === '${KEY}').hash)`)
+      await evaluate(`window.vibe.plugins.approve(${PID}, '${KEY}', ${JSON.stringify(hash)})`)
+      await evaluate(`window.vibe.settings.update({ remoteAccess: 'local', remotePort: ${port}, remoteReadOnly: false }).then(() => window.vibe.remote.apply())`)
+      const pairAs = async (readOnly) => {
+        if (readOnly) await evaluate(`window.vibe.settings.update({ remoteReadOnly: true })`)
+        const code = await evaluate(`window.vibe.remote.status().then((s) => s.pairingCode)`)
+        const r = await fetch(`${base}/api/pair`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code, name: readOnly ? 'e2e viewer' : 'e2e phone', remember: false }) })
+        if (readOnly) await evaluate(`window.vibe.settings.update({ remoteReadOnly: false })`)
+        const body = await r.json()
+        if (!body.token) throw new Error(`pairing failed: ${JSON.stringify(body)}`)
+        return body.token
+      }
+      const call = (token, channel, args) =>
+        fetch(`${base}/api/invoke`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ channel, args }) }).then(async (r) => ({ status: r.status, body: await r.json() }))
+      const phone = await pairAs(false)
+      const viewer = await pairAs(true)
+
+      // A device with full access: the panel comes from Remote's own address, under its one-time token.
+      const opened = await call(phone, 'vibe:plugins:openPanel', [PROJECT_ID, KEY, 'list'])
+      if (opened.status !== 200) throw new Error(`opening over Remote: ${JSON.stringify(opened.body)}`)
+      const { token, remotePath } = opened.body.result
+      const page = await fetch(base + remotePath)
+      const policy = page.headers.get('content-security-policy') ?? ''
+      const html = await page.text()
+      if (page.status !== 200 || !policy.includes(`script-src ${base}/plugin-panel/${token}/ `) || !policy.includes("default-src 'none'")) throw new Error(`the page over Remote: ${page.status} ${policy}`)
+      if (!html.includes(`/plugin-panel/${token}/_starwright/api.js`)) throw new Error("the page's helper script isn't pointed at the panel's address")
+      const api = await fetch(`${base}/plugin-panel/${token}/_starwright/api.js`)
+      if (api.status !== 200 || !(await api.text()).includes('window.starwright')) throw new Error('the helper script over Remote')
+      const css = await fetch(`${base}/plugin-panel/${token}/finder.css`)
+      if (css.status !== 200) throw new Error(`the panel's own file over Remote: ${css.status}`)
+      const run = await call(phone, 'vibe:plugins:run', [PROJECT_ID, KEY, 'scan'])
+      if (run.status !== 200 || !run.body.result.ok) throw new Error(`its button over Remote: ${JSON.stringify(run.body)}`)
+      for (const channel of ['vibe:plugins:approve', 'vibe:plugins:setOff', 'vibe:plugins:setPaused']) {
+        const r = await call(phone, channel, [PROJECT_ID, KEY, hash])
+        if (r.status !== 403 || !/computer running Starwright/.test(r.body.error)) throw new Error(`${channel} over Remote: ${JSON.stringify(r)}`)
+      }
+
+      // A read-only device: it can list and open, and its panel can read, nothing more.
+      const list = await call(viewer, 'vibe:plugins:list', [PROJECT_ID])
+      if (list.status !== 200 || !list.body.result.plugins.some((p) => p.key === KEY)) throw new Error(`listing read-only: ${JSON.stringify(list.body)}`)
+      const seen = await call(viewer, 'vibe:plugins:openPanel', [PROJECT_ID, KEY, 'list'])
+      const viewToken = seen.body.result.token
+      const runs = await call(viewer, 'vibe:plugins:call', [viewToken, 'commands.runs', ['scan']])
+      if (runs.status !== 200 || !runs.body.result.length) throw new Error(`reading runs read-only: ${JSON.stringify(runs.body)}`)
+      for (const [channel, args] of [['vibe:plugins:call', [viewToken, 'commands.run', ['scan']]], ['vibe:plugins:run', [PROJECT_ID, KEY, 'scan']], ['vibe:plugins:call', [viewToken, 'storage.set', ['a', 1]]]]) {
+        const r = await call(viewer, channel, args)
+        if (r.status !== 403 || !/read-only/.test(r.body.error)) throw new Error(`${channel} ${args[1]} read-only: ${JSON.stringify(r)}`)
+      }
+      await call(phone, 'vibe:plugins:closePanel', [token])
+      if ((await fetch(base + remotePath)).status !== 404) throw new Error('a closed panel is still served')
+    } finally {
+      await evaluate(`window.vibe.remote.status().then((s) => Promise.all(s.devices.filter((d) => d.name.startsWith('e2e ')).map((d) => window.vibe.remote.revoke(d.id))))`).catch(() => undefined)
+      await evaluate(`window.vibe.settings.update(${JSON.stringify({ remoteAccess: before.remoteAccess, remotePort: before.remotePort, remoteReadOnly: before.remoteReadOnly })}).then(() => window.vibe.remote.apply())`).catch(() => undefined)
+      rmSync(join(data, 'plugins'), { recursive: true, force: true })
+      rmSync(join(data, 'plugins-approved.json'), { force: true })
     }
   })
 

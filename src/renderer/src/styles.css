@@ -5052,3 +5052,117 @@ textarea {
   display: none;
   background: var(--surface);
 }
+
+/* Plugins: commands, runs, pausing */
+.plugin-card .link-button {
+  padding: 0;
+  border: none;
+  background: none;
+  box-shadow: none;
+  color: var(--accent);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.plugin-muted {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.plugin-commands code {
+  display: inline-block;
+  max-width: 100%;
+  padding: 0 0.3rem;
+  border-radius: 4px;
+  background: var(--surface-sunken);
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.plugin-auto {
+  margin-top: 0.4rem;
+}
+
+.plugin-paused {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--warning-text);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+}
+
+.plugin-paused span {
+  flex: 1;
+  min-width: 12rem;
+}
+
+.plugin-examples {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.plugin-running,
+.plugin-last {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.4rem;
+  font-size: 0.82rem;
+}
+
+.plugin-spinner {
+  width: 0.8rem;
+  height: 0.8rem;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: plugin-spin 0.8s linear infinite;
+}
+
+@keyframes plugin-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.plugin-run-ok {
+  color: var(--text);
+}
+
+.plugin-run-failed {
+  color: var(--danger);
+}
+
+.plugin-runs {
+  margin: 0.4rem 0 0;
+  padding-left: 0;
+  list-style: none;
+  font-size: 0.8rem;
+}
+
+.plugin-runs li {
+  padding: 0.3rem 0;
+  border-top: 1px solid var(--border);
+}
+
+.plugin-runs pre {
+  max-height: 14rem;
+  margin: 0.3rem 0 0;
+  padding: 0.4rem 0.5rem;
+  overflow: auto;
+  border-radius: 4px;
+  background: var(--surface-sunken);
+  font-size: 0.75rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

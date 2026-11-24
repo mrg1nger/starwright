@@ -304,9 +304,14 @@ const READ_CHANNELS = new Set([
  * So does installing an update: it restarts VibeApp, and someone should be at the computer for that.
  * And the backup password: with it, a backup carries every secret off this computer. And the Cline
  * API key: it's an account key, typed at the computer. And opening a project file in its program:
- * it would open on the computer, not on the device asking.
+ * it would open on the computer, not on the device asking. And approving plugins (and turning them
+ * on, adding them, pausing them): what runs on this computer is decided at it.
  */
-const DESKTOP_ONLY = /^vibe:remote:(?!previewUrl$)|^vibe:update:install$|^vibe:backup:setPassword$|^vibe:cline:setUsageKey$|^vibe:files:open$|^vibe:plugins:/
+const DESKTOP_ONLY = /^vibe:remote:(?!previewUrl$)|^vibe:update:install$|^vibe:backup:setPassword$|^vibe:cline:setUsageKey$|^vibe:files:open$|^vibe:plugins:(approve|setOff|addExample|openFolder|setPaused)$/
+
+/** A read-only device may look at plugins and open their panels, which may only read. */
+const READ_PLUGIN_CHANNELS = new Set(['vibe:plugins:list', 'vibe:plugins:openPanel', 'vibe:plugins:closePanel', 'vibe:plugins:runs'])
+const READ_PLUGIN_CALLS = new Set(['hello', 'files.list', 'storage.get', 'storage.keys', 'records.requests', 'records.usage', 'records.handoffs', 'records.schedules', 'commands.runs', 'chat.draft'])
 const REMOTE_SETTINGS = ['remoteAccess', 'remotePort', 'remoteReadOnly'] as const
 
 export interface CallCheck {
@@ -327,9 +332,15 @@ export function checkRemoteCall(channel: string, args: unknown[], readOnly: bool
           : channel === 'vibe:files:open'
             ? 'Files open in their program on the computer running Starwright.'
             : channel.startsWith('vibe:plugins:')
-              ? 'Plugins are approved and opened on the computer running Starwright, for now.'
+              ? 'Plugins are approved, turned on and off, added and paused on the computer running Starwright.'
             : 'Remote access settings can only be changed on the computer running Starwright.'
     }
+  }
+  if (readOnly && (READ_PLUGIN_CHANNELS.has(channel) || (channel === 'vibe:plugins:call' && READ_PLUGIN_CALLS.has(String(args[1]))))) {
+    return { allowed: true }
+  }
+  if (readOnly && channel === 'vibe:plugins:call') {
+    return { allowed: false, reason: 'This connection is read-only: a panel can only read here (no running commands, saving, alerts or opening files).' }
   }
   if (readOnly && !READ_CHANNELS.has(channel)) {
     return { allowed: false, reason: 'This connection is read-only.' }
