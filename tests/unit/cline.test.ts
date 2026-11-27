@@ -4,7 +4,7 @@ import { mkdtempSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { decideToolCall, hookOutput, type ClinePolicy } from '../../src/main/cline/hookPolicy'
-import { clineFailure, countsFromClineResult, describeClineActivity } from '../../src/main/cli/clineExec'
+import { clineFailure, countsFromClineResult, describeClineActivity, finalAnswer, submittedAnswer } from '../../src/main/cli/clineExec'
 import { extractJson, fillEmptyLists, schemaProblem, type JsonSchema } from '../../src/main/helpers/helperJob'
 import { routeMessage } from '../../src/main/orchestrator/routing'
 import { stepKind } from '../../src/main/usage/requestLog'
@@ -67,6 +67,24 @@ test('building: anything reaching outside the project is refused', () => {
   assert.match(blockedEcho(read), /blocked\.txt/, 'reads the explanation instead, so the run carries on')
   const edit = decideToolCall(build, { name: 'editor', input: { path: 'C:\\Windows\\System32\\drivers\\etc\\hosts', new_text: 'x' } })
   assert.ok(!edit.allow && 'cancel' in edit, 'an edit outside stops the run')
+})
+
+test('Cline 3.0.75 ends a run with submit_and_exit: allowed in every kind of run, and its summary is the answer', () => {
+  for (const mode of ['build', 'review', 'helper'] as const) {
+    assert.ok(decideToolCall({ ...build, mode }, { name: 'submit_and_exit', input: { summary: 'Done.', verified: true } }).allow, mode)
+  }
+  assert.equal(submittedAnswer('submit_and_exit', { summary: '  {"add": []}  ', verified: true }), '{"add": []}')
+  assert.equal(submittedAnswer('run_commands', { summary: 'x' }), undefined)
+  assert.equal(submittedAnswer('submit_and_exit', { summary: '   ' }), undefined)
+  assert.equal(finalAnswer('', '{"add": []}'), '{"add": []}', 'nothing said after it: the summary')
+  assert.equal(finalAnswer('Fixed the bug in src/a.js.', undefined), 'Fixed the bug in src/a.js.')
+  assert.equal(finalAnswer('All done.\n{"add": []}', '{"add": []}'), 'All done.\n{"add": []}', 'not twice')
+  assert.equal(finalAnswer('All done.', 'Changed src/a.js: the off-by-one is fixed.'), 'All done.\n\nChanged src/a.js: the off-by-one is fixed.')
+  // As Cline 3.0.75 does it: the answer said first, then a summary handed in, echoed as the final message.
+  const summary = 'Extracted two durable facts from the exchange.'
+  assert.equal(finalAnswer(`Submission recorded (verified): ${summary}`, summary, '{"add": ["npm run dev"]}'), `{"add": ["npm run dev"]}\n\nSubmission recorded (verified): ${summary}`)
+  assert.equal(finalAnswer('Fixed it.', undefined, 'ignored without a hand-in'), 'Fixed it.')
+  assert.equal(finalAnswer('same', 'same', 'same'), 'same')
 })
 
 test("an edit with no path (arguments that didn't parse) goes back to Cline instead of ending the run", () => {
@@ -180,6 +198,12 @@ test("a background job's JSON answer is found and checked against its format", (
   assert.deepEqual(extractJson(JSON.stringify(good)), good)
   assert.deepEqual(extractJson('```json\n' + JSON.stringify(good) + '\n```'), good, 'fenced')
   assert.deepEqual(extractJson(`Here you go: ${JSON.stringify(good)} Hope that helps.`), good, 'with words around it')
+  const tricky = { add: [{ text: 'Braces { and } in a "quoted" string stay text.', key: false, category: 'gotcha' }], forget: [] }
+  assert.deepEqual(
+    extractJson(`${JSON.stringify(tricky)}\n\nSubmission recorded (verified): saved one fact (see {facts}).`),
+    tricky,
+    'followed by words with braces in them (Cline 3.0.75)'
+  )
   assert.equal(extractJson('no json here'), undefined)
   assert.equal(schemaProblem(good, schema), null)
   assert.match(schemaProblem({ add: [] }, schema) ?? '', /forget is missing/)

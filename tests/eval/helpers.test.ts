@@ -4,7 +4,7 @@ import { mkdirSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { runScribe, type TurnRecord } from '../../src/main/memory/scribe'
 import { memoryDb } from '../../src/main/memory/paths'
-import { deleteFact, GLOBAL_SCOPE, linkFactFiles, listFacts, noteFileChanges, rememberFact, usageSummary } from '../../src/main/memory/store'
+import { deleteFact, GLOBAL_SCOPE, linkFactFiles, listFacts, noteFactUses, noteFileChanges, rememberFact, usageSummary } from '../../src/main/memory/store'
 import { tidyMemory } from '../../src/main/memory/tidy'
 import { recordProjectOpened } from '../../src/main/projects/store'
 import { updateSettings } from '../../src/main/settings/store'
@@ -23,6 +23,7 @@ import { forgetLmStudioStatus } from '../../src/main/cli/lmStudio'
 //   VIBEAPP_EVAL_HELPERS="haiku,cline-pass/glm-5.3-flash" npm run eval -- helpers
 //   VIBEAPP_EVAL_HELPERS="lmstudio" npm run eval -- helpers         (the model loaded in LM Studio)
 //   VIBEAPP_EVAL_HELPERS="lmstudio:qwen/qwen3.6-35b-a3b" npm run eval -- helpers
+//   VIBEAPP_EVAL_ONLY=memory npm run eval -- helpers      (only the cases about memory's own record, 0.27.0)
 
 // 2026-11-10 (0.5.5, six cases): all 10 models ClinePass runs 6/6; kimi-k3.1-pro and minimax-m3.1-flash
 // 18/18 over three runs. qwen3.7-plus/max, minimax-m3 and mimo-v2.6-flash/pro are listed but refused.
@@ -152,6 +153,107 @@ const AGE_CASES: { name: string; run: () => Promise<string | null> }[] = [
   }
 ]
 
+/**
+ * Memory's own record (0.27.0): the note-taker says which of the facts given to the agent mattered,
+ * and when the user told it something memory already held. Each returns what's wrong, or null.
+ */
+const MEMORY_CASES: { name: string; run: () => Promise<string | null> }[] = [
+  {
+    name: 'a correction about a fact the agent never saw is a miss',
+    run: async () => {
+      const pid = projectId('helpers_miss')
+      const db = memoryDb()
+      const vpn = rememberFact(db, pid, 'Deploying needs the office VPN switched on first.', 'user', { category: 'gotcha' }).fact
+      const at = (s: number): string => new Date(Date.now() - s * 1000).toISOString()
+      const result = await runScribe(pid, {
+        request: "That deploy failed because the VPN wasn't on. Like I said before, the office VPN has to be switched on before deploying. Try again.",
+        replies: ['Sorry about that. With the VPN on, the deploy went through and the site is up.'],
+        actions: ['Ran npm run deploy'],
+        stopped: false,
+        hadError: false,
+        startedAt: at(60),
+        endedAt: at(1)
+      })
+      const row = db.prepare('SELECT kind FROM memory_misses WHERE project_id = ? AND fact_id = ?').get(pid, vpn.id) as { kind: string } | undefined
+      if (!row) return `not recorded as told again (${JSON.stringify(result.misses ?? {})})`
+      return row.kind === 'missed' ? null : `recorded as ${row.kind}, not missed`
+    }
+  },
+  {
+    name: 'a known fact mentioned up front is not a correction',
+    run: async () => {
+      const pid = projectId('helpers_restated')
+      const db = memoryDb()
+      const tabs = rememberFact(db, pid, 'Code in this project is indented with tabs.', 'user', { category: 'decision' }).fact
+      const at = (s: number): string => new Date(Date.now() - s * 1000).toISOString()
+      await runScribe(pid, {
+        request: 'Add a settings page. Use tabs for indentation, as usual here.',
+        replies: ['Added a settings page at src/settings.js, indented with tabs.'],
+        actions: ['Created src/settings.js'],
+        stopped: false,
+        hadError: false,
+        startedAt: at(60),
+        endedAt: at(1)
+      })
+      const rows = db.prepare('SELECT kind FROM memory_misses WHERE project_id = ? AND fact_id = ?').all(pid, tabs.id) as { kind: string }[]
+      return rows.some((r) => r.kind !== 'restated') ? `recorded as ${rows.map((r) => r.kind).join(', ')}` : null
+    }
+  },
+  {
+    name: 'a wrong fact the user corrects is updated, not counted as told again',
+    run: async () => {
+      const pid = projectId('helpers_wrong')
+      const db = memoryDb()
+      const old = rememberFact(db, pid, 'Images are kept in the assets folder.', 'user', { category: 'decision' }).fact
+      const at = (s: number): string => new Date(Date.now() - s * 1000).toISOString()
+      await runScribe(pid, {
+        request: "No, images aren't in assets any more: we moved them all to the public folder last week. Fix the broken image paths.",
+        replies: ['Fixed: the image paths now point at public/.'],
+        actions: ['Edited src/gallery.js'],
+        stopped: false,
+        hadError: false,
+        startedAt: at(60),
+        endedAt: at(1)
+      })
+      const misses = db.prepare('SELECT kind FROM memory_misses WHERE project_id = ?').all(pid) as { kind: string }[]
+      if (misses.some((m) => m.kind !== 'restated')) return `counted as told again: ${misses.map((m) => m.kind).join(', ')}`
+      const live = listFacts(db, pid)
+      if (live.some((f) => f.id === old.id)) return 'kept the wrong fact'
+      if (!live.some((f) => /public/i.test(f.text))) return `didn't save where images are now: ${live.map((f) => f.text).join(' | ') || '(nothing)'}`
+      return null
+    }
+  },
+  {
+    name: 'of the facts given, it picks the ones that mattered',
+    run: async () => {
+      const pid = projectId('helpers_relevant')
+      const db = memoryDb()
+      const slime = rememberFact(db, pid, 'Slimes split into two smaller slimes when hit.', 'user', { category: 'decision' }).fact
+      const music = rememberFact(db, pid, 'The title music loops every 90 seconds.', 'user', { category: 'decision' }).fact
+      const at = (s: number): string => new Date(Date.now() - s * 1000).toISOString()
+      noteFactUses(db, pid, [slime.id, music.id], 'pushed', 'claude', at(30))
+      const result = await runScribe(pid, {
+        request: 'Make the small slimes from a split move faster than big ones.',
+        replies: ['Done: when a slime splits, the two smaller slimes move 1.5 times as fast.'],
+        actions: ['Edited src/enemy/slime.js'],
+        stopped: false,
+        hadError: false,
+        startedAt: at(60),
+        endedAt: at(1)
+      })
+      const judged = Object.fromEntries(
+        (db.prepare('SELECT fact_id, relevant FROM fact_uses WHERE project_id = ?').all(pid) as { fact_id: string; relevant: number | null }[]).map((r) => [r.fact_id, r.relevant])
+      )
+      if (result.judged !== 2) return `judged ${result.judged ?? 0} of 2`
+      if (judged[slime.id] !== 1) return "didn't count the slime fact as mattering"
+      if (judged[music.id] !== 0) return 'counted the music fact as mattering'
+      return null
+    }
+  }
+]
+
+const ONLY_MEMORY = process.env.VIBEAPP_EVAL_ONLY === 'memory'
+
 interface Row {
   backend: string
   passed: number
@@ -204,8 +306,10 @@ async function evaluate(backend: string, strict: boolean): Promise<void> {
     forgetLmStudioStatus()
     // Off Haiku, a job Haiku did instead (or, from LM Studio, Cline) is a fall-back.
     const fellBackRe = onLmStudio ? /^(scribe|tidy) \((claude|cline)\)$/ : /^(scribe|tidy) \(claude\)$/
-    const row: Row = { backend, passed: 0, total: CASES.length + AGE_CASES.length, failures: [], seconds: 0, tokens: 0, fellBack: false }
-    for (const c of CASES) {
+    const plain = ONLY_MEMORY ? [] : CASES
+    const scripted = ONLY_MEMORY ? MEMORY_CASES : [...AGE_CASES, ...MEMORY_CASES]
+    const row: Row = { backend, passed: 0, total: plain.length + scripted.length, failures: [], seconds: 0, tokens: 0, fellBack: false }
+    for (const c of plain) {
       const pid = projectId(`helpers_${c.name.replace(/\W+/g, '_').slice(0, 20)}`)
       const db = memoryDb()
       const known = (c.known ?? []).map((text) => (rememberFact(db, pid, text, 'user', { category: 'setup', key: true }), { text }))
@@ -232,7 +336,7 @@ async function evaluate(backend: string, strict: boolean): Promise<void> {
       if (problem) row.failures.push(`${c.name}: ${problem}`)
       else row.passed++
     }
-    for (const c of AGE_CASES) {
+    for (const c of scripted) {
       const since = new Date(Date.now() - 1000).toISOString()
       const started = Date.now()
       let problem: string | null

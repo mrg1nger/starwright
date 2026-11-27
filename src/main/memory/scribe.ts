@@ -6,15 +6,21 @@ import { recentNotableCommands } from './commands'
 import {
   carryFactFiles,
   carryFactLinks,
+  factUsesBetween,
   forgetFact,
   getFact,
+  getMeta,
   GLOBAL_SCOPE,
+  judgeFactUses,
   listFacts,
   outdatedNotes,
   outdatedSuffix,
   recentHandoffs,
   recentMessages,
-  rememberFact
+  recordMiss,
+  rememberFact,
+  setMeta,
+  type MissKind
 } from './store'
 import { recallFacts } from './meaning'
 import { linkFact } from './links'
@@ -41,13 +47,30 @@ export interface TurnRecord {
   projectPath?: string
   /** When the request started: facts written since then mattered in it. */
   startedAt?: string
+  /** When it finished (set when it's handed to the note-taker, if not before). */
+  endedAt?: string
 }
 
 export interface ScribeResult {
   added: number
   updated: number
   forgotten: number
+  /** Facts given in the request that the note-taker judged, and how many of them mattered. */
+  judged?: number
+  relevant?: number
+  /** The user told an agent something memory already held, by kind. */
+  misses?: Partial<Record<MissKind, number>>
 }
+
+/** A request's start and end (ISO). */
+interface Window {
+  start: string
+  end: string
+}
+
+/** Recent requests' windows, newest last: a fact given in one of them was in front of the agent. */
+const WINDOWS_KEPT = 3
+const windowsKey = (projectId: string): string => `scribe_windows:${projectId}`
 
 const FILES: JsonSchema = {
   type: 'array',
@@ -83,10 +106,37 @@ const SCHEMA: JsonSchema = {
       type: 'array',
       items: {
         type: 'object',
-        properties: { id: { type: 'string' }, text: { type: 'string' }, files: FILES },
+        properties: {
+          id: { type: 'string' },
+          text: { type: 'string' },
+          files: FILES,
+          fromUser: { type: 'boolean', description: 'true if the correction comes from what the USER said, false if from the work (files, commands, results)' }
+        },
+        // fromUser left out of required: a model that skips it mustn't cost the correction.
         required: ['id', 'text', 'files'],
         additionalProperties: false
       }
+    },
+    relevant: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'Ids from FACTS THE ASSISTANT WAS GIVEN that bear on this exchange; [] if none'
+    },
+    told: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          correcting: {
+            type: 'boolean',
+            description: 'true if the user is putting the assistant right or reminding it; false if they only mention it up front'
+          }
+        },
+        required: ['id', 'correcting'],
+        additionalProperties: false
+      },
+      description: "Known facts the USER's own message says again; usually []"
     },
     forget: {
       type: 'array',
@@ -98,15 +148,20 @@ const SCHEMA: JsonSchema = {
       }
     }
   },
-  required: ['add', 'update', 'forget'],
+  required: ['add', 'update', 'forget', 'relevant', 'told'],
   additionalProperties: false
 }
 
 interface Plan {
   add: { text: string; category: MemoryCategory; key: boolean; global: boolean; files?: string[]; standing: boolean }[]
-  update: { id: string; text: string; files?: string[] }[]
+  update: { id: string; text: string; files?: string[]; fromUser?: boolean }[]
   forget: { id: string; reason: string }[]
+  relevant?: string[]
+  told?: { id: string; correcting: boolean }[]
 }
+
+/** At most this many "told again" a request: more is the note-taker misreading it. */
+const MAX_TOLD = 3
 
 const MAX_CHANGES = 3
 const MAX_CHANGES_THOROUGH = 8
@@ -115,7 +170,7 @@ function clip(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max)}…` : text
 }
 
-function buildPrompt(turn: TurnRecord, known: string[]): string {
+function buildPrompt(turn: TurnRecord, known: string[], given: string[] = []): string {
   const actions = turn.actions.length ? turn.actions.slice(-25).join('\n') : '(none)'
   const commands = turn.commands?.length ? turn.commands.slice(-25).join('\n') : ''
   const files = turn.files?.length ? turn.files.slice(0, 30).join('\n') : ''
@@ -132,11 +187,15 @@ Record only what the exchange actually says or clearly shows. Never add details 
 A preference or rule counts only if the USER said it and it plainly applies beyond this one task. What the assistant chose to do is not a preference of the user's. Instructions for this task alone ("keep it tiny", "just acknowledge", "no code changes") are not preferences. Don't save the same idea twice in different words, and save at most ${limit} facts.
 Only mark a fact "key" if it is the project's description, how to run it, or a standing rule the user gave.
 Prefer correcting a known fact (update, using its id) over adding one that contradicts it; use forget when a known fact is now plainly untrue. A known fact marked "may be out of date" had its files changed a lot since it was saved: if this exchange shows what is true now, correct or forget it.
-For every fact you add or update, list in files the paths from FILES CHANGED that it is about (none, if it isn't about particular files or there is no such list). "global" is only for the user's preferences that apply to ALL their projects. "key" is only for facts needed on almost every request.
+For every fact you add or update, list in files the paths from FILES CHANGED that it is about (none, if it isn't about particular files or there is no such list). "global" is only for the user's preferences that apply to ALL their projects. "key" is only for facts needed on almost every request. For each update, fromUser says whether the correction comes from what the USER said (true) or from the work: files, commands, results (false).
+
+Two more judgements, about memory itself:
+- relevant: of FACTS THE ASSISTANT WAS GIVEN (below, if any), the ids of those that bear on this exchange (it used them, or should have). [] if none did or none were given.
+- told: known facts that the USER's own message says again, in their own words: something memory already said, with the same meaning, that the user told, reminded or corrected the assistant about. correcting is true when something went wrong for want of it: the assistant got it wrong, did something against it, asked, or it caused a failure, so the user repeats it ("like I said", "I told you", "no, it's…", "that failed because…"). correcting is false when the user simply includes it in a new request with nothing having gone wrong ("use tabs, as usual"). Only the user's words count, never what the assistant found or said. If what the user says differs from a known fact (the fact was wrong or is out of date), that's an update (or forget), never told. Usually [].
 
 Known facts (id, category):
 ${known.length ? known.join('\n') : '(none yet)'}
-
+${given.length ? `\nFACTS THE ASSISTANT WAS GIVEN in this request (found for it, or looked up):\n${given.join('\n')}\n` : ''}
 The exchange:
 USER: ${clip(turn.request, 3000)}
 WHAT WAS DONE:
@@ -169,7 +228,11 @@ const chains = new Map<string, Promise<unknown>>()
 
 /** Decides and saves what's worth remembering from one request. One run per project at a time. */
 export function runScribe(projectId: string, turn: TurnRecord): Promise<ScribeResult> {
-  const run = (chains.get(projectId) ?? Promise.resolve()).then(() => scribe(projectId, turn))
+  // Now, in order: the next request may start before this one's note-taking does.
+  const endedAt = turn.endedAt ?? new Date().toISOString()
+  const ended: TurnRecord = { ...turn, endedAt }
+  const earlier = turn.startedAt && !turn.thorough ? takeWindow(projectId, { start: turn.startedAt, end: endedAt }) : []
+  const run = (chains.get(projectId) ?? Promise.resolve()).then(() => scribe(projectId, ended, earlier))
   chains.set(
     projectId,
     run.catch(() => undefined)
@@ -177,20 +240,60 @@ export function runScribe(projectId: string, turn: TurnRecord): Promise<ScribeRe
   return run
 }
 
-async function scribe(projectId: string, turn: TurnRecord): Promise<ScribeResult> {
+/** Records this request's window and returns the ones before it (newest last). Never throws. */
+function takeWindow(projectId: string, current: Window): Window[] {
+  try {
+    const db = memoryDb()
+    let before: Window[] = []
+    try {
+      const saved = JSON.parse(getMeta(db, windowsKey(projectId)) ?? '[]') as Window[]
+      if (Array.isArray(saved)) before = saved.filter((w) => typeof w?.start === 'string' && typeof w?.end === 'string' && w.end <= current.start)
+    } catch {
+      before = []
+    }
+    setMeta(db, windowsKey(projectId), JSON.stringify([...before, current].slice(-WINDOWS_KEPT)))
+    return before
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Whether the user telling the assistant a fact again is memory failing, and how: `missed` when it
+ * wasn't in front of the agent in the recent requests (search let it down), `ignored` when it was
+ * (or it's a key fact, which every request has), `restated` when the user only said it up front.
+ */
+export function missKind(correcting: boolean, givenRecently: boolean): MissKind {
+  if (!correcting) return 'restated'
+  return givenRecently ? 'ignored' : 'missed'
+}
+
+async function scribe(projectId: string, turn: TurnRecord, earlier: Window[] = []): Promise<ScribeResult> {
   const result: ScribeResult = { added: 0, updated: 0, forgotten: 0 }
   if (turn.stopped || turn.hadError || !turn.request.trim()) return result
   const db = memoryDb()
 
-  // The facts it might need to correct: key facts plus whatever the exchange touches.
+  // What the agents were given in this request, for judging whether it mattered.
+  const window = turn.startedAt && turn.endedAt && !turn.thorough ? { start: turn.startedAt, end: turn.endedAt } : undefined
+  const givenIds = window ? [...new Set(factUsesBetween(db, projectId, window.start, window.end).map((u) => u.factId))] : []
+  const givenFacts = givenIds
+    .flatMap((id) => {
+      const f = getFact(db, id)
+      return f && !f.forgottenAt ? [f] : []
+    })
+    .slice(0, 15)
+
+  // The facts it might need to correct: what was given, key facts, and whatever the exchange touches.
   const seen = new Map<string, string>()
   const consider = (id: string, category: string, text: string, scope: string): void => {
     seen.set(id, `- [${id}] (${category}${scope === GLOBAL_SCOPE ? ', all projects' : ''}) ${clip(text, 220)}`)
   }
+  for (const f of givenFacts) consider(f.id, f.category, f.text, projectId)
   for (const f of listFacts(db, projectId)) if (f.key) consider(f.id, f.category, f.text, projectId)
   for (const f of listFacts(db, GLOBAL_SCOPE)) if (f.key) consider(f.id, f.category, f.text, GLOBAL_SCOPE)
   const topic = `${turn.request} ${turn.replies.join(' ')}`.slice(0, 1500)
-  for (const f of await recallFacts(db, projectId, topic, 15)) consider(f.id, f.category, f.text, projectId)
+  // Not counted as a use: Starwright looking, not an agent needing them.
+  for (const f of await recallFacts(db, projectId, topic, 15, false)) consider(f.id, f.category, f.text, projectId)
 
   // A fact that may be out of date says so, so this exchange can put it right.
   const outdated = outdatedNotes(db, [...seen.keys()])
@@ -199,11 +302,39 @@ async function scribe(projectId: string, turn: TurnRecord): Promise<ScribeResult
   const answer = await runHelperJob({
     kind: 'scribe',
     projectId,
-    prompt: buildPrompt(turn, known),
+    prompt: buildPrompt(turn, known, givenFacts.map((f) => `- [${f.id}] ${clip(f.text, 220)}`)),
     schema: SCHEMA
   })
   const plan = answer.structured as Plan | undefined
   if (!plan) return result
+
+  // Memory's own record: what of what it gave mattered, and what the user had to say again.
+  if (window && givenFacts.length && Array.isArray(plan.relevant)) {
+    const ids = new Set(givenFacts.map((f) => f.id))
+    const relevant = plan.relevant.filter((id) => ids.has(id))
+    judgeFactUses(db, projectId, window.start, window.end, relevant)
+    result.judged = givenFacts.length
+    result.relevant = relevant.length
+  }
+  if (window && Array.isArray(plan.told)) {
+    // In front of the agent lately: the requests before this one (a correction is about what came before).
+    const from = earlier[0]?.start ?? new Date(Date.parse(window.start) - 2 * 3_600_000).toISOString()
+    const recent = new Set(factUsesBetween(db, projectId, from, window.start).map((u) => u.factId))
+    // A fact corrected or forgotten in this same pass was wrong, so the user wasn't repeating it.
+    const done = new Set<string>([...plan.update.map((u) => u.id), ...plan.forget.map((f) => f.id)])
+    for (const told of plan.told.slice(0, MAX_TOLD)) {
+      const fact = typeof told?.id === 'string' ? getFact(db, told.id) : undefined
+      if (!fact || fact.forgottenAt || !seen.has(fact.id) || done.has(fact.id)) continue
+      done.add(fact.id)
+      const kind = missKind(told.correcting === true, fact.key || recent.has(fact.id))
+      try {
+        recordMiss(db, projectId, fact.id, kind, turn.request)
+        result.misses = { ...result.misses, [kind]: (result.misses?.[kind] ?? 0) + 1 }
+      } catch (err) {
+        console.warn('Recording a memory miss failed:', (err as Error).message)
+      }
+    }
+  }
 
   const mine = (id: string): boolean => {
     const row = db.prepare('SELECT scope FROM facts WHERE id = ?').get(id) as { scope: string } | undefined
@@ -229,7 +360,7 @@ async function scribe(projectId: string, turn: TurnRecord): Promise<ScribeResult
     // Retire the old wording (restorable from the Memory screen) rather than
     // overwriting it, so an automatic correction can always be undone.
     const row = db.prepare('SELECT scope FROM facts WHERE id = ?').get(item.id) as { scope: string }
-    if (!forgetFact(db, item.id, 'corrected automatically')) continue
+    if (!forgetFact(db, item.id, item.fromUser === true ? 'corrected automatically (from what the user said)' : 'corrected automatically')) continue
     const saved = rememberFact(db, row.scope, item.text, 'scribe', { category: old.category, key: old.key }).fact
     db.prepare('UPDATE facts SET replaced_by = ? WHERE id = ? AND id != ?').run(saved.id, item.id, saved.id)
     carryFactFiles(db, item.id, saved.id)

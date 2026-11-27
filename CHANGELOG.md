@@ -2,6 +2,38 @@
 
 The version goes up with each improvement that ships: the middle number for new features, the last for fixes only. Settings shows the version a computer is running. (Starwright was called VibeApp up to 0.10.0.)
 
+## 0.27.0 (2026-11-26)
+
+Memory keeps a record of how it's doing: which facts it put in front of each agent, which of those mattered, and when you had to tell an agent something it already held. The usage report has a Memory section, so over a few weeks you can see whether memory is getting smarter or just bigger. Also a fix for Cline 3.0.75, which stopped every Cline run at its very end.
+
+- **What each agent is given is recorded:** each fact put in front of an agent, which agent, and how it got there:
+  - **pushed** with a request or hand-off
+  - **brought along** by a linked fact
+  - **looked up** with the recall tool
+
+  Key facts aren't listed, because every request has them. Records are kept for 180 days.
+- **After each request, the note-taker judges what was given:** which of those facts bore on the exchange. The report shows the share that mattered, for each way of being given.
+- **It notices when you repeat something memory held:**
+  - **missed:** you had to correct or remind the agent, and the fact hadn't been put in front of it in the last few requests. Search let it down.
+  - **ignored:** you had to correct or remind it, and it had been given the fact, or the fact is key.
+  - **said up front:** you mentioned it in a new request without anything having gone wrong. This isn't counted as a failure.
+
+  A fact memory had wrong, which you correct, is updated as before and isn't counted. A correction that came from what you said is now marked so on the fact it replaced.
+- **A fact search keeps missing isn't retired as unused.** Facts nobody has used in two months are retired. A fact you had to repeat was clearly needed, so it's kept.
+- **The note-taker's own search no longer counts as using a fact.** It looked up 15 facts after every request, which made almost every fact look used. So "never used" and retiring unused facts meant very little.
+- **The usage report's Memory section** (Settings, and the `usage_report` tool) shows:
+  - facts given, by way, with how many mattered
+  - look-ups by agent
+  - misses by kind, and by week
+  - the facts missed most often
+- **Cline 3.0.75 works again.** That version ends a run with a new `submit_and_exit` tool, which Starwright's safety hook didn't know, so it refused it and stopped the run.
+  - Every background job on Cline fell back to Haiku, which used your Claude plan.
+  - The tool is now allowed: it only hands in an answer.
+  - The answer it hands in, and what Cline said just before, become Cline's result, on both the hosted and the one-off Cline.
+  - A background job's JSON is found even with Cline's "Submission recorded…" line after it.
+  - When a background job's answer doesn't fit the format, the reason now quotes the start of what Cline said.
+- Unit tests for each, four new cases in the note-taking evaluation (`VIBEAPP_EVAL_ONLY=memory npm run eval -- helpers`), and the real Cline smoke tests (12 of 12).
+
 ## 0.26.0 (2026-11-24)
 
 Plugins, parts 2 and 3: a plugin can now do things as well as show them. It can run commands from a button, after each request, hand-off or Deploy, or on a schedule. Claude and Codex know how to write plugins, and their panels open over Remote. Starwright comes with a second example, **TODO Finder**, that uses all of it.

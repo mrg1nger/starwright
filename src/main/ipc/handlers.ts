@@ -104,7 +104,7 @@ import { memoryDb, memoryDbPath, memoryServerScriptPath } from '../memory/paths'
 import { tidyMemory, maybeTidy } from '../memory/tidy'
 import { noteFactsUsedTogether, noteRequestChanges } from '../memory/links'
 import { pluginEvent, startPluginRuntime } from '../plugins/runtime'
-import { onHandoffFinished } from '../memory/store'
+import { memoryReport, onHandoffFinished } from '../memory/store'
 import { maybeRefreshCodeMap } from '../memory/codeMap'
 import {
   ensureHistoryImported,
@@ -631,7 +631,7 @@ export function registerIpcHandlers(getSender: () => WebContents | undefined): v
       // search (free), so Claude doesn't need a tool call to look them up.
       // Quick requests get it too: "which size are the slimes?" is quick,
       // and exactly where memory helps.
-      const relevant = await prefetchBlock(projectId, text)
+      const relevant = await prefetchBlock(projectId, text, 'claude')
       // First request in a project: start mapping the code now, in the background.
       maybeRefreshCodeMap(projectId, projectPath)
       turnRecords.set(projectId, { request: text, replies: [], actions: [], commands: [], stopped: false, hadError: false, startedAt: new Date().toISOString() })
@@ -1334,7 +1334,8 @@ export function registerIpcHandlers(getSender: () => WebContents | undefined): v
       byKind: workByKind(memoryDb(), since, only?.id),
       reviews: reviewOutcomes(memoryDb(), since, only?.id),
       track: trackSummary(memoryDb(), only?.id),
-      tools: toolVersions()
+      tools: toolVersions(),
+      memory: memoryReport(memoryDb(), since, only?.id)
     })
   })
 
@@ -1815,7 +1816,8 @@ function runAsk(
     let rerouted = false
     try {
       const keyFacts = keyFactsBlock(memoryDb(), projectId)
-      const relevant = await prefetchBlock(projectId, text)
+      // Codex answers when Claude is out (below).
+      const relevant = await prefetchBlock(projectId, text, claudeBlockedUntil() !== null || claudeStandsDown() ? 'codex' : 'claude')
       const chosen = getSettings().claudeModel
       const system = `You are answering a question about the user's software project inside Starwright. You can't change the project's files: you can only read and search them and look things up in the project's memory. You can look at and update the user's to-do list for this project (add items, tick them off) and read their notes, when they ask. Answer directly in plain, friendly language and keep it short unless asked for depth. If the question turns out to need changes to the project, say so and suggest they switch to Build mode.\n\n${liveQuestionRule(auto)}\n\n## Key facts\n${keyFacts}`
       const prompt = [relevant, text].filter(Boolean).join('\n\n')
@@ -2186,6 +2188,8 @@ function wireSessionEvents(
       if (forwarded.type === 'turn_complete') {
         const path = getProject(projectId)?.path
         const finished = turnRecords.get(projectId)
+        // The note-taker runs later: what was given to agents in this request is up to now.
+        const endedAt = new Date().toISOString()
         turnRecords.delete(projectId)
         if (finished && session.isAside()) {
           asideRequests.get(projectId)?.push({ request: finished.request, reply: finished.replies.at(-1) ?? '', actions: finished.actions })
@@ -2221,7 +2225,7 @@ function wireSessionEvents(
           Promise.all([helpersAllowed(), changed])
             .then(async ([allowed, files]) => {
               try {
-                if (allowed) await runScribe(projectId, { ...finished, files, projectPath: path })
+                if (allowed) await runScribe(projectId, { ...finished, files, projectPath: path, endedAt })
               } finally {
                 linkFacts(files)
               }

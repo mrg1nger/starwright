@@ -11,7 +11,7 @@ import { runLocalAgent } from '../local/localAgent'
 import { progressNote } from '../cli/codexActivity'
 import { getSettings } from '../settings/store'
 import { memoryDb } from '../memory/paths'
-import { codeSummariesFor, finishHandoff, keyFactsBlock, latestHandoffModel, markReworked, startHandoff, trackRows } from '../memory/store'
+import { codeSummariesFor, finishHandoff, keyFactsBlock, latestHandoffModel, markReworked, noteFactUses, startHandoff, trackRows } from '../memory/store'
 import { codexRunModel } from '../cli/codexSessions'
 import { TRACK_DAYS, applyTrackRecord, assess, moveTag, orderNote, recordText, whoOf, type Track } from './trackRecord'
 import { conventionsFor } from '../memory/meaning'
@@ -240,7 +240,7 @@ export function createCodexDelegationServer(
       const signal = getStopSignal?.()
       const request = getRequestContext?.()
     const images = (request?.images ?? []).filter((p) => existsSync(p))
-    const context = memory ? await attemptLater(() => handoffContext(memory.projectId, prompt, request)) : undefined
+    const context = memory ? await attemptLater(() => handoffContext(memory.projectId, prompt, request, 'codex')) : undefined
     // Codex's tokens come from its session file as it writes it, once its thread id is known.
     let stopTokens: (() => void) | undefined
     const watchTokens = (threadId: string): void => {
@@ -314,7 +314,7 @@ export function createCodexDelegationServer(
     if (!settings.clineHandoffs) {
       return { report: 'Hand-offs to Cline are switched off in Starwright\'s Settings. Do the work yourself or hand it to Codex.', ok: false }
     }
-    const context = memory ? await attemptLater(() => handoffContext(memory.projectId, prompt, request)) : undefined
+    const context = memory ? await attemptLater(() => handoffContext(memory.projectId, prompt, request, 'cline')) : undefined
     const fullPrompt = [
       CLINE_INSTRUCTIONS,
       memory ? `Key facts:\n${currentKeyFacts(memory.projectId) ?? '(none yet)'}` : undefined,
@@ -367,7 +367,7 @@ export function createCodexDelegationServer(
     if (!getSettings().localHandoffs) {
       return { report: "Hand-offs to the local model are switched off in Starwright's Settings. Do the work yourself or hand it to Codex.", ok: false }
     }
-    const context = memory ? await attemptLater(() => handoffContext(memory.projectId, prompt, request)) : undefined
+    const context = memory ? await attemptLater(() => handoffContext(memory.projectId, prompt, request, 'local')) : undefined
     // Kept short: the local model's room is limited, and the task matters most.
     const background = [
       memory ? `Key facts:\n${currentKeyFacts(memory.projectId) ?? '(none yet)'}` : undefined,
@@ -818,6 +818,8 @@ export function createCodexDelegationServer(
         const text = [request?.text, prompt, ...changes.map((c) => c.path)].filter(Boolean).join(' ')
         const rules = await attemptLater(() => conventionsFor(memoryDb(), projectId, text))
         if (rules?.length) {
+          // Claude judges the change against them, so they're given to Claude.
+          noteFactUses(memoryDb(), projectId, rules.map((r) => r.id), 'pushed', 'claude')
           lines.push(
             `[Remembered conventions that apply here; check the change against them:\n${rules
               .map((r) => `- ${r.text}`)

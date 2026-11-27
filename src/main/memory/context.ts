@@ -6,6 +6,7 @@ import {
   outdatedSuffix,
   countMessages,
   getMeta,
+  noteFactUses,
   recentHandoffs,
   setMeta,
   transaction,
@@ -22,12 +23,17 @@ function oneLine(text: string, max: number): string {
   return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat
 }
 
-/** Remembered facts and files that look related to `text`, or undefined if nothing does. Never throws. */
-export async function prefetchBlock(projectId: string, text: string): Promise<string | undefined> {
+/**
+ * Remembered facts and files that look related to `text`, or undefined if nothing does. The facts are
+ * noted as given to `agent` (see fact_uses). Never throws.
+ */
+export async function prefetchBlock(projectId: string, text: string, agent: string): Promise<string | undefined> {
   try {
     const db = memoryDb()
     const facts = await factsForRequest(db, projectId, text, 5)
     const files = await filesForRequest(db, projectId, text, 5)
+    noteFactUses(db, projectId, facts.filter((f) => !f.cameWith).map((f) => f.id), 'pushed', agent)
+    noteFactUses(db, projectId, facts.filter((f) => f.cameWith).map((f) => f.id), 'brought', agent)
     if (!facts.length && !files.length) return undefined
     const parts: string[] = []
     if (facts.length) {
@@ -107,10 +113,11 @@ export function ensureHistoryImported(projectId: string): void {
 export async function handoffContext(
   projectId: string,
   brief: string,
-  request: { text: string; element?: string; images: string[] } | undefined
+  request: { text: string; element?: string; images: string[] } | undefined,
+  agent: string
 ): Promise<string> {
   const parts: string[] = []
-  const relevant = await prefetchBlock(projectId, `${request?.text ?? ''} ${brief}`)
+  const relevant = await prefetchBlock(projectId, `${request?.text ?? ''} ${brief}`, agent)
   if (relevant) parts.push(relevant.replace(/^\[VibeApp note: /, 'Context: ').replace(/\]$/, ''))
   const handoffs = recentHandoffsBlock(projectId)
   if (handoffs) parts.push(handoffs)

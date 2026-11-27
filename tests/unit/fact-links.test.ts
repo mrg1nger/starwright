@@ -133,7 +133,7 @@ test("a fact found for a request brings its partner along, saying which it came 
   )
   assert.equal(getFact(db, gotcha)!.useCount, 1, 'brought along counts as looked up')
 
-  const block = await prefetchBlock(project, 'how do we publish a release?')
+  const block = await prefetchBlock(project, 'how do we publish a release?', 'claude')
   assert.match(block ?? '', new RegExp(`ELECTRON_RUN_AS_NODE is cleared first\\. \\(id ${gotcha}\\) \\(brought along: often needed with ${release}\\)`))
 
   // An agent's own search gets it too.

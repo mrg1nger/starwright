@@ -183,6 +183,10 @@ export function decideToolCall(policy: ClinePolicy, call: ToolCall): HookDecisio
         overrideInput: { ...input, commands: commands.map((c, i) => (verdicts[i] ? blockedEcho(verdicts[i]!) : c)) }
       }
     }
+    case 'submit_and_exit':
+      // How Cline 3.0.75 hands in its final answer and ends the run (it was attempt_completion): it
+      // changes nothing, and refusing it stopped every run at its very end.
+      return { allow: true }
     default:
       // Connectors (Gmail, Drive…), web fetches, helper agents, questions to a user who isn't there.
       return refuse(`Starwright doesn't allow the ${name || 'unnamed'} tool in Cline runs.`)

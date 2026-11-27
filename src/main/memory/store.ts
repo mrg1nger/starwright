@@ -14,7 +14,7 @@ import { approvedPlanFact, planTitle } from '@shared/plan'
 /** Facts in the global scope apply to every project. */
 export const GLOBAL_SCOPE = 'global'
 
-const SCHEMA_VERSION = 8
+const SCHEMA_VERSION = 9
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS facts (
@@ -244,6 +244,34 @@ CREATE INDEX IF NOT EXISTS fact_links_project ON fact_links(project_id);
 CREATE TRIGGER IF NOT EXISTS fact_links_ad AFTER DELETE ON facts BEGIN
   DELETE FROM fact_links WHERE a = old.id OR b = old.id;
 END;
+
+-- Each time a fact was put in front of an agent: pushed with a request (found for it), brought along
+-- by a linked fact, or looked up by the agent with the recall tool. Key facts aren't listed: every
+-- request has them. relevant is the note-taker's judgement afterwards (1 / 0; null: not judged).
+CREATE TABLE IF NOT EXISTS fact_uses (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_id TEXT NOT NULL,
+  at TEXT NOT NULL,
+  fact_id TEXT NOT NULL,
+  how TEXT NOT NULL,
+  agent TEXT NOT NULL DEFAULT '',
+  relevant INTEGER
+);
+CREATE INDEX IF NOT EXISTS fact_uses_project_at ON fact_uses(project_id, at);
+CREATE INDEX IF NOT EXISTS fact_uses_fact ON fact_uses(fact_id);
+
+-- The user told an agent something memory already held. kind: missed (the fact wasn't put in front
+-- of the agent: search let it down), ignored (it was, and the agent still got it wrong), restated
+-- (the user said it up front; not a failure, but memory didn't save them saying it).
+CREATE TABLE IF NOT EXISTS memory_misses (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_id TEXT NOT NULL,
+  at TEXT NOT NULL,
+  fact_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  request TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS memory_misses_at ON memory_misses(at);
 `
 
 const databases = new Map<string, DatabaseSync>()
@@ -320,6 +348,14 @@ export function openMemory(dbPath: string, vectorExtension?: string): DatabaseSy
   // Another process may add it between the look and the change.
   if (!factColumns.has('replaced_by')) ignoreDuplicateColumn(() => db.exec('ALTER TABLE facts ADD COLUMN replaced_by TEXT'))
   db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`)
+  // Only the app (the memory tool processes come and go with every session).
+  if (vectorExtension) {
+    try {
+      pruneFactUses(db)
+    } catch (err) {
+      console.warn('Dropping old memory-use records failed:', (err as Error).message)
+    }
+  }
   if (!getMeta(db, 'fixed_plan_facts_without_s')) {
     forgetDamagedPlanFacts(db)
     setMeta(db, 'fixed_plan_facts_without_s', now())
@@ -473,6 +509,133 @@ export function markUsed(db: DatabaseSync, ids: string[]): void {
   const stmt = db.prepare('UPDATE facts SET last_used_at = ?, use_count = use_count + 1 WHERE id = ?')
   const at = now()
   for (const id of ids) stmt.run(at, id)
+}
+
+// ---- what agents were given, and what memory missed ---------------------------------------------
+//
+// use_count says a fact was found, not that it helped. These say which facts were put in front of
+// which agent and when, what the note-taker thought of them afterwards, and when the user had to
+// tell an agent something memory already held (memory_misses).
+
+/** How a fact got in front of an agent. */
+export type FactUseHow = 'pushed' | 'brought' | 'recalled'
+export const FACT_USE_HOWS: FactUseHow[] = ['pushed', 'brought', 'recalled']
+export type MissKind = 'missed' | 'ignored' | 'restated'
+/** What's given and what's missed is kept this long. */
+export const FACT_USE_DAYS = 180
+
+/** Notes that these facts were put in front of `agent` (key facts aren't noted: every request has them). Never throws. */
+export function noteFactUses(db: DatabaseSync, projectId: string, ids: string[], how: FactUseHow, agent: string, at = now()): void {
+  if (!projectId || !ids.length) return
+  try {
+    const isKey = db.prepare('SELECT key FROM facts WHERE id = ?')
+    const put = db.prepare('INSERT INTO fact_uses (project_id, at, fact_id, how, agent) VALUES (?, ?, ?, ?, ?)')
+    for (const id of new Set(ids)) {
+      const row = isKey.get(id) as { key: number } | undefined
+      if (row && !row.key) put.run(projectId, at, id, how, agent)
+    }
+  } catch (err) {
+    console.warn('Noting which facts were given failed:', (err as Error).message)
+  }
+}
+
+export interface FactUse {
+  factId: string
+  how: FactUseHow
+  agent: string
+}
+
+/** The facts put in front of an agent in the project between two times (ISO), in order. */
+export function factUsesBetween(db: DatabaseSync, projectId: string, from: string, to: string): FactUse[] {
+  const rows = db
+    .prepare('SELECT fact_id, how, agent FROM fact_uses WHERE project_id = ? AND at >= ? AND at <= ? ORDER BY id')
+    .all(projectId, from, to) as { fact_id: string; how: FactUseHow; agent: string }[]
+  return rows.map((r) => ({ factId: r.fact_id, how: r.how, agent: r.agent }))
+}
+
+/** The note-taker's judgement on what was given between two times: `relevant` mattered, the rest didn't. */
+export function judgeFactUses(db: DatabaseSync, projectId: string, from: string, to: string, relevant: string[]): number {
+  return Number(
+    db
+      .prepare(
+        `UPDATE fact_uses SET relevant = CASE WHEN fact_id IN (SELECT value FROM json_each(?)) THEN 1 ELSE 0 END
+         WHERE project_id = ? AND at >= ? AND at <= ? AND relevant IS NULL`
+      )
+      .run(JSON.stringify(relevant), projectId, from, to).changes
+  )
+}
+
+export function recordMiss(db: DatabaseSync, projectId: string, factId: string, kind: MissKind, request: string, at = now()): void {
+  db.prepare('INSERT INTO memory_misses (project_id, at, fact_id, kind, request) VALUES (?, ?, ?, ?, ?)').run(
+    projectId,
+    at,
+    factId,
+    kind,
+    request.replace(/\s+/g, ' ').trim().slice(0, 200)
+  )
+}
+
+/** Drops what's given and missed from before FACT_USE_DAYS. */
+export function pruneFactUses(db: DatabaseSync, at = Date.now()): void {
+  const cutoff = new Date(at - FACT_USE_DAYS * 86_400_000).toISOString()
+  db.prepare('DELETE FROM fact_uses WHERE at < ?').run(cutoff)
+  db.prepare('DELETE FROM memory_misses WHERE at < ?').run(cutoff)
+}
+
+type MissCounts = Record<MissKind, number>
+
+/** For the usage report: what memory gave agents, how much of it mattered, and what it missed. */
+export interface MemoryReport {
+  misses: MissCounts
+  /** By week (the Monday it starts on), oldest first. */
+  weeks: ({ week: string } & MissCounts)[]
+  /** Per way of being given: how many times, how many the note-taker judged, and how many of those mattered. */
+  given: Record<FactUseHow, { total: number; judged: number; relevant: number }>
+  /** Look-ups (recall) per agent. */
+  recalls: Record<string, number>
+  /** The facts most often missed or ignored. */
+  top: { factId: string; text: string; missed: number; ignored: number }[]
+}
+
+export function memoryReport(db: DatabaseSync, since: string, projectId?: string): MemoryReport {
+  const where = projectId ? 'AND project_id = ?' : ''
+  const args = projectId ? [since, projectId] : [since]
+  const misses: MissCounts = { missed: 0, ignored: 0, restated: 0 }
+  const weeks = new Map<string, MissCounts>()
+  const rows = db
+    .prepare(`SELECT date(at, '-6 days', 'weekday 1') AS week, kind, COUNT(*) AS n FROM memory_misses WHERE at >= ? ${where} GROUP BY week, kind ORDER BY week`)
+    .all(...args) as { week: string; kind: MissKind; n: number }[]
+  for (const r of rows) {
+    if (!(r.kind in misses)) continue
+    misses[r.kind] += r.n
+    const w = weeks.get(r.week) ?? { missed: 0, ignored: 0, restated: 0 }
+    w[r.kind] += r.n
+    weeks.set(r.week, w)
+  }
+  const given = Object.fromEntries(FACT_USE_HOWS.map((h) => [h, { total: 0, judged: 0, relevant: 0 }])) as MemoryReport['given']
+  const uses = db
+    .prepare(
+      `SELECT how, COUNT(*) AS total, COUNT(relevant) AS judged, COALESCE(SUM(relevant), 0) AS relevant
+       FROM fact_uses WHERE at >= ? ${where} GROUP BY how`
+    )
+    .all(...args) as { how: FactUseHow; total: number; judged: number; relevant: number }[]
+  for (const u of uses) if (given[u.how]) given[u.how] = { total: u.total, judged: u.judged, relevant: u.relevant }
+  const recalls: Record<string, number> = {}
+  const byAgent = db
+    .prepare(`SELECT agent, COUNT(*) AS n FROM fact_uses WHERE how = 'recalled' AND at >= ? ${where} GROUP BY agent`)
+    .all(...args) as { agent: string; n: number }[]
+  for (const r of byAgent) recalls[r.agent || 'unknown'] = r.n
+  const top = (
+    db
+      .prepare(
+        `SELECT m.fact_id, COALESCE(f.text, '') AS text, SUM(m.kind = 'missed') AS missed, SUM(m.kind = 'ignored') AS ignored
+         FROM memory_misses m LEFT JOIN facts f ON f.id = m.fact_id
+         WHERE m.kind != 'restated' AND m.at >= ? ${projectId ? 'AND m.project_id = ?' : ''}
+         GROUP BY m.fact_id ORDER BY missed + ignored DESC, MAX(m.at) DESC LIMIT 5`
+      )
+      .all(...args) as { fact_id: string; text: string; missed: number; ignored: number }[]
+  ).map((r) => ({ factId: r.fact_id, text: r.text, missed: r.missed, ignored: r.ignored }))
+  return { misses, weeks: [...weeks].map(([week, c]) => ({ week, ...c })), given, recalls, top }
 }
 
 // ---- reading --------------------------------------------------------------
@@ -1013,9 +1176,11 @@ export function unusedFacts(db: DatabaseSync, projectId: string, at = Date.now()
        WHERE f.scope = ? AND f.scope != ? AND f.key = 0 AND f.forgotten_at IS NULL
          AND COALESCE(f.last_used_at, f.updated_at) < ?
          AND (SELECT COUNT(*) FROM messages m WHERE m.project_id = f.scope AND m.role = 'user'
-              AND m.created_at > COALESCE(f.last_used_at, f.updated_at)) >= ?`
+              AND m.created_at > COALESCE(f.last_used_at, f.updated_at)) >= ?
+         -- A fact the user had to tell an agent again was needed: search missed it, not the project.
+         AND NOT EXISTS (SELECT 1 FROM memory_misses x WHERE x.fact_id = f.id AND x.at >= ?)`
     )
-    .all(projectId, GLOBAL_SCOPE, cutoff, UNUSED_REQUESTS) as unknown as FactRow[]
+    .all(projectId, GLOBAL_SCOPE, cutoff, UNUSED_REQUESTS, cutoff) as unknown as FactRow[]
   return rows.map(toFact)
 }
 

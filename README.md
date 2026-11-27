@@ -99,6 +99,7 @@ It runs on the subscriptions you already have (Claude, ChatGPT, and optionally C
   - keep a project brief of about 500 words
   - map the code
 - **Long chats are compacted in place**, keeping the rules, decisions and work in progress. A meter shows how full the chat is.
+- **Keeps a record of how it's doing:** which facts each agent was given, which of them mattered, and when you had to tell an agent something memory already held. The usage report's Memory section shows it week by week, so you can see whether memory is getting smarter or just bigger.
 
 ---
 

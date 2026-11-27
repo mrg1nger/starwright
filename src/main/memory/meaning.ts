@@ -56,7 +56,7 @@ export type AttachedFact = MemoryFact & { cameWith?: string }
  * saying which found fact it came with. Key facts neither bring partners nor come along (they are
  * in every request's instructions already). Partners count as looked up. Never throws.
  */
-export function withPartners(db: DatabaseSync, projectId: string, found: MemoryFact[], limit: number, seeds = found.length): AttachedFact[] {
+export function withPartners(db: DatabaseSync, projectId: string, found: MemoryFact[], limit: number, seeds = found.length, used = true): AttachedFact[] {
   try {
     const from = found.slice(0, seeds).filter((f) => !f.key).map((f) => f.id)
     const partners = linkPartners(db, from, new Set(found.map((f) => f.id)), limit * 3)
@@ -67,7 +67,7 @@ export function withPartners(db: DatabaseSync, projectId: string, found: MemoryF
         return fact && !fact.key ? [{ ...fact, cameWith: p.with }] : []
       })
       .slice(0, limit)
-    markUsed(db, extra.map((f) => f.id))
+    if (used) markUsed(db, extra.map((f) => f.id))
     return [...found, ...extra]
   } catch (err) {
     console.warn('Finding the facts that go with these failed:', (err as Error).message)
@@ -218,22 +218,23 @@ function keywordInstead(what: string, err: unknown): void {
 
 /**
  * A search an agent asked for (the recall tool): the best matches in this project and the global
- * facts, then up to PARTNERS_PER_SEARCH facts that go with the first three.
+ * facts, then up to PARTNERS_PER_SEARCH facts that go with the first three. `used` false for
+ * Starwright's own look (the note-taker's), which isn't an agent needing the facts.
  */
-export async function recallFacts(db: DatabaseSync, projectId: string, text: string, limit = 10): Promise<AttachedFact[]> {
+export async function recallFacts(db: DatabaseSync, projectId: string, text: string, limit = 10, used = true): Promise<AttachedFact[]> {
   let found: MemoryFact[] | undefined
   try {
     const r = await ready(db, projectId, text)
     if (r) {
       const near = nearestFacts(db, projectId, r.model, r.question, limit).map((n) => n.fact)
       found = withExactMatch(near, searchFacts(db, projectId, text, 1, false)[0], (f) => f.id, limit)
-      markUsed(db, found.map((f) => f.id))
+      if (used) markUsed(db, found.map((f) => f.id))
     }
   } catch (err) {
     keywordInstead('Searching memory', err)
   }
-  found ??= searchFacts(db, projectId, text, limit)
-  return withPartners(db, projectId, found, PARTNERS_PER_SEARCH, 3)
+  found ??= searchFacts(db, projectId, text, limit, used)
+  return withPartners(db, projectId, found, PARTNERS_PER_SEARCH, 3, used)
 }
 
 /** The where tool: the mapped files that best fit the question. */

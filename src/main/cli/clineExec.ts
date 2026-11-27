@@ -351,6 +351,27 @@ function tidy(text: string): string {
 }
 
 /** One readable step for a Cline JSON event, or null if it isn't worth showing. */
+/**
+ * The answer Cline hands in with submit_and_exit (Cline 3.0.75 ends a run with it), or undefined
+ * for any other tool call. Its final message can then be empty: the answer is this summary.
+ */
+export function submittedAnswer(toolName: string | undefined, input: unknown): string | undefined {
+  if (toolName !== 'submit_and_exit' || !input || typeof input !== 'object') return undefined
+  const summary = (input as { summary?: unknown }).summary
+  return typeof summary === 'string' && summary.trim() ? summary.trim() : undefined
+}
+
+/**
+ * A run's final text: its final message, plus, when it ended with submit_and_exit, what it said
+ * just before handing in (models often write the answer there and hand in a summary of it) and the
+ * summary it handed in. A part already inside another is left out.
+ */
+export function finalAnswer(said: string | undefined, submitted: string | undefined, before?: string): string {
+  const parts = (submitted ? [before, said, submitted] : [said]).map((p) => (p ?? '').trim()).filter(Boolean)
+  const kept = parts.filter((p, i) => !parts.some((q, j) => j !== i && q.includes(p) && (q !== p || j < i)))
+  return kept.join('\n\n')
+}
+
 export function describeClineActivity(e: ClineEvent): DelegationActivity | null {
   if (e.type !== 'agent_event' || !e.event) return null
   const ev = e.event
@@ -518,6 +539,9 @@ export async function runCline(args: ClineRunArgs, onActivity?: (activity: Deleg
   let final: ClineEvent | undefined
   let lastError = ''
   let usageSteps = 0
+  let submitted: string | undefined
+  let spoken = ''
+  let before = ''
   try {
     await new Promise<void>((resolveRun, reject) => {
       // No stdin: with an open input pipe Cline waits for more prompt to arrive on it (found: every run hung).
@@ -552,6 +576,13 @@ export async function runCline(args: ClineRunArgs, onActivity?: (activity: Deleg
             continue
           }
           if (event.type === 'run_result') final = event
+          if (event.type === 'agent_event') {
+            const handedIn = submittedAnswer(event.event?.toolName, event.event?.input)
+            // What it said just before handing in (the answer itself, often).
+            if (handedIn && !submitted) before = spoken
+            submitted = handedIn ?? submitted
+            if (event.event?.type === 'content_end' && event.event.contentType === 'text' && event.event.text?.trim()) spoken = event.event.text
+          }
           if (event.type === 'agent_event' && event.event?.type === 'usage') {
             const u = event.event as { totalInputTokens?: number; totalOutputTokens?: number }
             args.onTokens?.({ read: u.totalInputTokens ?? 0, written: u.totalOutputTokens ?? 0, steps: ++usageSteps })
@@ -591,7 +622,7 @@ export async function runCline(args: ClineRunArgs, onActivity?: (activity: Deleg
   const blocked = readBlocked(hookLog)
   rmSync(temp, { recursive: true, force: true })
   const finishReason = final?.finishReason ?? 'error'
-  const text = (final?.text ?? '').trim()
+  const text = finalAnswer(final?.text, submitted, before)
   const usage = final ? countsFromClineResult(final) : { fresh: 0, cached: 0, output: 0, steps: 1 }
   if (finishReason === 'completed') return { text, finishReason, ok: true, usage, model: final?.model?.id, blocked }
 

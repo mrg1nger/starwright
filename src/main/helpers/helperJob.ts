@@ -47,7 +47,7 @@ export interface JsonSchema {
 }
 
 const CLINE_SYSTEM =
-  'You are a careful assistant inside a coding app, doing one background job. You have no tools and need none: everything you need is in the message. Answer with exactly what the job asks for and nothing else.'
+  'You are a careful assistant inside a coding app, doing one background job. You have no tools and need none: everything you need is in the message. Answer with exactly what the job asks for and nothing else. If you finish with submit_and_exit, its summary must be exactly that answer (for a JSON answer, the JSON object itself), not a description of it.'
 
 /** Whether a background job can run at all right now (LM Studio or Cline is set up, or Claude has room). */
 export async function helpersAllowed(): Promise<boolean> {
@@ -92,8 +92,9 @@ export async function runHelperJob(job: HelperJob): Promise<HelperResult> {
 async function onCline(job: HelperJob): Promise<HelperResult> {
   const cwd = mkdtempSync(join(tmpdir(), `vibeapp-${job.kind}-`))
   try {
+    // Cline 3.0.75 ends runs with submit_and_exit: the JSON must be what it hands in, not a description of it.
     const prompt = job.schema
-      ? `${job.prompt}\n\nAnswer with ONLY a JSON object (no code fence, no other text) that follows this JSON Schema exactly, with every required field:\n${JSON.stringify(job.schema)}`
+      ? `${job.prompt}\n\nAnswer with ONLY a JSON object (no code fence, no other text) that follows this JSON Schema exactly, with every required field:\n${JSON.stringify(job.schema)}\n\nIf you finish with submit_and_exit, its summary must be that JSON object itself, character for character, and nothing else.`
       : job.prompt
     const result = await runCline({
       prompt,
@@ -112,7 +113,8 @@ async function onCline(job: HelperJob): Promise<HelperResult> {
     }
     const raw = extractJson(result.text)
     const structured = raw === undefined ? undefined : fillEmptyLists(raw, job.schema)
-    const problem = structured === undefined ? 'the answer had no JSON in it' : schemaProblem(structured, job.schema)
+    const said = result.text.replace(/\s+/g, ' ').trim()
+    const problem = structured === undefined ? `the answer had no JSON in it: "${said.slice(0, 160) || '(nothing)'}"` : schemaProblem(structured, job.schema)
     if (problem) throw new Error(`Cline's answer didn't follow the format (${problem}).`)
     return { text: result.text, structured, by: 'cline' }
   } finally {
@@ -189,6 +191,31 @@ export function extractJson(text: string): unknown {
       return JSON.parse(candidate)
     } catch {
       // try the next shape
+    }
+  }
+  // An object with more after it (Cline 3.0.75 adds "Submission recorded…", which may hold braces).
+  return firstJsonObject(unfenced)
+}
+
+/** The first complete JSON object in the text: braces counted outside strings, then parsed. */
+function firstJsonObject(text: string): unknown {
+  for (let start = text.indexOf('{'); start >= 0; start = text.indexOf('{', start + 1)) {
+    let depth = 0
+    let inString = false
+    for (let i = start; i < text.length; i++) {
+      const c = text[i]
+      if (inString) {
+        if (c === '\\') i++
+        else if (c === '"') inString = false
+      } else if (c === '"') inString = true
+      else if (c === '{') depth++
+      else if (c === '}' && --depth === 0) {
+        try {
+          return JSON.parse(text.slice(start, i + 1))
+        } catch {
+          break
+        }
+      }
     }
   }
   return undefined

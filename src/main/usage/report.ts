@@ -2,7 +2,7 @@ import type { RouteWork, WorkRoute } from '@shared/types'
 import { trackLines, type TrackSummary } from '../delegation/trackReport'
 import { toolVersionLines } from '@shared/update'
 import type { ToolVersions } from '@shared/types'
-import type { RequestLogRow } from '../memory/store'
+import type { MemoryReport, RequestLogRow } from '../memory/store'
 import type { StepKind } from './requestLog'
 
 // A plain-text usage report: where Claude's plan went (by project, by kind of
@@ -132,6 +132,38 @@ const MODE_LABELS: Record<string, string> = {
   takeover: 'Codex alone (Claude out)'
 }
 
+const AGENT_NAMES: Record<string, string> = { claude: 'Claude', codex: 'Codex', cline: 'Cline', local: 'Local model' }
+
+/** The report's Memory section (see memory_misses and fact_uses in the store). */
+export function memoryLines(m: MemoryReport, days: number): string[] {
+  const lines = [`## Memory (last ${days} day${days === 1 ? '' : 's'}; counted from 0.27.0)`]
+  const share = (g: { judged: number; relevant: number }): string => (g.judged ? `, ${Math.round((100 * g.relevant) / g.judged)}% of ${g.judged} judged mattered` : '')
+  const given = [
+    m.given.pushed.total ? `${m.given.pushed.total} pushed with requests${share(m.given.pushed)}` : '',
+    m.given.brought.total ? `${m.given.brought.total} brought along by links${share(m.given.brought)}` : '',
+    m.given.recalled.total ? `${m.given.recalled.total} looked up by agents${share(m.given.recalled)}` : ''
+  ].filter(Boolean)
+  lines.push(`- Facts given to agents: ${given.length ? given.join(' · ') : 'none yet'}`)
+  const recalls = Object.entries(m.recalls)
+    .sort((a, b) => b[1] - a[1])
+    .map(([agent, n]) => `${AGENT_NAMES[agent] ?? agent} ${n}`)
+  if (recalls.length) lines.push(`- Look-ups by agent: ${recalls.join(' · ')}`)
+  const { missed, ignored, restated } = m.misses
+  lines.push(
+    missed + ignored + restated
+      ? `- You told an agent what memory already held: ${missed} missed (it wasn't given to the agent), ${ignored} ignored (it was, and the agent still got it wrong), ${restated} said up front`
+      : '- You told an agent what memory already held: never, so far'
+  )
+  if (m.weeks.length > 1) {
+    lines.push(`- By week: ${m.weeks.map((w) => `${w.week} ${w.missed} missed, ${w.ignored} ignored, ${w.restated} up front`).join(' · ')}`)
+  }
+  for (const t of m.top) {
+    const text = t.text ? `"${t.text.replace(/\s+/g, ' ').slice(0, 90)}"` : `(fact ${t.factId}, since corrected or removed)`
+    lines.push(`- Missed or ignored: ${text} (${t.missed} missed, ${t.ignored} ignored)`)
+  }
+  return lines
+}
+
 export function buildReport(input: {
   days: number
   usage: UsageRow[]
@@ -150,6 +182,8 @@ export function buildReport(input: {
   track?: TrackSummary
   /** Codex, Cline and the Claude SDK: the version in use and whether a newer one is out. */
   tools?: ToolVersions
+  /** What memory gave agents, how much of it mattered, and what the user had to tell them again. */
+  memory?: MemoryReport
 }): string {
   const { days, usage, requests, projectNames } = input
   const name = (id: string): string => (id ? projectNames.get(id) ?? id : '(no project: Chat tab)')
@@ -160,6 +194,7 @@ export function buildReport(input: {
   if (input.plans?.length) lines.push(`Plans now: ${input.plans.join(' · ')}`)
   if (input.work) lines.push('', ...workSection(input.work, { byKind: input.byKind, reviews: input.reviews }))
   if (input.track) lines.push('', ...trackLines(input.track))
+  if (input.memory) lines.push('', ...memoryLines(input.memory, days))
   if (input.tools?.tools.length) lines.push('', ...toolVersionLines(input.tools))
 
   // ---- Claude by project and by kind of work

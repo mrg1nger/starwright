@@ -16,6 +16,7 @@ import {
   openMemory,
   searchFacts,
   keyFactsBlock,
+  noteFactUses,
   rememberFact,
   updateFact,
   forgetFact,
@@ -104,6 +105,8 @@ server.registerTool(
   async ({ query }) => {
     if (!query?.trim()) return text(`Key facts:\n${keyFactsBlock(db, projectId)}`)
     const found = await findFacts(query, 12)
+    // What this agent looked up, so a fact the user later has to repeat can be told apart from one it never saw.
+    noteFactUses(db, projectId, found.map((f) => f.id), 'recalled', agentSource)
     const outdated = outdatedNotes(db, found.map((f) => f.id))
     return text(found.length ? `Matches for "${query}":\n${found.map((f) => describe(f, outdated)).join('\n')}` : `Nothing remembered matches "${query}".`)
   }

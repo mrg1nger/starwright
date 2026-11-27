@@ -13,7 +13,9 @@ import {
   clineFailure,
   countsFromClineResult,
   describeClineActivity,
+  finalAnswer,
   markUnavailable,
+  submittedAnswer,
   prepareClineHome,
   resolveClineLaunch,
   writeMcpSettings,
@@ -393,6 +395,9 @@ export async function runClineHosted(args: ClineRunArgs, onActivity?: (activity:
     let toolCalls = 0
     let saying = ''
     let finalText = ''
+    // The answer handed in with submit_and_exit (Cline 3.0.75), when it ends the run that way.
+    let submitted: string | undefined
+    let beforeSubmit = ''
     const sayNow = (): void => {
       const text = saying.trim()
       saying = ''
@@ -406,15 +411,19 @@ export async function runClineHosted(args: ClineRunArgs, onActivity?: (activity:
         finalText += u.content.text ?? ''
       } else if (u.sessionUpdate === 'tool_call' && u.toolCallId) {
         sayNow()
+        // Handing in: what it said just before is often the answer itself, so it's kept.
+        if (acpToolName(u.title) === 'submit_and_exit' && !submitted) beforeSubmit = finalText
         finalText = '' // the report is what it says after its last step
         toolCalls++
         const seen = { name: acpToolName(u.title), input: (u.rawInput ?? {}) as Record<string, unknown> }
         tools.set(u.toolCallId, seen)
+        submitted = submittedAnswer(seen.name, seen.input) ?? submitted
         const activity = describeClineActivity({ type: 'agent_event', event: { type: 'content_start', contentType: 'tool', toolName: seen.name, toolCallId: u.toolCallId, input: seen.input } })
         if (activity) onActivity?.(activity)
       } else if (u.sessionUpdate === 'tool_call_update' && u.toolCallId && (u.status === 'completed' || u.status === 'failed')) {
         const seen = tools.get(u.toolCallId)
         if (!seen) return
+        if (u.rawInput) submitted = submittedAnswer(seen.name, u.rawInput) ?? submitted
         const output = u.status === 'failed' && !u.rawOutput ? [{ result: 'Not allowed.', success: false }] : u.rawOutput
         const activity = describeClineActivity({ type: 'agent_event', event: { type: 'content_end', contentType: 'tool', toolName: seen.name, toolCallId: u.toolCallId, input: seen.input, output } })
         if (activity) onActivity?.(activity)
@@ -459,7 +468,7 @@ export async function runClineHosted(args: ClineRunArgs, onActivity?: (activity:
       model: after.model ? { id: after.model } : undefined
     })
     const blocked = [...hookLines(running.hookLog).slice(hookBefore), ...running.refused]
-    const text = (finalText || '').trim()
+    const text = finalAnswer(finalText, submitted, beforeSubmit)
     const base = { text, usage, model: after.model, blocked }
 
     if (stoppedBy) {
