@@ -2,6 +2,10 @@
 
 The version goes up with each improvement that ships: the middle number for new features, the last for fixes only. Settings shows the version a computer is running. (Starwright was called VibeApp up to 0.10.0.)
 
+## 0.28.2 (2026-11-27)
+
+- `npm run try-tool` without `--suites` dropped the tool's name, and stopped at its usage line (the Codex runs in 0.28.1 had the option or came before it). It also no longer suggests marking a version that's already tested. Cline 3.0.76 passes it: 12 of 12 Cline smoke tests and the update check.
+
 ## 0.28.1 (2026-11-27)
 
 - **Codex 0.172.0 is tested with Starwright,** so it isn't marked untested. Its takeovers, Ask, the Chat tab, hand-offs (one, a second continuing the same session, two at once), an MCP server given to it and the check an update gets all pass. Cline stays at 3.0.76.

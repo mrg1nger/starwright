@@ -51,7 +51,7 @@ const args = process.argv.slice(2)
 const flag = (f) => args.includes(f)
 const suitesAt = args.indexOf('--suites')
 const suites = suitesAt >= 0 ? (args[suitesAt + 1] ?? '').split(',').filter(Boolean) : undefined
-const [toolId, asked] = args.filter((a, i) => !a.startsWith('--') && i !== suitesAt + 1)
+const [toolId, asked] = args.filter((a, i) => !a.startsWith('--') && (suitesAt < 0 || i !== suitesAt + 1))
 const tool = TOOLS[toolId]
 if (!tool) {
   console.error('Usage: npm run try-tool -- <codex|cline> [version] [--quick] [--mark] [--keep] [--suites a,b]')
@@ -235,6 +235,7 @@ else if (passed && flag('--mark')) {
     writeFileSync(updateTs, text.replace(new RegExp(`(TESTED_WITH[^{]*\\{[^}]*${toolId}: ')[^']+'`), `$1${version}'`))
     console.log(`  TESTED_WITH.${toolId} raised to ${version} in shared/update.ts: release it (version + CHANGELOG) so Starwright stops marking it untested.`)
   }
-} else if (passed) console.log(`  to mark it tested: run again with --mark, or set TESTED_WITH.${toolId} = '${version}' in shared/update.ts`)
+} else if (passed && tested && !newer(version, tested)) console.log(`  Starwright is already tested with ${tested}.`)
+else if (passed) console.log(`  to mark it tested: run again with --mark, or set TESTED_WITH.${toolId} = '${version}' in shared/update.ts`)
 
 process.exitCode = passed || (flag('--quick') && !problems.length) ? 0 : 1
