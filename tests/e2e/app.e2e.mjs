@@ -1998,6 +1998,38 @@ try {
     }
   })
 
+  await step('the Memory screen\'s health check suggests a fix for a test step saved as a key procedure, and applies the one chosen', async () => {
+    const id = await evaluate(
+      `window.vibe.memory.add(${JSON.stringify(PROJECT_ID)}, 'project', 'Procedure - Start the game with test key: rm -rf saves && GAME_KEY=test-key node server.js', 'setup', true).then((f) => f.id)`
+    )
+    const card = `document.querySelector('.memory-health')?.innerText ?? ''`
+    try {
+      await click('🧠 Memory', '.chat-header-actions button')
+      await waitFor(`!!document.querySelector('.memory-health')`, 'the Health card', 15_000)
+      await click('Check now', '.memory-health button')
+      await waitFor(`(${card}).includes('A step for trying something out, saved as a procedure and a key fact')`, 'the suggestion', 60_000)
+      if ((await evaluate(`window.vibe.memory.list(${JSON.stringify(PROJECT_ID)}, 'project', false)`)).find((f) => f.id === id)?.key !== true) {
+        throw new Error('the check changed the fact before anything was chosen')
+      }
+      await evaluate(`document.querySelector('.memory-health-issue')?.scrollIntoView({ block: 'center' })`)
+      await shot('memory-health')
+      await click('Unmark key', '.memory-health-issue button')
+      await waitFor(`(${card}).includes('no longer a key fact')`, 'the fix', 10_000)
+      if ((await evaluate(`window.vibe.memory.list(${JSON.stringify(PROJECT_ID)}, 'project', false)`)).find((f) => f.id === id)?.key !== false) throw new Error('still key')
+      // Still a test step: suggested again (to forget it); dismissed, it isn't.
+      await click('Check now', '.memory-health button')
+      await waitFor(`(${card}).includes('A step for trying something out, saved as a procedure') && !(${card}).includes('and a key fact')`, 'the suggestion to forget it', 60_000)
+      await click('Dismiss', '.memory-health-issue button')
+      await waitFor(`(${card}).includes("won't be suggested again")`, 'dismissed', 10_000)
+      const again = await evaluate(`window.vibe.memory.healthCheck(${JSON.stringify(PROJECT_ID)})`)
+      if (again.project.issues.some((i) => (i.facts ?? []).some((f) => f.id === id))) throw new Error('a dismissed suggestion came back')
+      await click('← Back', '.chat-header button')
+      await waitFor(`!!document.querySelector('textarea.chat-input')`, 'the chat again')
+    } finally {
+      await evaluate(`window.vibe.memory.delete(${JSON.stringify(id)})`)
+    }
+  })
+
   await step('nothing was saved to memory while automatic saving was off', async () => {
     const facts = await evaluate(`window.vibe.memory.list(${JSON.stringify(PROJECT_ID)}, 'project', false)`)
     const auto = (facts ?? []).filter((f) => f.source === 'scribe')

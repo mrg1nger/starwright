@@ -12,6 +12,8 @@ import type {
   MemoryScope,
   MemoryTidyResult,
   MemorySearchStatus,
+  MemoryHealth,
+  MemoryHealthAction,
   ApprovedPlan,
   ModelOption,
   CodexModelList,
@@ -312,6 +314,19 @@ export function createVibeApi(ipcRenderer: IpcLike, host: 'electron' | 'browser'
       tidy: (projectId: string, scope: MemoryScope): Promise<MemoryTidyResult> =>
         ipcRenderer.invoke('vibe:memory:tidy', projectId, scope),
       searchStatus: (): Promise<MemorySearchStatus> => ipcRenderer.invoke('vibe:memory:searchStatus'),
+      /** The health check: problems found in what's saved, each with a suggested fix (global: those spanning projects). */
+      health: (projectId: string): Promise<{ project: MemoryHealth; global: MemoryHealth }> => ipcRenderer.invoke('vibe:memory:health', projectId),
+      healthCheck: (projectId: string): Promise<{ project: MemoryHealth; global: MemoryHealth }> =>
+        ipcRenderer.invoke('vibe:memory:healthCheck', projectId),
+      healthApply: (
+        projectId: string,
+        scope: string,
+        issueId: string,
+        action: MemoryHealthAction
+      ): Promise<{ message: string; health: { project: MemoryHealth; global: MemoryHealth } }> =>
+        ipcRenderer.invoke('vibe:memory:healthApply', projectId, scope, issueId, action),
+      healthDismiss: (projectId: string, scope: string, issueId: string): Promise<{ project: MemoryHealth; global: MemoryHealth }> =>
+        ipcRenderer.invoke('vibe:memory:healthDismiss', projectId, scope, issueId),
       plans: (projectId: string): Promise<ApprovedPlan[]> => ipcRenderer.invoke('vibe:memory:plans', projectId),
       plan: (projectId: string, id: number): Promise<ApprovedPlan | null> => ipcRenderer.invoke('vibe:memory:plan', projectId, id)
     },

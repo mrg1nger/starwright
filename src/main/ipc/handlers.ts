@@ -15,6 +15,7 @@ import type {
   ExtensionDraft,
   ImageAttachment,
   MemoryCategory,
+  MemoryHealthAction,
   MemoryScope,
   MemorySearchStatus,
   ApprovedPlan,
@@ -102,9 +103,10 @@ import {
 import { searchStatus } from '../memory/meaning'
 import { memoryDb, memoryDbPath, memoryServerScriptPath } from '../memory/paths'
 import { tidyMemory, maybeTidy } from '../memory/tidy'
+import { applyHealthFix, checkMemoryHealth, dismissHealthIssue, healthSummary, maybeCheckHealth, memoryHealth } from '../memory/health'
 import { noteFactsUsedTogether, noteRequestChanges } from '../memory/links'
 import { pluginEvent, startPluginRuntime } from '../plugins/runtime'
-import { memoryReport, onHandoffFinished } from '../memory/store'
+import { handoffCounts, memoryReport, onHandoffFinished } from '../memory/store'
 import { maybeRefreshCodeMap } from '../memory/codeMap'
 import {
   ensureHistoryImported,
@@ -905,6 +907,19 @@ export function registerIpcHandlers(getSender: () => WebContents | undefined): v
   ipc.handle('vibe:memory:tidy', (_event, projectId: string, scope: MemoryScope) =>
     tidyMemory(scopeKey(scope, projectId))
   )
+  // The health check: what it found, check now, apply a fix, dismiss one.
+  const healthScope = (scope: string, projectId: string): string => (scope === GLOBAL_SCOPE ? GLOBAL_SCOPE : String(projectId))
+  ipc.handle('vibe:memory:health', (_event, projectId: string) => memoryHealth(String(projectId)))
+  ipc.handle('vibe:memory:healthCheck', (_event, projectId: string) => checkMemoryHealth(String(projectId)))
+  ipc.handle('vibe:memory:healthApply', (_event, projectId: string, scope: string, issueId: string, action: MemoryHealthAction) => {
+    if (!['rewrite-brief', 'merge', 'unmark-key', 'forget', 'make-global'].includes(action)) throw new Error('Unknown fix.')
+    const message = applyHealthFix(healthScope(scope, projectId), String(issueId), action)
+    return { message, health: memoryHealth(String(projectId)) }
+  })
+  ipc.handle('vibe:memory:healthDismiss', (_event, projectId: string, scope: string, issueId: string) => {
+    dismissHealthIssue(healthScope(scope, projectId), String(issueId))
+    return memoryHealth(String(projectId))
+  })
   ipc.handle('vibe:memory:searchStatus', async (): Promise<MemorySearchStatus> => {
     const s = await searchStatus(memoryDb())
     return { byMeaning: s.byMeaning, model: s.model, facts: s.facts, factsDone: s.factsDone, files: s.files, filesDone: s.filesDone }
@@ -1350,7 +1365,8 @@ export function registerIpcHandlers(getSender: () => WebContents | undefined): v
       reviews: reviewOutcomes(memoryDb(), since, only?.id),
       track: trackSummary(memoryDb(), only?.id),
       tools: toolVersions(),
-      memory: memoryReport(memoryDb(), since, only?.id)
+      memory: memoryReport(memoryDb(), since, only?.id),
+      health: { ...healthSummary(only?.id), handoffs: handoffCounts(memoryDb(), since, only?.id) }
     })
   })
 
@@ -2251,6 +2267,7 @@ function wireSessionEvents(
               maybeTidy(projectId)
               maybeTidy(GLOBAL_SCOPE)
               if (path) maybeRefreshBrief(projectId, path)
+              maybeCheckHealth(projectId)
             })
         } else {
           void changed.then(linkFacts)

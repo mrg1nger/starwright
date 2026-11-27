@@ -2,6 +2,51 @@
 
 The version goes up with each improvement that ships: the middle number for new features, the last for fixes only. Settings shows the version a computer is running. (Starwright was called VibeApp up to 0.10.0.)
 
+## 0.29.0 (2026-11-27)
+
+Memory checks its own health, and what goes wrong in it is stopped where it starts. Both come from reading what a real install had saved:
+- a brief that listed the brief-writer's own instructions ("At most 500 words, plain text, no preamble") as the user's rules
+- the same pitfall and the same deploy saved twice
+- a "start it with a test key, after deleting the data" command saved as a key procedure, so every agent was given it with every request
+- the same Alpine lessons learned separately in each project
+
+**The causes:**
+- **The brief checks itself.** Lines that repeat its instructions, "rules" the user never gave (a decision or an approved plan isn't one), and whole command lines already saved as a procedure (they become a pointer to it) are taken out before it's saved. The writer is also told plainly that only the user's rules go under CONVENTIONS AND RULES.
+- **The same fact saved again in other words** replaces the old one instead of sitting beside it, when it means the same and keeps the old one's details. The old wording can be restored. Less alike than that, the health check suggests a merge.
+- **Procedures earn their place.**
+  - A procedure is never a key fact.
+  - A step for trying something out isn't saved as one: a test key, wiping data to start again, killing a leftover process.
+  - Commands run with a test key aren't shown to the note-taker as material for a procedure at all. (A model had folded the test run into the deploy.)
+  - The tidy-up never makes a procedure key either.
+- **Hand-offs bring back what was learned.** Codex, Cline and the local model end each hand-off with "Worth knowing next time" (at most 3 points, or nothing). The note-taker reads that from the hand-off's saved report and saves what lasts, as it does with Claude's side.
+
+**The health check:**
+- **What it looks for:**
+  - The brief repeating its instructions, rules the user never gave, or whole commands.
+  - Two facts that say the same thing, found by meaning. Two approved plans or two dated decisions are never taken for one.
+  - Test steps saved as procedures, and procedures that delete things marked key.
+  - The same lesson saved in two or more projects.
+- **When it runs:** once a day per project, after a request; or **Check now**.
+- **No model to find things.** A background job only drafts the wording of a merge, or of the one fact for all projects. Every number in a draft has to be in the facts it came from, or the fullest wording there is is used instead.
+- **Memory screen → Health:** each suggestion shows the facts involved, the brief lines it would take out and why, and what the fix would save. The buttons are **Rewrite the brief**, **Merge**, **Unmark key**, **Forget**, **Make it one fact for all projects** and **Dismiss**.
+  - Nothing changes until one is pressed.
+  - A suggestion whose facts changed since the check is dropped rather than applied.
+  - A dismissed suggestion isn't made again.
+  - Retired facts can be restored.
+- **Over Remote,** a read-only device can see the suggestions, and only a full-access one can apply or dismiss them.
+- **The usage report has a Memory health section:**
+  - what the last checks found, by kind and project, saying when a kind turns up in several projects ("likely Starwright's own doing": the line to act on in Starwright itself)
+  - the helpers' memory look-ups against their hand-offs
+  - how many suggestions were applied and dismissed, which is what a later "make this automatic" will go by
+
+**Tests:**
+- Unit tests for each part.
+- Two new cases in the memory evaluation:
+  - A test start isn't saved as a procedure, while the deploy is, and isn't key. Haiku passes it.
+  - What a helper found out is saved.
+- On LM Studio's Qwen, the test start was never saved as a procedure, but sometimes the deploy wasn't saved either.
+- An end-to-end step on the Memory screen.
+
 ## 0.28.2 (2026-11-27)
 
 - `npm run try-tool` without `--suites` dropped the tool's name, and stopped at its usage line (the Codex runs in 0.28.1 had the option or came before it). It also no longer suggests marking a version that's already tested. Cline 3.0.76 passes it: 12 of 12 Cline smoke tests and the update check.

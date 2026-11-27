@@ -256,6 +256,7 @@ const READ_CHANNELS = new Set([
   'vibe:memory:list',
   'vibe:memory:brief',
   'vibe:memory:searchStatus',
+  'vibe:memory:health',
   'vibe:memory:plans',
   'vibe:memory:plan',
   'vibe:settings:get',

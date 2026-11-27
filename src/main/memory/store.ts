@@ -1808,6 +1808,22 @@ export function recentHandoffs(db: DatabaseSync, projectId: string, limit = 3): 
   return rows.map(toHandoff).reverse()
 }
 
+/** The project's hand-offs that finished between two times (ISO), oldest first. */
+export function handoffsFinishedBetween(db: DatabaseSync, projectId: string, start: string, end: string): Handoff[] {
+  const rows = db
+    .prepare("SELECT * FROM handoffs WHERE project_id = ? AND status != 'running' AND finished_at >= ? AND finished_at <= ? ORDER BY id LIMIT 20")
+    .all(projectId, start, end) as unknown as HandoffRow[]
+  return rows.map(toHandoff)
+}
+
+/** Hand-offs per agent since a time (all projects, or one). */
+export function handoffCounts(db: DatabaseSync, since: string, projectId?: string): Record<string, number> {
+  const rows = db
+    .prepare(`SELECT agent, COUNT(*) AS n FROM handoffs WHERE started_at >= ?${projectId ? ' AND project_id = ?' : ''} GROUP BY agent`)
+    .all(...(projectId ? [since, projectId] : [since])) as { agent: string; n: number }[]
+  return Object.fromEntries(rows.map((r) => [r.agent, r.n]))
+}
+
 export function getHandoff(db: DatabaseSync, projectId: string, id: number): Handoff | null {
   const row = db.prepare('SELECT * FROM handoffs WHERE id = ? AND project_id = ?').get(id, projectId) as
     | HandoffRow
@@ -2057,6 +2073,34 @@ export function nearestFacts(
     .map((r) => ({ fact: toFact(r), similarity: cosine(floats(r.v), query) }))
     .sort((a, b) => b.similarity - a.similarity)
     .slice(0, limit)
+}
+
+/** A fact with its vector and where it is kept (a project id, or "global"). */
+export interface ScopedVector {
+  fact: MemoryFact
+  scope: string
+  v: Float32Array
+}
+
+/** Every remembered fact's vector from this model, in the given scopes (null: everywhere). */
+export function factVectors(db: DatabaseSync, model: string, scopes: string[] | null): ScopedVector[] {
+  const within = scopes ? `AND facts.scope IN (${scopes.map(() => '?').join(', ')})` : ''
+  const rows = db
+    .prepare(`SELECT facts.*, fv.v FROM fact_vectors fv JOIN facts ON facts.id = fv.fact_id WHERE fv.model = ? AND facts.forgotten_at IS NULL ${within}`)
+    .all(model, ...(scopes ?? [])) as unknown as (FactRow & { v: Uint8Array })[]
+  return rows.map((r) => ({ fact: toFact(r), scope: r.scope, v: floats(r.v) }))
+}
+
+/** How alike two facts' vectors are (1 = means the same). */
+export function vectorSimilarity(a: Float32Array, b: Float32Array): number {
+  return cosine(a, b)
+}
+
+/** Where each fact is kept (a project id, or "global"). */
+export function scopesOf(db: DatabaseSync, ids: string[]): Map<string, string> {
+  if (!ids.length) return new Map()
+  const rows = db.prepare(`SELECT id, scope FROM facts WHERE id IN (${ids.map(() => '?').join(', ')})`).all(...ids) as { id: string; scope: string }[]
+  return new Map(rows.map((r) => [r.id, r.scope]))
 }
 
 export interface MappedFile {

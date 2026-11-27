@@ -100,6 +100,8 @@ It runs on the subscriptions you already have (Claude, ChatGPT, and optionally C
   - map the code
 - **Long chats are compacted in place**, keeping the rules, decisions and work in progress. A meter shows how full the chat is.
 - **Keeps a record of how it's doing:** which facts each agent was given, which of them mattered, and when you had to tell an agent something memory already held. The usage report's Memory section shows it week by week, so you can see whether memory is getting smarter or just bigger.
+- **Checks its own health.** Once a day it looks over what's saved for what goes wrong: the brief repeating its own instructions, a fact saved twice in other words, a test step saved as a procedure, the same lesson learned in several projects. Each comes with a fix (rewrite the brief, merge, unmark key, forget, make it one fact for all projects) on the Memory screen, and nothing changes until you choose one. The usage report says when a problem turns up in several projects, which points at Starwright itself.
+- **Hand-offs bring back what was learned.** Codex, Cline and the local model end each hand-off with what's worth knowing next time, and it's saved like anything else.
 
 ---
 

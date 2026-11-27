@@ -11,6 +11,7 @@ import {
   getFact,
   getMeta,
   GLOBAL_SCOPE,
+  handoffsFinishedBetween,
   judgeFactUses,
   listFacts,
   outdatedNotes,
@@ -22,8 +23,20 @@ import {
   setMeta,
   type MissKind
 } from './store'
-import { recallFacts } from './meaning'
+import { closestFact, recallFacts } from './meaning'
 import { linkFact } from './links'
+import { learnedFrom } from './context'
+import { coverage, isThrowawayProcedure, procedureName, usesTestKey } from './wording'
+
+/**
+ * Saved again in other words, this alike (by meaning, 1 = the same) and keeping the old wording's
+ * details, a new fact replaces the old one instead of sitting beside it. Measured on real memory:
+ * the same fact saved twice scored 0.986-0.988, other wordings of one fact 0.948-0.953, and related
+ * but different facts up to 0.932. Below this, the health check suggests a merge for the user to approve.
+ */
+export const SAME_FACT = 0.97
+/** Share of the old fact's words the new one must keep to replace it. */
+const KEEPS_DETAILS = 0.9
 
 // After each request, a cheap background pass (Cline, or Haiku) decides what (if anything) is worth
 // remembering. Having Claude and Codex do it themselves cost each of them an
@@ -49,6 +62,8 @@ export interface TurnRecord {
   startedAt?: string
   /** When it finished (set when it's handed to the note-taker, if not before). */
   endedAt?: string
+  /** What helpers (Codex, Cline, the local model) said was worth knowing, from their hand-offs in this request. */
+  learned?: string[]
 }
 
 export interface ScribeResult {
@@ -172,7 +187,9 @@ function clip(text: string, max: number): string {
 
 function buildPrompt(turn: TurnRecord, known: string[], given: string[] = []): string {
   const actions = turn.actions.length ? turn.actions.slice(-25).join('\n') : '(none)'
-  const commands = turn.commands?.length ? turn.commands.slice(-25).join('\n') : ''
+  // Runs with a test key were for trying it out: never material for how the project is run.
+  const real = (turn.commands ?? []).filter((c) => !usesTestKey(c))
+  const commands = real.length ? real.slice(-25).join('\n') : ''
   const files = turn.files?.length ? turn.files.slice(0, 30).join('\n') : ''
   const limit = turn.thorough ? MAX_CHANGES_THOROUGH : MAX_CHANGES
   const replies = turn.replies.map((r) => clip(r, 2500)).join('\n---\n') || '(no reply)'
@@ -181,7 +198,7 @@ function buildPrompt(turn: TurnRecord, known: string[], given: string[] = []): s
 Worth remembering: what the project is; how to run, build, test or deploy it; decisions that were made and why; the user's standing preferences and rules; non-obvious pitfalls; naming and structure conventions that were agreed.
 Not worth remembering: the task itself or its progress ("added a button"); things anyone can see in the code; temporary state; anything uncertain or guessed; anything already known; secrets, keys or passwords of any kind.
 
-Procedures: if COMMANDS THAT WERE RUN show a multi-step routine that worked (a deploy, release, restart, backup, restore, migration, test run), save it as ONE fact in category "setup" that begins "Procedure - <name>:" and gives the commands in order exactly as run, plus what showed it succeeded (for example the check that came back fine). Use only commands that appear in that list, never invent steps, and refer to keys or passwords by their environment variable name, never their value. If a procedure with that name is already known, update it only when the working steps differ. A procedure fact can be up to 800 characters; mark it "key" only if it is under 300.
+Procedures: if COMMANDS THAT WERE RUN show a multi-step routine that worked and that the project is really run by (a deploy, release, restart, backup, restore, migration, the test suite), save it as ONE fact in category "setup" that begins "Procedure - <name>:" and gives the commands in order exactly as run, plus what showed it succeeded (for example the check that came back fine). Use only commands that appear in that list, never invent steps, and refer to keys or passwords by their environment variable name, never their value. If a procedure with that name is already known, update it only when the working steps differ. A procedure fact can be up to 800 characters and is never "key". Steps that were only for trying something out are not procedures: starting it with a test key, wiping data to start again, killing a process left over, a one-off check. Leave such steps out of a procedure too, even when they came before the real routine.
 Be conservative: most exchanges produce nothing, so return empty lists. One standalone sentence per fact (a procedure is the exception).
 Record only what the exchange actually says or clearly shows. Never add details that weren't stated (ports, versions, file names, commands), even if they would be typical. When correcting a known fact, state only what is now known to be true: drop details that belonged to the old version (an old port, path or option) unless the exchange confirms they still hold.
 A preference or rule counts only if the USER said it and it plainly applies beyond this one task. What the assistant chose to do is not a preference of the user's. Instructions for this task alone ("keep it tiny", "just acknowledge", "no code changes") are not preferences. Don't save the same idea twice in different words, and save at most ${limit} facts.
@@ -199,7 +216,11 @@ ${given.length ? `\nFACTS THE ASSISTANT WAS GIVEN in this request (found for it,
 The exchange:
 USER: ${clip(turn.request, 3000)}
 WHAT WAS DONE:
-${actions}${files ? `\nFILES CHANGED:\n${files}` : ''}${commands ? `\nCOMMANDS THAT WERE RUN:\n${commands}` : ''}
+${actions}${files ? `\nFILES CHANGED:\n${files}` : ''}${commands ? `\nCOMMANDS THAT WERE RUN:\n${commands}` : ''}${
+    turn.learned?.length
+      ? `\nWHAT THE HELPERS FOUND OUT while doing hand-offs (Codex, Cline or the local model; worth saving when it is a lasting, non-obvious fact about the project):\n${turn.learned.map((l) => `- ${l}`).join('\n')}`
+      : ''
+  }
 ASSISTANT'S REPLY:
 ${replies}${turn.thorough ? '\n\nThis is the last look before the conversation moves to a fresh session that will not remember any of it. Be thorough: save every durable thing a newcomer would need that is not already known (procedures, services and where they run, standing rules, decisions and why, non-obvious pitfalls), up to the limit.' : ''}`
 }
@@ -273,6 +294,16 @@ async function scribe(projectId: string, turn: TurnRecord, earlier: Window[] = [
   if (turn.stopped || turn.hadError || !turn.request.trim()) return result
   const db = memoryDb()
 
+  // What the helpers said was worth knowing, from the hand-offs that finished in this request.
+  if (turn.startedAt && turn.endedAt && !turn.learned) {
+    try {
+      const learned = handoffsFinishedBetween(db, projectId, turn.startedAt, turn.endedAt).flatMap((h) => learnedFrom(h.report))
+      if (learned.length) turn = { ...turn, learned: [...new Set(learned)].slice(0, 9) }
+    } catch {
+      // Without them, the note-taker sees Claude's side as before.
+    }
+  }
+
   // What the agents were given in this request, for judging whether it mattered.
   const window = turn.startedAt && turn.endedAt && !turn.thorough ? { start: turn.startedAt, end: turn.endedAt } : undefined
   const givenIds = window ? [...new Set(factUsesBetween(db, projectId, window.start, window.end).map((u) => u.factId))] : []
@@ -344,7 +375,7 @@ async function scribe(projectId: string, turn: TurnRecord, earlier: Window[] = [
 
   // What this run has written so far, so it doesn't write the same thing twice.
   const written: string[] = []
-  const evidence = [turn.request, ...turn.replies, ...turn.actions, ...(turn.commands ?? [])].join('\n')
+  const evidence = [turn.request, ...turn.replies, ...turn.actions, ...(turn.commands ?? []), ...(turn.learned ?? [])].join('\n')
   const maxChanges = turn.thorough ? MAX_CHANGES_THOROUGH : MAX_CHANGES
   const changed = turn.files ?? []
   const link = (factId: string, text: string, chosen: string[] | undefined, scope: string): void => {
@@ -380,14 +411,28 @@ async function scribe(projectId: string, turn: TurnRecord, earlier: Window[] = [
     if (!safe(item.text)) continue
     // A "preference" the user only gave for this one task isn't one.
     if (item.category === 'preference' && !item.standing) continue
+    // A step for trying something out (a test key, wiping data to start again) isn't how the project is run.
+    const procedure = procedureName(item.text) !== null
+    if (procedure && (isThrowawayProcedure(item.text) || usesTestKey(item.text))) continue
     if (written.some((w) => overlap(w, item.text) >= 0.6)) continue
     const scope = item.global ? GLOBAL_SCOPE : projectId
-    const saved = rememberFact(db, scope, item.text, 'scribe', {
-      category: item.category,
-      // Key facts are in every session's instructions, so a long one (a
-      // procedure) stays searchable instead of being carried everywhere.
-      key: item.key && item.text.length <= 400
-    }).fact
+    // Key facts are in every session's instructions, so a long one stays searchable instead of
+    // being carried everywhere; a procedure is never key (it's found when a request needs it).
+    const key = item.key && !procedure && item.text.length <= 400
+    // Already saved in other words? The fuller wording replaces it (the old one can be restored).
+    const same = await closestFact(db, scope, item.text)
+    if (same && same.similarity >= SAME_FACT && coverage(same.fact.text, item.text) >= KEEPS_DETAILS && same.fact.text !== item.text) {
+      if (!forgetFact(db, same.fact.id, 'saved again with more detail')) continue
+      const saved = rememberFact(db, scope, item.text, 'scribe', { category: same.fact.category, key: !procedure && (same.fact.key || key) }).fact
+      db.prepare('UPDATE facts SET replaced_by = ? WHERE id = ? AND id != ?').run(saved.id, same.fact.id, saved.id)
+      carryFactFiles(db, same.fact.id, saved.id)
+      carryFactLinks(db, same.fact.id, saved.id)
+      link(saved.id, saved.text, item.files, scope)
+      written.push(item.text)
+      result.updated++
+      continue
+    }
+    const saved = rememberFact(db, scope, item.text, 'scribe', { category: item.category, key }).fact
     link(saved.id, saved.text, item.files, scope)
     written.push(item.text)
     result.added++

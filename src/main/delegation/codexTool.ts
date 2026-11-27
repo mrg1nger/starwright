@@ -17,7 +17,7 @@ import { TRACK_DAYS, applyTrackRecord, assess, moveTag, orderNote, recordText, w
 import { conventionsFor } from '../memory/meaning'
 import { digestDiff } from './diffDigest'
 import { briefBlock } from '../memory/brief'
-import { handoffContext } from '../memory/context'
+import { handoffContext, LEARNED_ASK } from '../memory/context'
 import { changeStats, diffSnapshots, restoreSnapshot, takeSnapshot, type FileChange } from '../git/snapshots'
 import { estimateReadTokens, fitsLocalContext } from './taskSize'
 import { DEFAULT_LOAD_CONTEXT } from '../cli/lmStudio'
@@ -251,7 +251,7 @@ export function createCodexDelegationServer(
       runCodexExec(
         {
           onThread: watchTokens,
-          prompt: [prompt, secretsNote()].filter(Boolean).join('\n\n'),
+          prompt: [prompt, secretsNote(), memory ? LEARNED_ASK : undefined].filter(Boolean).join('\n\n'),
           env: secrets(),
           cwd: projectPath,
           timeoutMs: timeoutMs ?? HANDOFF_TIMEOUT_MS,
@@ -321,7 +321,8 @@ export function createCodexDelegationServer(
       memory ? attempt(() => briefBlock(memory.projectId)) : undefined,
       context,
       secretsNote(),
-      `Task from Claude:\n${prompt}`
+      `Task from Claude:\n${prompt}`,
+      memory ? LEARNED_ASK : undefined
     ]
       .filter(Boolean)
       .join('\n\n')
@@ -380,7 +381,8 @@ export function createCodexDelegationServer(
     const task = [
       background ? `Background on the project (from Starwright's memory):\n${background}` : undefined,
       secretsNote(),
-      `Task from Claude:\n${prompt}`
+      `Task from Claude:\n${prompt}`,
+      memory ? LEARNED_ASK : undefined
     ]
       .filter(Boolean)
       .join('\n\n')

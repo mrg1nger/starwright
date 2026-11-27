@@ -6,6 +6,10 @@ import {
   codeText,
   comparesVectorsInDatabase,
   factsByIds,
+  factVectors,
+  scopesOf,
+  type NearFact,
+  type ScopedVector,
   factsMissingVectors,
   filesMissingVectors,
   GLOBAL_SCOPE,
@@ -288,6 +292,36 @@ export async function filesForRequest(db: DatabaseSync, projectId: string, text:
     keywordInstead('Finding files for the request', err)
   }
   return relevantCode(db, projectId, text, limit)
+}
+
+/**
+ * The fact kept in `scope` (a project, or "global") closest in meaning to `text`, or null when
+ * memory can't be searched by meaning here or nothing is saved there yet. For the note-taker: is
+ * what it's about to save already saved in other words?
+ */
+export async function closestFact(db: DatabaseSync, scope: string, text: string): Promise<NearFact | null> {
+  try {
+    const r = await ready(db, scope, text)
+    if (!r) return null
+    const near = nearestFacts(db, scope, r.model, r.question, 6)
+    const where = scopesOf(db, near.map((n) => n.fact.id))
+    return near.find((n) => where.get(n.fact.id) === scope) ?? null
+  } catch (err) {
+    console.warn('Looking for the same fact by meaning failed:', (err as Error).message)
+    return null
+  }
+}
+
+/**
+ * Every fact's vector in these scopes (null: all of memory), made first where missing (up to a
+ * minute: the health check runs in the background). Null when memory can't be searched by meaning here.
+ */
+export async function allFactVectors(db: DatabaseSync, scopes: string[] | null): Promise<{ model: string; vectors: ScopedVector[] } | null> {
+  const e = await embedder()
+  if (!e) return null
+  if (scopes === null) await fillVectors(db, e, null, 60_000)
+  else for (const s of scopes) await fillVectors(db, e, s, 60_000)
+  return { model: e.model, vectors: factVectors(db, e.model, scopes) }
 }
 
 const isConvention = (f: MemoryFact): boolean => f.category === 'preference' || f.category === 'gotcha' || f.category === 'decision'

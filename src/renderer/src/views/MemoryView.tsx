@@ -10,6 +10,7 @@ import {
 } from '@shared/types'
 import Modal from '../components/Modal'
 import Markdown from '../components/Markdown'
+import MemoryHealthCard from '../components/MemoryHealthCard'
 
 interface MemoryViewProps {
   project: ProjectRecord
@@ -330,6 +331,16 @@ function MemoryView({ project, onBack, onError }: MemoryViewProps) {
           </button>
         </details>
       )}
+
+      <MemoryHealthCard
+        project={project}
+        scope={effectiveScope}
+        onChanged={() => {
+          refresh()
+          window.vibe.brief.get(project.id).then(setBrief).catch(() => undefined)
+        }}
+        onError={onError}
+      />
 
       <p className="memory-hint">
         ★ Key facts are given to Claude and Codex at the start of every request. The rest are searched when a request

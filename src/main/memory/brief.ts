@@ -5,7 +5,8 @@ import { detectSecrets } from '@shared/secretPatterns'
 import { helpersAllowed, runHelperJob } from '../helpers/helperJob'
 import { recentNotableCommands } from './commands'
 import { memoryDb } from './paths'
-import { getMeta, listCodeFiles, listFacts, setMeta } from './store'
+import { getMeta, GLOBAL_SCOPE, listCodeFiles, listFacts, recentMessages, setMeta } from './store'
+import { coverage, procedureName } from './wording'
 
 // A short, structured "what a newcomer needs to know" document for each
 // project, kept in the database and shown at the start of every new session.
@@ -40,6 +41,113 @@ const MIN_FACTS = 6
 
 const key = (projectId: string): string => `brief:${projectId}`
 
+/**
+ * How the brief is to be written. Kept as a list so a brief that repeats them can be caught: a model
+ * asked to quote "the user's standing rules" closely has been known to quote these instead.
+ */
+export const BRIEF_RULES = [
+  `At most ${MAX_WORDS} words, plain text, no preamble. Use these headings, leaving out any you have no material for: WHAT IT IS; HOW IT'S BUILT; RUN, TEST, DEPLOY (what each routine is and the shape of its steps in one or two lines, for example "build an archive, copy it to the server over ssh, unpack, restart the service, check the site"; name the key tools, hosts and service names; do not copy whole command lines, because the exact steps are saved as facts starting "Procedure -" that can be looked up with recall); SERVICES AND ENVIRONMENTS; CONVENTIONS AND RULES; STATUS (what exists and what is in progress); PITFALLS.`,
+  'CONVENTIONS AND RULES holds only the standing rules the USER gave, quoted closely: they are among the facts marked "preference". A decision, an approved plan or one of these instructions is not a rule of the user\'s. If the user gave none, leave the heading out.',
+  'State only what the material supports. Never invent ports, hosts, paths, versions or commands. If something is unknown, leave it out.',
+  'Never include secrets, keys, passwords or tokens. Refer to them by environment variable name only.',
+  "If a previous brief is given, keep what is still true and update it; don't start over. Stay within the word limit even if the previous brief was longer: condense, merge and drop the least useful details first.",
+  'These rules are for you: never repeat them in the brief.'
+]
+
+const isHeading = (line: string): boolean => /^[A-Z][A-Z ,&'/-]+:?$/.test(line.trim())
+
+/** What a brief's lines can be checked against: rules the user gave, and the saved procedures. */
+export interface BriefSupport {
+  /** The user's preference facts (this project's and all projects') and their recent messages. */
+  userSaid: string[]
+  /** The procedure facts ("Procedure - …"). */
+  procedures: string[]
+}
+
+export function briefSupport(projectId: string): BriefSupport {
+  const db = memoryDb()
+  const facts = [...listFacts(db, projectId), ...listFacts(db, GLOBAL_SCOPE)]
+  let messages: string[] = []
+  try {
+    messages = recentMessages(db, projectId, 200)
+      .filter((m) => m.role === 'user')
+      .map((m) => m.text.slice(0, 3000))
+  } catch {
+    messages = []
+  }
+  return {
+    userSaid: [...facts.filter((f) => f.category === 'preference').map((f) => f.text), ...messages],
+    procedures: facts.filter((f) => procedureName(f.text) !== null).map((f) => f.text)
+  }
+}
+
+/** A run of commands (cd … && node …; 2>&1; nohup), as opposed to a sentence that names a tool. */
+const COMMAND_RUN = /&&|\|\||;\s|2>&1|\bnohup\b/
+
+/**
+ * Takes out of a brief what shouldn't be in it: lines repeating the rules above, lines under
+ * CONVENTIONS AND RULES that aren't anything the user said, and whole command lines already saved as
+ * a procedure (they become a pointer to it). Returns the brief and what was taken out, and why.
+ */
+export function cleanBrief(text: string, support: BriefSupport): { text: string; dropped: { line: string; why: string }[] } {
+  const dropped: { line: string; why: string }[] = []
+  const out: string[] = []
+  let section = ''
+  for (const line of text.split('\n')) {
+    const t = line.trim()
+    if (isHeading(t)) {
+      section = t.replace(/:$/, '').toUpperCase()
+      out.push(line)
+      continue
+    }
+    if (!t) {
+      out.push(line)
+      continue
+    }
+    const body = t.replace(/^[-•*]\s*/, '').replace(/^["“'](.*)["”']\.?$/, '$1')
+    const userSaid = support.userSaid.some((s) => coverage(body, s) >= 0.7)
+    if (!userSaid && body.split(/\s+/).length >= 4 && BRIEF_RULES.some((r) => coverage(body, r) >= 0.8)) {
+      dropped.push({ line: t, why: "repeats Starwright's own instructions for writing the brief" })
+      continue
+    }
+    if (section.startsWith('CONVENTIONS') && !userSaid) {
+      dropped.push({ line: t, why: "isn't a rule you gave" })
+      continue
+    }
+    const shortened = pointAtProcedure(line, support.procedures)
+    if (shortened !== line) {
+      dropped.push({ line: t, why: 'copies a whole command line that is saved as a procedure' })
+      out.push(shortened)
+      continue
+    }
+    out.push(line)
+  }
+  // A heading left with nothing under it goes too.
+  const kept = out.filter((line, i) => {
+    if (!isHeading(line)) return true
+    for (let j = i + 1; j < out.length; j++) {
+      if (isHeading(out[j])) return false
+      if (out[j].trim()) return true
+    }
+    return false
+  })
+  return { text: kept.join('\n').replace(/\n{3,}/g, '\n\n').trim(), dropped }
+}
+
+/** "- Start it: cd x && node y. Handles z." → "- Start it: the exact commands are saved as a procedure. Handles z." when they are. */
+function pointAtProcedure(line: string, procedures: string[]): string {
+  const m = /^(\s*(?:[-•*]\s*)?[^:]{2,60}:\s+)(.*)$/.exec(line)
+  if (!m || !procedures.length) return line
+  const [, label, rest] = m
+  // The command is the first sentence; what follows it (what the script does) stays.
+  const split = /\.\s+(?=[A-Z])/.exec(rest)
+  const command = split ? rest.slice(0, split.index) : rest
+  const after = split ? rest.slice(split.index + 1).trim() : ''
+  if (command.length < 40 || !COMMAND_RUN.test(command)) return line
+  if (!procedures.some((p) => coverage(command, p) >= 0.6)) return line
+  return `${label}the exact commands are saved as a procedure (look it up with recall).${after ? ` ${after}` : ''}`
+}
+
 function read(projectId: string): StoredBrief | undefined {
   try {
     const raw = getMeta(memoryDb(), key(projectId))
@@ -47,6 +155,15 @@ function read(projectId: string): StoredBrief | undefined {
   } catch {
     return undefined
   }
+}
+
+/** Replaces the brief's text and nothing else (a fix the user chose); it's rewritten as usual later. */
+export function setBriefText(projectId: string, text: string): Brief | undefined {
+  const stored = read(projectId)
+  if (!stored || !text.trim()) return undefined
+  const saved: StoredBrief = { ...stored, text: text.trim(), updatedAt: new Date().toISOString() }
+  setMeta(memoryDb(), key(projectId), JSON.stringify(saved))
+  return { text: saved.text, updatedAt: saved.updatedAt }
 }
 
 export function getBrief(projectId: string): Brief | undefined {
@@ -97,10 +214,7 @@ function gather(
   const prompt = `You maintain the project brief for a software project: a short document that lets a capable newcomer (an AI assistant starting a fresh session with no memory of the work so far) pick the project up. Write it from the material below only.
 
 Rules:
-- At most ${MAX_WORDS} words, plain text, no preamble. Use these headings, leaving out any you have no material for: WHAT IT IS; HOW IT'S BUILT; RUN, TEST, DEPLOY (what each routine is and the shape of its steps in one or two lines, for example "build an archive, copy it to the server over ssh, unpack, restart the service, check the site"; name the key tools, hosts and service names; do not copy whole command lines, because the exact steps are saved as facts starting "Procedure -" that can be looked up with recall); SERVICES AND ENVIRONMENTS; CONVENTIONS AND RULES (the user's standing rules, quoted closely); STATUS (what exists and what is in progress); PITFALLS.
-- State only what the material supports. Never invent ports, hosts, paths, versions or commands. If something is unknown, leave it out.
-- Never include secrets, keys, passwords or tokens. Refer to them by environment variable name only.
-- If a previous brief is given, keep what is still true and update it; don't start over. Stay within the word limit even if the previous brief was longer: condense, merge and drop the least useful details first.
+${BRIEF_RULES.map((r) => `- ${r}`).join('\n')}
 
 Remembered facts:
 ${lines || '(none)'}
@@ -189,7 +303,8 @@ export async function refreshBrief(
   running.add(projectId)
   try {
     const answer = await runHelperJob({ kind: 'brief', projectId, prompt })
-    const text = capBrief(answer.text)
+    // What a model gets wrong in a brief is taken out before anyone is given it.
+    const text = cleanBrief(capBrief(answer.text), briefSupport(projectId)).text
     if (!text) return undefined
     // A brief that picked up something secret-looking is dropped, not saved.
     if (detectSecrets(text).length) return undefined

@@ -5209,3 +5209,55 @@ textarea {
     animation: none;
   }
 }
+
+/* Memory screen: the health check's suggestions. */
+.memory-health {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.5rem 0.75rem;
+  margin: 0.5rem 0;
+}
+
+.memory-health > summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.memory-health-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin: 0.25rem 0 0.5rem;
+}
+
+.memory-health-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.memory-health-issue {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.6rem;
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  overflow-wrap: anywhere;
+}
+
+.memory-health-facts {
+  margin: 0;
+  padding-left: 1.2rem;
+  font-size: 0.85rem;
+}
+
+.memory-health-proposed pre {
+  white-space: pre-wrap;
+  font-size: 0.85rem;
+  margin: 0.3rem 0 0;
+}

@@ -18,6 +18,34 @@ import { factsForRequest, filesForRequest, type AttachedFact } from './meaning'
 // relevant to the request (found by a local search by meaning, so it costs no
 // tokens), the user's own words, and what earlier hand-offs did.
 
+/**
+ * Asked at the end of every hand-off, so what a helper found out on the way (a pitfall, how
+ * something has to be run) can be remembered: the note-taker only sees Claude's side otherwise.
+ */
+export const LEARNED_HEADING = 'Worth knowing next time:'
+export const LEARNED_ASK = `When you are done, end your final message with a line "${LEARNED_HEADING}" followed by at most 3 short bullet points: things about this project you found out while working that are not obvious from the code and that the next agent would need (a pitfall you hit, a command that has to be run a certain way, where something is set up). Not what you did, and never a secret's value. If there is nothing, write "${LEARNED_HEADING} nothing".`
+
+/** What a hand-off's report says under "Worth knowing next time:" (at most 3 points), or [] for nothing. */
+export function learnedFrom(report: string | null | undefined): string[] {
+  if (!report) return []
+  const at = report.toLowerCase().lastIndexOf(LEARNED_HEADING.toLowerCase().replace(/:$/, ''))
+  if (at < 0) return []
+  const rest = report.slice(at).replace(/^[^:\n]*:?/, '')
+  // The points run to the first blank line after them (the saved report has the checks after it).
+  const points: string[] = []
+  for (const raw of rest.split(/\n/)) {
+    const l = raw.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, '').replace(/\*\*/g, '').trim()
+    if (!l) {
+      if (points.length) break
+      continue
+    }
+    if (/^(nothing|none|n\/a)\b\.?$/i.test(l) || l.startsWith('[')) break
+    points.push(l.length > 300 ? `${l.slice(0, 299)}…` : l)
+    if (points.length === 3) break
+  }
+  return points
+}
+
 function oneLine(text: string, max: number): string {
   const flat = text.replace(/\s+/g, ' ').trim()
   return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat

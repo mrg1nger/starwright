@@ -3,6 +3,8 @@ import { trackLines, type TrackSummary } from '../delegation/trackReport'
 import { toolVersionLines } from '@shared/update'
 import type { ToolVersions } from '@shared/types'
 import type { MemoryReport, RequestLogRow } from '../memory/store'
+import type { HealthSummary } from '../memory/health'
+import type { MemoryHealthKind } from '@shared/types'
 import type { StepKind } from './requestLog'
 
 // A plain-text usage report: where Claude's plan went (by project, by kind of
@@ -164,6 +166,44 @@ export function memoryLines(m: MemoryReport, days: number): string[] {
   return lines
 }
 
+const HEALTH_LABELS: Record<MemoryHealthKind, (n: number) => string> = {
+  brief: (n) => `The project brief has lines that don't belong in it (its own instructions, rules the user never gave, whole commands): ${n} project${n === 1 ? '' : 's'}`,
+  duplicate: (n) => `Facts saved twice in other words: ${n} pair${n === 1 ? '' : 's'}`,
+  procedure: (n) => `Test steps saved as procedures, or procedures that delete things marked key: ${n}`,
+  global: (n) => `Lessons saved in several projects that could be one fact for all: ${n}`
+}
+
+/**
+ * The report's Memory health section: what Starwright's own check of what's saved found. A kind
+ * showing up in several projects is more likely Starwright's doing than any one project's, so it's
+ * said: that's the line to act on in Starwright itself.
+ */
+export function healthLines(h: HealthSummary & { handoffs?: Record<string, number> }, recalls: Record<string, number> = {}): string[] {
+  const lines = [`## Memory health (Starwright's own check of what's saved; ${h.projectsChecked} project${h.projectsChecked === 1 ? '' : 's'} checked)`]
+  const kinds = (Object.keys(HEALTH_LABELS) as MemoryHealthKind[]).filter((k) => h.byKind[k]?.issues)
+  for (const k of kinds) {
+    const { issues, projects } = h.byKind[k]!
+    const where = projects.length ? ` (${projects.slice(0, 6).join(', ')}${projects.length > 6 ? ` and ${projects.length - 6} more` : ''})` : ''
+    const many = k !== 'global' && projects.length >= 2 ? ": in several projects, so likely Starwright's own doing" : ''
+    lines.push(`- ${HEALTH_LABELS[k](k === 'brief' ? projects.length || issues : issues)}${where}${many}`)
+  }
+  if (!kinds.length) lines.push(h.projectsChecked ? '- Nothing found in the last checks.' : '- Not checked yet (it runs once a day per project, after a request).')
+  const helpers = Object.entries(h.handoffs ?? {}).filter(([agent, n]) => agent !== 'claude' && n > 0)
+  if (helpers.length) {
+    lines.push(`- Memory look-ups by the helpers: ${helpers.map(([agent, n]) => `${AGENT_NAMES[agent] ?? agent} ${recalls[agent] ?? 0} in ${n} hand-off${n === 1 ? '' : 's'}`).join(' · ')}`)
+  }
+  const count = (s: Partial<Record<MemoryHealthKind, number>>): number => Object.values(s).reduce((a, b) => a + (b ?? 0), 0)
+  const applied = count(h.stats.applied)
+  const dismissed = count(h.stats.dismissed)
+  if (applied + dismissed) {
+    const by = (Object.keys(HEALTH_LABELS) as MemoryHealthKind[])
+      .filter((k) => h.stats.applied[k] || h.stats.dismissed[k])
+      .map((k) => `${k} ${h.stats.applied[k] ?? 0}/${h.stats.dismissed[k] ?? 0}`)
+    lines.push(`- Suggestions so far: ${applied} applied, ${dismissed} dismissed (applied/dismissed: ${by.join(', ')})`)
+  }
+  return lines
+}
+
 export function buildReport(input: {
   days: number
   usage: UsageRow[]
@@ -184,6 +224,8 @@ export function buildReport(input: {
   tools?: ToolVersions
   /** What memory gave agents, how much of it mattered, and what the user had to tell them again. */
   memory?: MemoryReport
+  /** What the health check found, and the hand-offs per agent (to set the helpers' look-ups against). */
+  health?: HealthSummary & { handoffs?: Record<string, number> }
 }): string {
   const { days, usage, requests, projectNames } = input
   const name = (id: string): string => (id ? projectNames.get(id) ?? id : '(no project: Chat tab)')
@@ -195,6 +237,7 @@ export function buildReport(input: {
   if (input.work) lines.push('', ...workSection(input.work, { byKind: input.byKind, reviews: input.reviews }))
   if (input.track) lines.push('', ...trackLines(input.track))
   if (input.memory) lines.push('', ...memoryLines(input.memory, days))
+  if (input.health) lines.push('', ...healthLines(input.health, input.memory?.recalls))
   if (input.tools?.tools.length) lines.push('', ...toolVersionLines(input.tools))
 
   // ---- Claude by project and by kind of work

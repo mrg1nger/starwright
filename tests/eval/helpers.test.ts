@@ -4,7 +4,7 @@ import { mkdirSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { runScribe, type TurnRecord } from '../../src/main/memory/scribe'
 import { memoryDb } from '../../src/main/memory/paths'
-import { deleteFact, GLOBAL_SCOPE, linkFactFiles, listFacts, noteFactUses, noteFileChanges, rememberFact, usageSummary } from '../../src/main/memory/store'
+import { deleteFact, finishHandoff, GLOBAL_SCOPE, linkFactFiles, listFacts, noteFactUses, noteFileChanges, rememberFact, startHandoff, usageSummary } from '../../src/main/memory/store'
 import { tidyMemory } from '../../src/main/memory/tidy'
 import { recordProjectOpened } from '../../src/main/projects/store'
 import { updateSettings } from '../../src/main/settings/store'
@@ -248,6 +248,62 @@ const MEMORY_CASES: { name: string; run: () => Promise<string | null> }[] = [
       if (judged[slime.id] !== 1) return "didn't count the slime fact as mattering"
       if (judged[music.id] !== 0) return 'counted the music fact as mattering'
       return null
+    }
+  },
+  {
+    // 0.29.0: from a real install, where "start it with a test key" became a key procedure.
+    name: 'a test start is not saved as a procedure; the deploy that worked is, and is not key',
+    run: async () => {
+      const pid = projectId('helpers_procedures')
+      const at = (s: number): string => new Date(Date.now() - s * 1000).toISOString()
+      await runScribe(pid, {
+        request: 'Try the server locally first, then deploy it to the box.',
+        replies: ['Started it locally with a test key: the API answered. Then deployed: built it, copied the tarball over and restarted the service; https://box/health says ok.'],
+        actions: ['Ran a command', 'Ran a command', 'Ran a command'],
+        commands: [
+          'rm -rf data && CREDENTIALS_KEY=test-key node server.js',
+          'curl -s localhost:3000/api/health',
+          'npm run build && tar czf app.tgz dist package.json',
+          'scp app.tgz root@box:/opt/app/ && ssh root@box "cd /opt/app && tar xzf app.tgz && rc-service app restart"',
+          'curl -s https://box/health'
+        ],
+        stopped: false,
+        hadError: false,
+        startedAt: at(60),
+        endedAt: at(1)
+      })
+      const facts = listFacts(memoryDb(), pid)
+      const tried = facts.find((f) => /test-key|test key/i.test(f.text) && /^Procedure/i.test(f.text))
+      if (tried) return `saved the test start as a procedure: ${tried.text.slice(0, 300)}`
+      const deploy = facts.find((f) => /^Procedure/i.test(f.text) && /scp|tar/.test(f.text))
+      if (!deploy) return `no deploy procedure: ${facts.map((f) => f.text).join(' | ') || '(nothing)'}`
+      return deploy.key ? 'the procedure is key' : null
+    }
+  },
+  {
+    name: 'what a helper found out during a hand-off is saved',
+    run: async () => {
+      const pid = projectId('helpers_learned')
+      const db = memoryDb()
+      const at = (s: number): string => new Date(Date.now() - s * 1000).toISOString()
+      const id = startHandoff(db, pid, 'codex', 'Fix the dev server', null)
+      finishHandoff(db, id, {
+        status: 'done',
+        report:
+          "Fixed: vite.config.ts now proxies /api to process.env.PORT.\n\nWorth knowing next time:\n- The Vite dev proxy must point at the port in process.env.PORT, not a fixed port: the Express server picks its port from it, and a fixed one gives ECONNREFUSED.",
+        files: ['vite.config.ts']
+      })
+      await runScribe(pid, {
+        request: 'The dev server gives ECONNREFUSED on every API call. Fix it.',
+        replies: ['Codex fixed it: the dev proxy now follows the server port.'],
+        actions: ['Handed to Codex: Fix the dev server'],
+        stopped: false,
+        hadError: false,
+        startedAt: at(60),
+        endedAt: at(0)
+      })
+      const facts = listFacts(db, pid)
+      return facts.some((f) => /PORT/.test(f.text) && /proxy/i.test(f.text)) ? null : `not saved: ${facts.map((f) => f.text).join(' | ') || '(nothing)'}`
     }
   }
 ]

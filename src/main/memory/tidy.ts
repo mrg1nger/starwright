@@ -20,6 +20,7 @@ import {
   UNUSED_DAYS,
   unusedFacts
 } from './store'
+import { procedureName } from './wording'
 import type { DatabaseSync } from 'node:sqlite'
 
 /** Facts per Haiku request; larger scopes are tidied in several batches. */
@@ -122,7 +123,7 @@ function prompt(scope: string, facts: MemoryFact[], unclassified: Set<string>): 
 
 1. facts: for every fact marked needsCategory, give a category and key.
    Categories: about = what the project is or contains; setup = how to run, build, test or deploy; decision = a choice made and why; preference = how the user likes things done; gotcha = a non-obvious pitfall; other.
-   key = true only for facts needed on almost every request (what the project is, how to run it, the user's standing preferences). Aim for at most about 15 key facts overall.
+   key = true only for facts needed on almost every request (what the project is, how to run it, the user's standing preferences). Aim for at most about 15 key facts overall. A fact starting "Procedure -" is never key: it's found when a request needs it.
 2. merges: groups of facts that say the same thing. Keep one (keep), list the others (remove), and give the best combined wording (text), keeping every useful detail.
 3. outdated: facts that a NEWER fact clearly contradicts or replaces (e.g. an old run command after a switch to a new one); give the newer fact's id in replacedBy. Only when it is clear; when in doubt, leave it.${
     checking.length
@@ -180,7 +181,8 @@ export async function tidyMemory(scope: string): Promise<MemoryTidyResult> {
         const classify = db.prepare('UPDATE facts SET category = ?, key = ?, classified = 1 WHERE id = ? AND classified = 0')
         for (const f of plan.facts) {
           if (!unclassified.has(f.id)) continue
-          classify.run(normalizeCategory(f.category), f.key ? 1 : 0, f.id)
+          const procedure = procedureName(batch.find((b) => b.id === f.id)?.text ?? '') !== null
+          classify.run(normalizeCategory(f.category), f.key && !procedure ? 1 : 0, f.id)
           result.categorized++
           unclassified.delete(f.id)
         }

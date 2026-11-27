@@ -566,6 +566,45 @@ export interface MemoryFact {
   goesWith?: string[]
 }
 
+/**
+ * Memory's health check: problems Starwright finds in what is saved, each with the fix it suggests.
+ * Nothing changes until the user picks an action.
+ */
+export type MemoryHealthKind =
+  /** The project brief repeats Starwright's own instructions, lists rules the user never gave, or copies whole commands. */
+  | 'brief'
+  /** Two facts in one memory that say the same thing. */
+  | 'duplicate'
+  /** A test or clean-up step saved as a procedure, or a procedure that deletes things marked key. */
+  | 'procedure'
+  /** The same lesson saved in several projects: it could be one fact for all projects. */
+  | 'global'
+
+export type MemoryHealthAction = 'rewrite-brief' | 'merge' | 'unmark-key' | 'forget' | 'make-global'
+
+export interface MemoryHealthIssue {
+  /** Stable for the same problem, so a dismissed one stays dismissed. */
+  id: string
+  kind: MemoryHealthKind
+  /** A project id, or "global" for one that spans projects. */
+  scope: string
+  title: string
+  /** Why Starwright thinks so, in a sentence. */
+  detail: string
+  /** The facts involved (with the project's name when it spans projects). */
+  facts?: { id: string; text: string; key: boolean; project?: string }[]
+  /** Brief lines it would take out or change, each with why. */
+  lines?: { line: string; why: string }[]
+  /** What the fix would write: the merged fact, the fact for all projects, or the cleaned brief. */
+  proposed?: string
+  actions: MemoryHealthAction[]
+}
+
+export interface MemoryHealth {
+  checkedAt: string | null
+  issues: MemoryHealthIssue[]
+}
+
 export interface MemoryTidyResult {
   categorized: number
   merged: number

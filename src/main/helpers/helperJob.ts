@@ -51,6 +51,7 @@ const CLINE_SYSTEM =
 
 /** Whether a background job can run at all right now (LM Studio or Cline is set up, or Claude has room). */
 export async function helpersAllowed(): Promise<boolean> {
+  if (answerForTests) return true
   return (await lmStudioReady()) || (await clineReady()) || claudeHelpersAllowed()
 }
 
