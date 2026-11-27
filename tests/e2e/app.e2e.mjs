@@ -2065,7 +2065,8 @@ try {
       await waitFor(`(${banner}).includes('Codex 99.0.0 is out')`, 'the tool notice', 10_000)
       const text = await evaluate(banner)
       if (!text.includes('Update Codex')) throw new Error(`no Update button: ${text}`)
-      if (!text.includes('tested up to 0.158.0, so this version is new to it')) throw new Error(`not marked untested: ${text}`)
+      const tested = readFileSync(join(root, 'shared', 'update.ts'), 'utf8').match(/TESTED_WITH[^{]*\{ codex: '([^']+)'/)?.[1]
+      if (!text.includes(`tested up to ${tested}, so this version is new to it`)) throw new Error(`not marked untested: ${text}`)
       const notes = await evaluate(`document.querySelector('.tool-banner a')?.href`)
       if (notes !== 'https://github.com/openai/codex/releases/tag/rust-v99.0.0') throw new Error(`What's new goes to ${notes}`)
       if (/Cline|Claude/.test(text)) throw new Error(`a current or built-in tool showed: ${text}`)

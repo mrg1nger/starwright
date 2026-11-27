@@ -285,13 +285,14 @@ The release script uploads the installer, its `.blockmap` and `latest.yml`. The 
 npm test               # unit tests: fast, offline, no plan usage
 npm run smoke          # the real Claude Code and Codex CLIs (uses a little of both plans)
 npm run smoke -- cline # the real Cline CLI, including its safety checks
+npm run try-tool -- codex  # a new Codex (or cline) in a throwaway install, before updating
 npm run e2e            # the built app, clicked through end to end, with its own data folder
 npm run e2e:remote     # Remote access: the API, a real browser, the MCP server, HTTPS
 npm run e2e:mobile     # every screen at phone size
 npm run eval           # real tasks, measuring who did what and what it cost
 ```
 
-The tests never touch your real projects, memory or settings, because they run against a temporary data folder. See [tests/README.md](tests/README.md) for details. Run the smoke tests after updating Claude Code, Codex, Cline or the Agent SDK, because Starwright relies on some of their less-documented behaviour.
+The tests never touch your real projects, memory or settings, because they run against a temporary data folder. See [tests/README.md](tests/README.md) for details. Run the smoke tests after updating Claude Code, Codex, Cline or the Agent SDK, because Starwright relies on some of their less-documented behaviour. For a new Codex or Cline, `npm run try-tool -- <codex|cline> [version]` does that before anyone updates. It installs the version into a throwaway npm folder, runs the smoke tests against it, and writes the release notes since the tested version, and what its `--help` gained or lost, to `test-results/try-tool/`. Add `--mark` to raise the tested-with version when everything passed, or `--quick` for the notes alone with no plan usage.
 
 ---
 

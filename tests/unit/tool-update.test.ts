@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ToolId, ToolUpdateState } from '@shared/types'
-import { toolVersionLines } from '@shared/update'
+import { TESTED_WITH, toolVersionLines } from '@shared/update'
 import {
   checkUpdatedTool,
   dismissToolUpdate,
@@ -256,7 +256,8 @@ test("npm's error lines are kept, short", () => {
 test('the versions say which tools npm installed, which are newer than Starwright was tested with, and where the notes are', async () => {
   const deps: ToolCheckDeps = {
     installed: async (tool: ToolId) => ({ codex: '0.158.0', cline: '3.0.76', claude: '0.3.283' })[tool],
-    latest: async (pkg) => ({ '@openai/codex': '0.172.0', cline: '3.0.76', '@anthropic-ai/claude-agent-sdk': '0.3.283' })[pkg]!,
+    // Codex: a version newer than any Starwright was tested with; Cline: the one it was tested with.
+    latest: async (pkg) => ({ '@openai/codex': '99.0.0', cline: TESTED_WITH.cline, '@anthropic-ai/claude-agent-sdk': '0.3.283' })[pkg]!,
     npmVersion: async (pkg) => (pkg === 'cline' ? '3.0.76' : '0.150.0'),
     now: () => new Date()
   }
@@ -265,8 +266,8 @@ test('the versions say which tools npm installed, which are newer than Starwrigh
   assert.equal(by.cline.npm, true)
   assert.equal(by.codex.untested, true)
   assert.equal(by.cline.untested, false)
-  assert.equal(by.codex.notesUrl, 'https://github.com/openai/codex/releases/tag/rust-v0.172.0')
-  assert.equal(by.cline.notesUrl, 'https://github.com/cline/cline/releases/tag/cli-v3.0.76')
+  assert.equal(by.codex.notesUrl, 'https://github.com/openai/codex/releases/tag/rust-v99.0.0')
+  assert.equal(by.cline.notesUrl, `https://github.com/cline/cline/releases/tag/cli-v${TESTED_WITH.cline}`)
   assert.equal(by.claude.npm, undefined)
 })
 

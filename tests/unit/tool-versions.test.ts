@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { ToolId } from '@shared/types'
-import { toolNotices, toolVersionLines } from '@shared/update'
+import { TESTED_WITH, toolNotices, toolVersionLines } from '@shared/update'
 import { checkTools, TOOL_PACKAGES, versionIn, type ToolCheckDeps } from '../../src/main/updates/toolVersions'
 import { checkRemoteCall } from '../../src/main/remote/auth'
 
@@ -65,10 +65,10 @@ test('a tool that is not installed, or npm not answering, is no notice', async (
 
 test('the report says which tool has a newer version', async () => {
   const v = await checkTools(
-    deps({ codex: '0.158.0', cline: '3.0.74', claude: '0.3.283' }, { '@openai/codex': '0.171.0', cline: new Error('timed out'), '@anthropic-ai/claude-agent-sdk': '0.3.330' })
+    deps({ codex: '0.158.0', cline: '3.0.74', claude: '0.3.283' }, { '@openai/codex': '99.1.0', cline: new Error('timed out'), '@anthropic-ai/claude-agent-sdk': '0.3.330' })
   )
   assert.deepEqual(toolVersionLines(v).slice(1), [
-    '- Codex: 0.158.0, 0.171.0 is out (not yet tested with Starwright, which was tested up to 0.158.0)',
+    `- Codex: 0.158.0, 99.1.0 is out (not yet tested with Starwright, which was tested up to ${TESTED_WITH.codex})`,
     "- Cline: 3.0.74 (couldn't ask npm: timed out)",
     '- Claude Agent SDK (built in): 0.3.283, 0.3.330 is out'
   ])

@@ -90,9 +90,10 @@ export async function resolveClineLaunch(force = false): Promise<ClineLaunch | n
   try {
     const { stdout } = await execFileAsync('where', ['cline'], { timeout: 5_000, windowsHide: true })
     const matches = stdout.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
-    const exe = matches.find((m) => m.toLowerCase().endsWith('.exe'))
-    if (exe) return (cachedLaunch = { file: exe, prefixArgs: [], env: {} })
-    const shim = matches.find((m) => m.toLowerCase().endsWith('.cmd'))
+    // The first one on the PATH, as a terminal would run it (see resolveCodexLaunch).
+    const first = matches.find((m) => /\.(exe|cmd)$/i.test(m))
+    if (first?.toLowerCase().endsWith('.exe')) return (cachedLaunch = { file: first, prefixArgs: [], env: {} })
+    const shim = first
     if (shim) {
       const root = join(dirname(shim), 'node_modules', 'cline')
       const wrapper = join(root, 'bin', 'cline')

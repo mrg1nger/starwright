@@ -1,6 +1,6 @@
 {
   "name": "vibeapp",
-  "version": "0.28.0",
+  "version": "0.28.1",
   "description": "Starwright: a coding control center for Claude Code, Codex, Cline and a local model working together",
   "main": "./out/main/index.js",
   "author": "Chris",
@@ -16,6 +16,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "test": "node scripts/test.mjs unit",
     "smoke": "node scripts/test.mjs smoke",
+    "try-tool": "node scripts/try-tool.mjs",
     "eval": "node scripts/test.mjs eval",
     "usage": "node scripts/usage-report.mjs",
     "e2e": "node tests/e2e/app.e2e.mjs",

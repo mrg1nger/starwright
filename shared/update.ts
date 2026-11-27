@@ -38,7 +38,7 @@ export function toolNotices(v: ToolVersions | null, skipped: Partial<Record<Tool
  * added a step at the end of every run that Starwright's safety hook refused. Raise these when a
  * release has been tested against a newer version.
  */
-export const TESTED_WITH: Record<'codex' | 'cline', string> = { codex: '0.158.0', cline: '3.0.76' }
+export const TESTED_WITH: Record<'codex' | 'cline', string> = { codex: '0.172.0', cline: '3.0.76' }
 
 /** Where to read what changed in a version (each tool's GitHub release). */
 export function toolNotesUrl(tool: ToolId, version: string): string | undefined {

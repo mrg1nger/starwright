@@ -2,6 +2,13 @@
 
 The version goes up with each improvement that ships: the middle number for new features, the last for fixes only. Settings shows the version a computer is running. (Starwright was called VibeApp up to 0.10.0.)
 
+## 0.28.1 (2026-11-27)
+
+- **Codex 0.172.0 is tested with Starwright,** so it isn't marked untested. Its takeovers, Ask, the Chat tab, hand-offs (one, a second continuing the same session, two at once), an MCP server given to it and the check an update gets all pass. Cline stays at 3.0.76.
+- **Starwright starts the first Codex or Cline on the PATH,** as a terminal would. It used to prefer any `codex.exe` or `cline.exe` it could find, even one further along the PATH, which could be a different copy from the one just updated.
+- **`npm run try-tool -- <codex|cline> [version]`** tries a new version before anyone updates. It installs into a throwaway npm folder, so your own copy isn't touched, and puts it first on the PATH. It then runs the smoke tests against it, checking that Starwright really starts that copy. Last, it writes the release notes since the tested version, and what its `--help` gained or lost, to `test-results/try-tool/`. `--mark` raises the tested-with version when everything passed; `--quick` gives the notes alone, with no plan usage; `--suites` picks which smoke tests to run.
+- The tests read the tested-with versions from the code, so raising them doesn't break the tests.
+
 ## 0.28.0 (2026-11-27)
 
 Starwright can update Codex and Cline for you, when you press **Update**. It then checks the new version still works with Starwright, and if it doesn't, puts the old one back with one click. This is the check that would have caught Cline 3.0.75 stopping every run at its end.

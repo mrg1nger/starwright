@@ -59,9 +59,11 @@ export async function resolveCodexLaunch(): Promise<CodexLaunch> {
   try {
     const { stdout } = await execFileAsync('where', ['codex'], { timeout: 5_000, windowsHide: true })
     const matches = stdout.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
-    const exe = matches.find((m) => m.toLowerCase().endsWith('.exe'))
-    if (exe) return (cachedLaunch = { file: exe, prefixArgs: [] })
-    const shim = matches.find((m) => m.toLowerCase().endsWith('.cmd'))
+    // The first one on the PATH, as a terminal would run it (where lists them in PATH order):
+    // not any codex.exe further along, which could be another copy than the one updated or tried.
+    const first = matches.find((m) => /\.(exe|cmd)$/i.test(m))
+    if (first?.toLowerCase().endsWith('.exe')) return (cachedLaunch = { file: first, prefixArgs: [] })
+    const shim = first
     if (shim) {
       const packageRoot = join(dirname(shim), 'node_modules', '@openai', 'codex')
       const native = nativeCodexExe(packageRoot)
