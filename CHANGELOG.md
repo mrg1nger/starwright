@@ -2,6 +2,31 @@
 
 The version goes up with each improvement that ships: the middle number for new features, the last for fixes only. Settings shows the version a computer is running. (Starwright was called VibeApp up to 0.10.0.)
 
+## 0.28.0 (2026-11-27)
+
+Starwright can update Codex and Cline for you, when you press **Update**. It then checks the new version still works with Starwright, and if it doesn't, puts the old one back with one click. This is the check that would have caught Cline 3.0.75 stopping every run at its end.
+
+- **An Update button** in the new-version notice and in **Settings → Updates**, for a Codex or Cline installed with npm. Installed some other way, Starwright says to update it the way it was installed; if it can't tell, it shows the command as before.
+- **What's new** links to the version's release notes on GitHub.
+- **Not yet tested with Starwright:** each release names the newest Codex and Cline it was tested with (now Codex 0.158.0 and Cline 3.0.76). A newer one is marked, so you know you're going first. You can still update.
+- **What Update does:**
+  - New work goes to the other agents. Hand-offs, background jobs or Codex's usage check already running on that tool finish first, for up to 15 minutes. A Cline that Starwright keeps running between requests is stopped.
+  - If the tool is running outside Starwright (in a terminal, an editor, or left over), it stops before npm touches anything: on Windows a running program can't be replaced, and npm stopping part-way can leave a broken install. Close it, and press Update again.
+  - It runs `npm install -g` for that exact version. Nothing can start the tool meanwhile.
+  - It checks the new version:
+    - `--version` says the new version (not another copy earlier on the PATH)
+    - its `--help` still lists every option Starwright passes it, and Codex still has `exec resume` and `app-server`
+    - a short real run through Starwright's safety hook answers. Codex runs once; Cline runs once as background jobs use it and once as hand-offs use it. A tool call the hook refused counts as a failure. This uses a little of that plan.
+- **If the check fails,** the notice turns orange, lists what went wrong, and the tool gets no work until you choose:
+  - **Put the old version back:** reinstalled the same way, and the bad version is skipped in the notice.
+  - **Check again:** after fixing a sign-in or a plan limit, say.
+  - **Keep it:** your call, when the problem isn't the update.
+
+  This holds across restarts. An update cut off by closing Starwright counts as failed, since its new version was never checked.
+- **The usage report's Tools section** says when an update failed its check, or is under way (Settings, Remote and the `usage_report` tool).
+- **Over Remote,** only a device with full access can update, put back or keep. The Update button only installs the newest version Starwright found on npm.
+- Unit tests for each step, smoke tests that run the check on the Codex and Cline installed here and `npm install -g` into a throwaway folder, and end-to-end steps that drive the notice through a failed check, putting the old version back and one that passes.
+
 ## 0.27.0 (2026-11-26)
 
 Memory keeps a record of how it's doing: which facts it put in front of each agent, which of those mattered, and when you had to tell an agent something it already held. The usage report has a Memory section, so over a few weeks you can see whether memory is getting smarter or just bigger. Also a fix for Cline 3.0.75, which stopped every Cline run at its very end.

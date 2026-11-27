@@ -10,6 +10,7 @@ import { commandParts, scrubSecrets } from './codexActivity'
 import { killTree, trackChild } from './codexExec'
 import type { TokenCounts } from '../usage/tokens'
 import { runClineHosted } from './clineAcp'
+import { toolHeld, toolInstalling } from '../updates/toolGate'
 
 // Runs the Cline CLI (a third coding agent, on the user's ClinePass plan) for
 // VibeApp. Verified against cline 3.0.74 on Windows:
@@ -72,6 +73,8 @@ let cachedLaunch: ClineLaunch | null | undefined
  * between. Falls back to the launcher run by this app's Node.
  */
 export async function resolveClineLaunch(force = false): Promise<ClineLaunch | null> {
+  // Its files are being replaced: nothing starts it (not cached: it's back in a minute).
+  if (toolInstalling('cline')) return null
   if (!force && cachedLaunch !== undefined) return cachedLaunch
   if (process.env.VIBEAPP_CLINE_BIN && existsSync(process.env.VIBEAPP_CLINE_BIN)) {
     return (cachedLaunch = { file: process.env.VIBEAPP_CLINE_BIN, prefixArgs: [], env: {} })
@@ -225,8 +228,13 @@ export async function prepareClineHome(): Promise<PreparedHome> {
 
 let unavailable: { reason: string; until: number } | undefined
 
-/** Why Cline can't take work right now (not subscribed, limit reached), or undefined. */
+/** Why Cline can't take work right now (being updated, not subscribed, limit reached), or undefined. */
 export function clineUnavailable(): string | undefined {
+  return toolHeld('cline') ?? planUnavailable()
+}
+
+/** Only the plan's reasons (Starwright's own check of an update it just made still runs). */
+function planUnavailable(): string | undefined {
   if (unavailable && Date.now() < unavailable.until) return unavailable.reason
   unavailable = undefined
   return undefined
@@ -253,6 +261,8 @@ export interface ClineRunArgs {
   goNutz?: boolean
   timeoutMs?: number
   signal?: AbortSignal
+  /** Starwright's own check of a Cline it just updated: runs while other work is held back. */
+  updateCheck?: boolean
   /** VibeApp's shared memory, as an MCP server for this run. */
   memory?: { scriptPath: string; dbPath: string; projectId: string; projectPath: string }
   /** Runs with the same key carry on one Cline conversation (hand-offs within one request). */
@@ -492,7 +502,7 @@ export function clineEnv(
 /** Runs Cline once and returns its report. Never throws for Cline's own failures; they're in error. */
 export async function runCline(args: ClineRunArgs, onActivity?: (activity: DelegationActivity) => void): Promise<ClineRunResult> {
   const fail = (error: string): ClineRunResult => ({ text: '', finishReason: 'error', ok: false, usage: { fresh: 0, cached: 0, output: 0, steps: 1 }, error, blocked: [] })
-  const reason = clineUnavailable()
+  const reason = args.updateCheck ? planUnavailable() : clineUnavailable()
   if (reason) return fail(reason)
   // Building work goes to a Cline that keeps running (ACP), as an editor hosts it: no cold
   // start, and later hand-offs in the same request carry on its conversation. If that can't
@@ -546,7 +556,8 @@ export async function runCline(args: ClineRunArgs, onActivity?: (activity: Deleg
     await new Promise<void>((resolveRun, reject) => {
       // No stdin: with an open input pipe Cline waits for more prompt to arrive on it (found: every run hung).
       const child = trackChild(
-        spawn(launch.file, [...launch.prefixArgs, ...cliArgs], { windowsHide: true, env, cwd: args.cwd, stdio: ['ignore', 'pipe', 'pipe'] })
+        spawn(launch.file, [...launch.prefixArgs, ...cliArgs], { windowsHide: true, env, cwd: args.cwd, stdio: ['ignore', 'pipe', 'pipe'] }),
+        'cline'
       )
       let buffer = ''
       let stderr = ''

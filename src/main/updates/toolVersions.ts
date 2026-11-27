@@ -1,14 +1,16 @@
 import { app } from 'electron'
-import { readFileSync } from 'fs'
+import { existsSync, readFileSync } from 'fs'
 import { dirname, join } from 'path'
-import type { ToolId, ToolVersion, ToolVersions } from '@shared/types'
-import { isNewer } from '@shared/update'
+import type { ToolId, ToolUpdateState, ToolVersion, ToolVersions } from '@shared/types'
+import { isNewer, TESTED_WITH, toolNotesUrl } from '@shared/update'
 import { getSettings } from '../settings/store'
 import { execCli } from '../cli/execCli'
 import { clineStatus } from '../cli/clineExec'
+import { toolInstalling } from './toolGate'
 
-// Whether there's a newer Codex, Cline or Claude Agent SDK than the one Starwright uses. Only says
-// so: an update can change what Starwright reads from these tools, so it's for the user to choose.
+// Whether there's a newer Codex, Cline or Claude Agent SDK than the one Starwright uses. Never
+// updates by itself: an update can change what Starwright relies on, so the user chooses when
+// (Update in the notice or Settings runs toolUpdate.ts, which checks the new version afterwards).
 // Codex and Cline are installed separately on each computer; the Claude Agent SDK is built into
 // Starwright and comes with a Starwright update. The newest versions are asked of the npm registry
 // (each tool's public package page, nothing about this computer sent).
@@ -25,6 +27,8 @@ export const TOOL_PACKAGES: Record<ToolId, string> = {
 export interface ToolCheckDeps {
   installed: (tool: ToolId) => Promise<string | undefined>
   latest: (pkg: string) => Promise<string>
+  /** The version of the package npm has installed globally (none: not installed with npm). */
+  npmVersion?: (pkg: string) => Promise<string | undefined>
   now: () => Date
 }
 
@@ -40,7 +44,8 @@ export function versionIn(text: string): string | undefined {
   return text.match(/\d+\.\d+\.\d+(?:-[\w.]+)?/)?.[0]
 }
 
-async function installedVersion(tool: ToolId): Promise<string | undefined> {
+/** The version Starwright runs here (what --version says). */
+export async function installedVersion(tool: ToolId): Promise<string | undefined> {
   if (tool === 'claude') {
     try {
       // The package doesn't export its package.json: find it next to the module.
@@ -54,6 +59,28 @@ async function installedVersion(tool: ToolId): Promise<string | undefined> {
   try {
     const { stdout } = await execCli('codex', ['--version'], { timeout: 20_000 })
     return versionIn(stdout)
+  } catch {
+    return undefined
+  }
+}
+
+let npmRoot: string | undefined
+
+/** npm's global folder of packages (asked once). */
+export async function npmGlobalRoot(): Promise<string> {
+  if (npmRoot) return npmRoot
+  const { stdout } = await execCli('npm', ['root', '-g'], { timeout: 30_000 })
+  const root = stdout.trim().split(/\r?\n/).pop()?.trim()
+  if (!root) throw new Error('npm gave no folder')
+  return (npmRoot = root)
+}
+
+/** The version of a package npm has installed globally, or undefined (not installed that way, or no npm). */
+export async function npmGlobalVersion(pkg: string): Promise<string | undefined> {
+  try {
+    const file = join(await npmGlobalRoot(), ...pkg.split('/'), 'package.json')
+    if (!existsSync(file)) return undefined
+    return (JSON.parse(readFileSync(file, 'utf8')) as { version?: string }).version
   } catch {
     return undefined
   }
@@ -87,28 +114,40 @@ function testDeps(): ToolCheckDeps | undefined {
       if (!v) throw new Error('not in the test file')
       return v
     },
+    npmVersion: async (pkg) => {
+      const tool = byPkg(pkg)
+      return tool && (fake[tool] as { npm?: boolean } | undefined)?.npm !== false ? fake[tool]?.installed : undefined
+    },
     now: () => new Date()
   }
 }
 
-const realDeps: ToolCheckDeps = { installed: installedVersion, latest: latestVersion, now: () => new Date() }
+const realDeps: ToolCheckDeps = { installed: installedVersion, latest: latestVersion, npmVersion: npmGlobalVersion, now: () => new Date() }
 
 /** One look at each tool: what's in use here, the newest published, and whether that's newer. */
 export async function checkTools(deps: ToolCheckDeps): Promise<ToolVersions> {
   const tools = await Promise.all(
     (Object.keys(TOOL_PACKAGES) as ToolId[]).map(async (tool): Promise<ToolVersion> => {
-      const [installed, latest] = await Promise.all([
+      const [installed, latest, viaNpm] = await Promise.all([
         deps.installed(tool).catch(() => undefined),
         deps.latest(TOOL_PACKAGES[tool]).then(
           (v) => ({ v }),
           (err: Error) => ({ err: err.message })
-        )
+        ),
+        tool === 'claude' || !deps.npmVersion ? undefined : deps.npmVersion(TOOL_PACKAGES[tool]).catch(() => undefined)
       ])
       const row: ToolVersion = { tool, package: TOOL_PACKAGES[tool], bundled: tool === 'claude', newer: false }
       if (installed) row.installed = installed
       if ('v' in latest) row.latest = latest.v
       else row.error = latest.err
       row.newer = !!(row.installed && row.latest && isNewer(row.latest, row.installed))
+      if (tool !== 'claude') {
+        // The copy npm installed is the one Starwright runs (not another install earlier on the PATH).
+        if (row.installed) row.npm = !!viaNpm && viaNpm === row.installed
+        row.testedWith = TESTED_WITH[tool]
+        row.untested = !!row.latest && isNewer(row.latest, TESTED_WITH[tool])
+        if (row.latest) row.notesUrl = toolNotesUrl(tool, row.latest)
+      }
       return row
     })
   )
@@ -119,8 +158,21 @@ export function toolVersions(): ToolVersions {
   return state
 }
 
+/** Sends to every screen (the updater's settings change). */
+export function notifyScreens(channel: string, ...args: unknown[]): void {
+  send(channel, ...args)
+}
+
+/** The updater's news: shown with the versions (the notice and Settings follow vibe:tools:changed). */
+export function publishToolUpdates(updates: Partial<Record<ToolId, ToolUpdateState>>): void {
+  state = { ...state, updates }
+  send('vibe:tools:changed', state)
+}
+
 /** Looks now (one look at a time). */
 export function checkToolVersions(deps: ToolCheckDeps = testDeps() ?? realDeps): Promise<ToolVersions> {
+  // Nothing may start a tool while its files are being replaced: the updater looks again afterwards.
+  if (toolInstalling('codex') || toolInstalling('cline')) return Promise.resolve(state)
   running ??= checkTools(deps)
     .then((next) => {
       // A tool npm couldn't be asked about keeps what was known before.
@@ -130,7 +182,7 @@ export function checkToolVersions(deps: ToolCheckDeps = testDeps() ?? realDeps):
           ? { ...t, latest: before.latest, newer: !!(t.installed && isNewer(before.latest, t.installed)) }
           : t
       })
-      state = next
+      state = { ...next, updates: state.updates }
       send('vibe:tools:changed', state)
       return state
     })

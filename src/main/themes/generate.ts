@@ -159,7 +159,7 @@ export async function drawPicture(description: string): Promise<{ image: Buffer;
     const said: string[] = []
     let stderr = ''
     const code = await new Promise<number | null>((resolve, reject) => {
-      const child = trackChild(spawn(launch.file, args, { cwd: dir, env, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] }))
+      const child = trackChild(spawn(launch.file, args, { cwd: dir, env, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] }), 'codex')
       const timer = setTimeout(() => {
         killTree(child)
         reject(new Error('Codex took more than 6 minutes to draw the picture.'))

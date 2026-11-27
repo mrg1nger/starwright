@@ -160,6 +160,11 @@ export function stopHostedCline(): void {
   for (const agent of [...agents.values()]) shutDown(agent)
 }
 
+/** Ends the hosted Clines with nothing to do (Cline is about to be updated); the busy ones finish first. */
+export function stopIdleHostedCline(): void {
+  for (const agent of [...agents.values()]) if (!agent.dead && !agent.busy) shutDown(agent)
+}
+
 async function onAgentRequest(agent: Agent, message: { id: number; method: string; params: Record<string, unknown> }): Promise<void> {
   if (message.method === 'session/request_permission') {
     const toolCall = (message.params.toolCall ?? {}) as { title?: string; rawInput?: unknown }
@@ -216,7 +221,8 @@ async function startAgent(key: string, args: ClineRunArgs): Promise<Agent> {
     ...(args.model ? { CLINE_MODEL: args.model } : {})
   }
   const child = trackChild(
-    spawn(launch.file, [...launch.prefixArgs, '--acp'], { windowsHide: true, env, cwd: args.cwd, stdio: ['pipe', 'pipe', 'pipe'] })
+    spawn(launch.file, [...launch.prefixArgs, '--acp'], { windowsHide: true, env, cwd: args.cwd, stdio: ['pipe', 'pipe', 'pipe'] }),
+    'cline'
   )
   const agent: Agent = {
     key,

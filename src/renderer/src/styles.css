@@ -5166,3 +5166,46 @@ textarea {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+/* A Codex or Cline update under way, done, or failed its check (ToolUpdateBanner.tsx). */
+.tool-update,
+.tool-notice {
+  margin: 2px 0;
+}
+
+.tool-update ul {
+  margin: 0.25rem 0;
+  padding-left: 1.2rem;
+}
+
+.tool-update .github-banner-actions {
+  margin-top: 6px;
+}
+
+.tool-update[data-phase='waiting'] strong::after,
+.tool-update[data-phase='installing'] strong::after,
+.tool-update[data-phase='checking'] strong::after,
+.tool-update[data-phase='rolling-back'] strong::after {
+  content: '';
+  display: inline-block;
+  width: 0.7em;
+  height: 0.7em;
+  margin-left: 0.4em;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: tool-update-spin 0.9s linear infinite;
+  vertical-align: -0.05em;
+}
+
+@keyframes tool-update-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tool-update strong::after {
+    animation: none;
+  }
+}

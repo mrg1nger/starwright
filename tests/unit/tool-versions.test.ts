@@ -68,7 +68,7 @@ test('the report says which tool has a newer version', async () => {
     deps({ codex: '0.158.0', cline: '3.0.74', claude: '0.3.283' }, { '@openai/codex': '0.171.0', cline: new Error('timed out'), '@anthropic-ai/claude-agent-sdk': '0.3.330' })
   )
   assert.deepEqual(toolVersionLines(v).slice(1), [
-    '- Codex: 0.158.0, 0.171.0 is out',
+    '- Codex: 0.158.0, 0.171.0 is out (not yet tested with Starwright, which was tested up to 0.158.0)',
     "- Cline: 3.0.74 (couldn't ask npm: timed out)",
     '- Claude Agent SDK (built in): 0.3.283, 0.3.330 is out'
   ])

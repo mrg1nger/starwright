@@ -83,7 +83,7 @@ It runs on the subscriptions you already have (Claude, ChatGPT, and optionally C
   - where the tokens went, by request, agent, model and kind of task
   - hand-offs and the track record
   - the versions of the tools in use
-- **Tool update notices.** When there's a newer Codex or Cline, Starwright gives you the command to update it but never updates it by itself, because a new version can change things Starwright relies on.
+- **Tool updates you choose, then checked.** When there's a newer Codex or Cline, Starwright says so, links to what's new, and marks a version it hasn't been tested with. It never updates them by itself, because a new version can change things Starwright relies on. Press **Update** and it waits for running work to finish, installs the new version with npm, and checks that the version is right, that it still accepts the options Starwright passes it, and that a short run through Starwright's safety hook works. If the check fails, the tool gets no work until you put the old version back (one click) or keep the new one.
 
 ---
 
@@ -324,7 +324,7 @@ patches/            patch-package fixes for dependencies
 ## Known limits
 
 - **Windows only in practice.** The command handling assumes Windows (PowerShell, Git Bash, `.cmd` shims).
-- **It depends on the CLIs' behaviour.** A Claude Code, Codex or Cline update can change things Starwright relies on, which is why it tells you about new versions instead of installing them. The smoke tests are how such changes show up.
+- **It depends on the CLIs' behaviour.** A Claude Code, Codex or Cline update can change things Starwright relies on, which is why it only updates Codex or Cline when you press Update, and checks the new version afterwards. Each release is tested against particular versions (Settings shows a newer one as not yet tested), and the smoke tests are how such changes show up.
 - **Bring your own subscriptions.** Starwright drives the official CLIs with your own sign-ins. Check each provider's current terms for how you use them.
 - **The ClinePass meter reads Cline's dashboard data**, which isn't a published API. If Cline changes it, the meter shows "—" and nothing else is affected.
 - **Not code-signed.** Windows SmartScreen warns on first install. Updates are checked against the release's SHA-512. That protects against a damaged download, but not against someone who controls the GitHub account.

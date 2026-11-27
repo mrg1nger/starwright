@@ -8,6 +8,7 @@ import type { DelegationActivity } from '@shared/types'
 import { activeExtensions, extensionInstructions } from '../extensions/store'
 import { describeActivity, progressNote } from './codexActivity'
 import { codexHookArgs } from '../guard/codexHookSetup'
+import { toolHeld, toolInstalling } from '../updates/toolGate'
 
 const execFileAsync = promisify(execFile)
 
@@ -52,6 +53,7 @@ let cachedLaunch: CodexLaunch | undefined
  * runtime (ELECTRON_RUN_AS_NODE) is the fallback.
  */
 export async function resolveCodexLaunch(): Promise<CodexLaunch> {
+  if (toolInstalling('codex')) throw new Error('Codex is being updated. Try again in a minute.')
   if (process.platform !== 'win32') return { file: 'codex', prefixArgs: [] }
   if (cachedLaunch && existsSync(cachedLaunch.prefixArgs[0] ?? cachedLaunch.file)) return cachedLaunch
   try {
@@ -92,13 +94,27 @@ export async function resolveCodexLaunch(): Promise<CodexLaunch> {
 // stop them: otherwise a hand-off or review in progress kept running, and
 // changing files, after VibeApp closed.
 const running = new Set<ChildProcess>()
+/** Which of them are Codex or Cline, so an update of one can wait until none is running. */
+const runningTool = new Map<ChildProcess, 'codex' | 'cline'>()
 
 /** Keeps track of a child process until it exits, so stopAllChildren can end it. */
-export function trackChild<T extends ChildProcess>(child: T): T {
+export function trackChild<T extends ChildProcess>(child: T, tool?: 'codex' | 'cline'): T {
   running.add(child)
-  child.once('exit', () => running.delete(child))
-  child.once('error', () => running.delete(child))
+  if (tool) runningTool.set(child, tool)
+  const gone = (): void => {
+    running.delete(child)
+    runningTool.delete(child)
+  }
+  child.once('exit', gone)
+  child.once('error', gone)
   return child
+}
+
+/** How many Codex (or Cline) processes Starwright has running now. */
+export function toolProcessCount(tool: 'codex' | 'cline'): number {
+  let n = 0
+  for (const [child, t] of runningTool) if (t === tool && child.exitCode === null && child.signalCode === null) n++
+  return n
 }
 
 /**
@@ -139,6 +155,8 @@ export interface CodexExecArgs {
   taskLabel?: string
   cwd?: string
   timeoutMs?: number
+  /** Starwright's own check of a Codex it just updated: runs while other work is held back. */
+  updateCheck?: boolean
   /** Go Nutz mode: no sandbox, no approval prompts. EXTREMELY DANGEROUS -- see codex exec --help. */
   unsandboxed?: boolean
   /** Codex model override; omitted means Codex's own configured default. */
@@ -207,6 +225,8 @@ export async function runCodexExec(
   onProgress?: CodexProgressListener,
   onActivity?: CodexActivityListener
 ): Promise<CodexExecResult> {
+  const held = args.updateCheck ? undefined : toolHeld('codex')
+  if (held) throw new Error(held)
   const tempDir = mkdtempSync(join(tmpdir(), 'vibeapp-codex-'))
   const outputPath = join(tempDir, `${randomUUID()}.txt`)
 
@@ -350,7 +370,8 @@ ${args.prompt}`
       spawn(launch.file, [...launch.prefixArgs, ...cliArgs], {
         windowsHide: true,
         env: { ...launch.env, ...(args.env ?? {}), ...extensionEnv }
-      })
+      }),
+      'codex'
     )
     let stdoutBuffer = ''
     let stderrOutput = ''

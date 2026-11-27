@@ -4,6 +4,7 @@ import { requestClassifier, type Classification } from './classifier'
 import { BALANCE_LABELS, applyBalance, chooseRoutes, fadersOf, fadersText, leanFor, leanFromFaders, stepOfLean, workModeOf, type HelperRoute, type WorkFaders } from '@shared/balance'
 import { clineUnavailable, resolveClineLaunch } from '../cli/clineExec'
 import { localHandoffsReady } from '../cli/lmStudio'
+import { toolHeld } from '../updates/toolGate'
 import { memoryDb } from '../memory/paths'
 import { handoffCountsSince } from '../memory/store'
 
@@ -135,7 +136,8 @@ export async function helperAvailability(
   return {
     available: {
       // Not installed or not signed in shows as an error; unknown (not checked yet) counts as there.
-      codex: codex?.status !== 'error',
+      // Being updated (or its update failed Starwright's check): held back until that's settled.
+      codex: codex?.status !== 'error' && !toolHeld('codex'),
       cline: await clineReadyForHandoffs(settings).catch(() => false),
       local: await localHandoffsReady().catch(() => false)
     },
@@ -196,7 +198,7 @@ export async function routeMessage(
   const cline = request.size !== 'quick' && on('cline') && (context.clineReady ?? (await clineReadyForHandoffs(settings)))
   // The local model (VibeApp's own agent on LM Studio), when it's switched on and LM Studio is up.
   const local = request.size !== 'quick' && on('local') && (context.localReady ?? (await localHandoffsReady()))
-  const codexOn = on('codex')
+  const codexOn = on('codex') && !toolHeld('codex')
   // ClinePass nearly used up: Cline stays as a last resort, but doesn't count as a helper to lean on.
   const { low: clineLow, left: clineLeft } = clineLowNow()
   const clineFirst = cline && !clineLow

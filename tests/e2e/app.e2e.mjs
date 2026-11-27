@@ -2047,7 +2047,7 @@ try {
     }
   })
 
-  await step('a new Codex or Cline shows a notice with the command to update, skip it, not now', async () => {
+  await step('a new Codex or Cline shows a notice with an Update button, skip it, not now', async () => {
     const switchFile = join(data, 'test-tool-versions.json')
     const banner = `document.querySelector('.tool-banner')?.innerText ?? ''`
     const fake = (codexLatest) =>
@@ -2064,7 +2064,10 @@ try {
       await evaluate(`window.vibe.tools.check()`)
       await waitFor(`(${banner}).includes('Codex 99.0.0 is out')`, 'the tool notice', 10_000)
       const text = await evaluate(banner)
-      if (!text.includes('npm i -g @openai/codex@latest')) throw new Error(`no update command: ${text}`)
+      if (!text.includes('Update Codex')) throw new Error(`no Update button: ${text}`)
+      if (!text.includes('tested up to 0.158.0, so this version is new to it')) throw new Error(`not marked untested: ${text}`)
+      const notes = await evaluate(`document.querySelector('.tool-banner a')?.href`)
+      if (notes !== 'https://github.com/openai/codex/releases/tag/rust-v99.0.0') throw new Error(`What's new goes to ${notes}`)
       if (/Cline|Claude/.test(text)) throw new Error(`a current or built-in tool showed: ${text}`)
       await shot('tool-banner')
       // Settings lists all three, the SDK as built in.
@@ -2093,6 +2096,52 @@ try {
       await waitFor(`!document.querySelector('.tool-banner')`, 'the notice to clear once up to date', 10_000)
     } finally {
       rmSync(switchFile, { force: true })
+    }
+  })
+
+  await step('Update: progress, a failed check holds Codex back, put the old one back; then one that passes', async () => {
+    const versionsFile = join(data, 'test-tool-versions.json')
+    const updateFile = join(data, 'test-tool-update.json')
+    const banner = `document.querySelector('.tool-banner')?.innerText ?? ''`
+    const problem = "A short Codex run through Starwright's safety check failed: the hook refused submit_and_exit."
+    const script = (fail) => writeFileSync(updateFile, JSON.stringify({ installed: { codex: '0.158.0' }, fail }))
+    writeFileSync(
+      versionsFile,
+      JSON.stringify({ codex: { installed: '0.158.0', latest: '99.2.0' }, cline: { installed: '3.0.76', latest: '3.0.76' }, claude: { installed: '0.3.283', latest: '0.3.283' } })
+    )
+    try {
+      await evaluate(`window.vibe.settings.update({ skippedToolVersions: {} })`)
+      script([problem])
+      await evaluate(`window.vibe.tools.check()`)
+      await waitFor(`(${banner}).includes('Update Codex')`, 'the Update button', 10_000)
+      await click('Update Codex', '.tool-banner button')
+      await waitFor(`/Installing Codex 99.2.0|Checking Codex 99.2.0/.test(${banner})`, 'the progress', 10_000)
+      await waitFor(`(${banner}).includes("Codex 99.2.0 failed Starwright's check")`, 'the failed check', 15_000)
+      const text = await evaluate(banner)
+      if (!text.includes(problem)) throw new Error(`the problem isn't shown: ${text}`)
+      if (!(await evaluate(`!!document.querySelector('.tool-banner.github-banner-conflict')`))) throw new Error('a failed check should stand out')
+      const report = await evaluate(`window.vibe.usage.report(7)`).catch(() => '')
+      if (report && !/Codex: .*failed Starwright's check/.test(report)) throw new Error('the usage report should say the update failed')
+      await shot('tool-update-failed')
+      // OK can't wave a failed one away; putting the old version back does.
+      await click('Put 0.158.0 back', '.tool-banner button')
+      await waitFor(`(${banner}).includes('Codex is back to 0.158.0')`, 'the roll back', 15_000)
+      if ((await evaluate(`window.vibe.settings.get()`)).skippedToolVersions?.codex !== '99.2.0') throw new Error('the bad version should be skipped')
+      await click('OK', '.tool-banner button')
+      await waitFor(`!document.querySelector('.tool-banner')`, 'the notice to go (the version is skipped)', 10_000)
+
+      // A version that passes.
+      await evaluate(`window.vibe.settings.update({ skippedToolVersions: {} })`)
+      script([])
+      await evaluate(`window.vibe.tools.check()`)
+      await waitFor(`(${banner}).includes('Update Codex')`, 'the Update button again', 10_000)
+      await click('Update Codex', '.tool-banner button')
+      await waitFor(`(${banner}).includes("updated from 0.158.0 to 99.2.0 and passed Starwright's check")`, 'the passed check', 15_000)
+      await click('OK', '.tool-banner button')
+    } finally {
+      rmSync(versionsFile, { force: true })
+      rmSync(updateFile, { force: true })
+      await evaluate(`window.vibe.settings.update({ skippedToolVersions: {} })`).catch(() => undefined)
     }
   })
 

@@ -576,6 +576,16 @@ export function createVibeApi(ipcRenderer: IpcLike, host: 'electron' | 'browser'
       versions: (): Promise<ToolVersions> => ipcRenderer.invoke('vibe:tools:versions'),
       /** Looks now. */
       check: (): Promise<ToolVersions> => ipcRenderer.invoke('vibe:tools:check'),
+      /** Updates Codex or Cline to the newest version (the one the notice names), then checks it works with Starwright. */
+      update: (tool: 'codex' | 'cline', version: string): Promise<unknown> => ipcRenderer.invoke('vibe:tools:update', tool, version),
+      /** Puts back the version from before an update. */
+      rollBack: (tool: 'codex' | 'cline'): Promise<void> => ipcRenderer.invoke('vibe:tools:rollBack', tool),
+      /** Keeps a new version that failed Starwright's check. */
+      keep: (tool: 'codex' | 'cline'): Promise<unknown> => ipcRenderer.invoke('vibe:tools:keep', tool),
+      /** Runs the check on the new version again. */
+      recheck: (tool: 'codex' | 'cline'): Promise<void> => ipcRenderer.invoke('vibe:tools:recheck', tool),
+      /** Forgets a finished update's message. */
+      dismiss: (tool: 'codex' | 'cline'): Promise<void> => ipcRenderer.invoke('vibe:tools:dismiss', tool),
       onChanged: (cb: (v: ToolVersions) => void): (() => void) => {
         const listener = (_event: unknown, v: ToolVersions): void => cb(v)
         ipcRenderer.on('vibe:tools:changed', listener)

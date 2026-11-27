@@ -824,11 +824,47 @@ export interface ToolVersion {
   bundled: boolean
   /** Why npm couldn't be asked. */
   error?: string
+  /** Installed with npm (so Starwright can update it); false: some other way, updated the way it was installed. */
+  npm?: boolean
+  /** The newest version this Starwright was tested with (Codex and Cline). */
+  testedWith?: string
+  /** latest is newer than testedWith: nobody has tried it with Starwright yet. */
+  untested?: boolean
+  /** What changed in latest. */
+  notesUrl?: string
+}
+
+/** Where an update Starwright runs (Codex or Cline) has got to. */
+export type ToolUpdatePhase =
+  | 'waiting'
+  | 'installing'
+  | 'checking'
+  | 'done'
+  | 'failed'
+  | 'rolling-back'
+  | 'rolled-back'
+  | 'kept'
+  | 'error'
+
+export interface ToolUpdateState {
+  phase: ToolUpdatePhase
+  /** The version before the update (what a roll back puts back). */
+  from?: string
+  /** The version being installed. */
+  to: string
+  /** When this phase started (ISO). */
+  at: string
+  /** What's happening now, or what went wrong, in plain words. */
+  message?: string
+  /** What Starwright's check found wrong with the new version. */
+  problems?: string[]
 }
 
 export interface ToolVersions {
   tools: ToolVersion[]
   checkedAt?: string
+  /** Updates Starwright is running, or has run and not yet been told it can forget. */
+  updates?: Partial<Record<ToolId, ToolUpdateState>>
 }
 
 /** Where tokens went over a period, by kind of work. */

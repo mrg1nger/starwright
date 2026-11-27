@@ -148,6 +148,7 @@ import {
 import { getSettings, updateSettings } from '../settings/store'
 import { checkForUpdate, installUpdate, updateState } from '../updates/updates'
 import { checkToolVersions, toolVersions } from '../updates/toolVersions'
+import { dismissToolUpdate, keepTool, recheckTool, rollBackTool, startToolUpdate, type UpdatableTool } from '../updates/toolUpdate'
 import { workingProjects } from '../tray'
 import { listClaudeModels } from '../cli/claudeModels'
 import { listCodexModels } from '../cli/codexModels'
@@ -1281,9 +1282,23 @@ export function registerIpcHandlers(getSender: () => WebContents | undefined): v
   ipc.handle('vibe:update:state', () => updateState())
   ipc.handle('vibe:update:check', () => checkForUpdate())
   ipc.handle('vibe:update:install', (_event, anyway?: boolean) => installUpdate(workingProjects(), !!anyway))
-  // Newer Codex, Cline or Claude Agent SDK than the one in use (only said, never installed).
+  // Newer Codex, Cline or Claude Agent SDK than the one in use; Codex and Cline updated (and
+  // checked afterwards) when the user asks. Progress comes on vibe:tools:changed.
   ipc.handle('vibe:tools:versions', () => toolVersions())
   ipc.handle('vibe:tools:check', () => checkToolVersions())
+  const updatable = (tool: unknown): UpdatableTool => {
+    if (tool !== 'codex' && tool !== 'cline') throw new Error('Only Codex and Cline can be updated from Starwright.')
+    return tool
+  }
+  ipc.handle('vibe:tools:update', (_event, tool: unknown, version: unknown) => startToolUpdate(String(tool), String(version)))
+  ipc.handle('vibe:tools:rollBack', (_event, tool: unknown) => {
+    void rollBackTool(updatable(tool))
+  })
+  ipc.handle('vibe:tools:keep', (_event, tool: unknown) => keepTool(updatable(tool)))
+  ipc.handle('vibe:tools:recheck', (_event, tool: unknown) => {
+    void recheckTool(updatable(tool))
+  })
+  ipc.handle('vibe:tools:dismiss', (_event, tool: unknown) => dismissToolUpdate(updatable(tool)))
 
   // Cline (a third agent on the user's ClinePass plan): installed? and a quick live check.
   ipc.handle('vibe:cline:status', () => clineStatus())

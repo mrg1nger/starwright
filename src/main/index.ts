@@ -18,6 +18,7 @@ import { applyLoginItem, noteStillRunning, setupTray } from './tray'
 import { applyPendingRestore, scheduleBackups } from './backup/backup'
 import { startUpdateChecks, stopUpdateChecks } from './updates/updates'
 import { startToolVersionChecks, stopToolVersionChecks } from './updates/toolVersions'
+import { restoreToolUpdates } from './updates/toolUpdate'
 import { startMemorySearch, stopMemorySearch } from './memory/searchPipe'
 import { fillHandoffModels } from './delegation/trackReport'
 import { memoryDb } from './memory/paths'
@@ -162,8 +163,10 @@ app.whenReady().then(() => {
   })
   // New versions on GitHub Releases (a banner when there's one).
   startUpdateChecks((channel, ...args) => toScreens()?.send(channel, ...args))
-  // New versions of Codex and Cline (and the built-in Claude SDK): a notice, never an install.
+  // New versions of Codex and Cline (and the built-in Claude SDK): a notice; updated only on the user's say.
   startToolVersionChecks((channel, ...args) => toScreens()?.send(channel, ...args))
+  // A Codex or Cline update that failed its check holds the tool back again (see toolUpdate.ts).
+  restoreToolUpdates()
   // Remote access, if the user switched it on.
   applyRemoteSettings().catch((err) => console.warn('Remote access failed to start:', (err as Error).message))
 

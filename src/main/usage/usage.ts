@@ -182,7 +182,7 @@ function windowLabel(mins: number | null, fallback: string): string {
 /** Codex plan usage via the app-server's account/rateLimits/read request. */
 async function fetchCodexUsage(): Promise<UsageSnapshot> {
   const launch = await resolveCodexLaunch()
-  const child = trackChild(spawn(launch.file, [...launch.prefixArgs, 'app-server'], { windowsHide: true, env: launch.env }))
+  const child = trackChild(spawn(launch.file, [...launch.prefixArgs, 'app-server'], { windowsHide: true, env: launch.env }), 'codex')
   const send = (message: object): void => {
     child.stdin.write(JSON.stringify(message) + '\n')
   }
