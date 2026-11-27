@@ -175,6 +175,23 @@ interface Plan {
   told?: { id: string; correcting: boolean }[]
 }
 
+/** The user's words that make something a standing rule rather than a request for this one task. */
+const STANDING = /\b(always|never|from now on|prefer|every time|whenever|by default|as a rule|rules?|in (this|the) project|house style|don't ever|do not ever)\b/i
+
+/** What the assistant says when something went wrong or nearly did. */
+const INCIDENT = /\b(you should know|heads up|be careful|accidentally|by mistake|wiped|deleted .{0,40}by|data loss|went wrong|security (issue|risk|hole|problem)|real (problem|bug|risk))\b/i
+
+/** A request with lessons in it: helpers' findings, or the assistant reporting a mistake or risk. */
+export function hasLessons(turn: Pick<TurnRecord, 'learned' | 'replies'>): boolean {
+  return !!turn.learned?.length || turn.replies.some((r) => INCIDENT.test(r))
+}
+
+/** Room for a little more when there are lessons to keep (3 otherwise, 8 before a fresh session). */
+function changeLimit(turn: TurnRecord): number {
+  if (turn.thorough) return MAX_CHANGES_THOROUGH
+  return hasLessons(turn) ? MAX_CHANGES + 2 : MAX_CHANGES
+}
+
 /** At most this many "told again" a request: more is the note-taker misreading it. */
 const MAX_TOLD = 3
 
@@ -191,14 +208,15 @@ function buildPrompt(turn: TurnRecord, known: string[], given: string[] = []): s
   const real = (turn.commands ?? []).filter((c) => !usesTestKey(c))
   const commands = real.length ? real.slice(-25).join('\n') : ''
   const files = turn.files?.length ? turn.files.slice(0, 30).join('\n') : ''
-  const limit = turn.thorough ? MAX_CHANGES_THOROUGH : MAX_CHANGES
+  const limit = changeLimit(turn)
   const replies = turn.replies.map((r) => clip(r, 2500)).join('\n---\n') || '(no reply)'
   return `You keep the long-term memory of a software project that an AI coding assistant works on. After each exchange you decide what, if anything, is worth remembering for future sessions.
 
 Worth remembering: what the project is; how to run, build, test or deploy it; decisions that were made and why; the user's standing preferences and rules; non-obvious pitfalls; naming and structure conventions that were agreed.
+Always worth a "gotcha": something the assistant reports went wrong or nearly did (a mistake it caught, something deleted or broken by accident, a security risk found in review). Save how to avoid it next time, in one sentence, unless it is already known.
 Not worth remembering: the task itself or its progress ("added a button"); things anyone can see in the code; temporary state; anything uncertain or guessed; anything already known; secrets, keys or passwords of any kind.
 
-Procedures: if COMMANDS THAT WERE RUN show a multi-step routine that worked and that the project is really run by (a deploy, release, restart, backup, restore, migration, the test suite), save it as ONE fact in category "setup" that begins "Procedure - <name>:" and gives the commands in order exactly as run, plus what showed it succeeded (for example the check that came back fine). Use only commands that appear in that list, never invent steps, and refer to keys or passwords by their environment variable name, never their value. If a procedure with that name is already known, update it only when the working steps differ. A procedure fact can be up to 800 characters and is never "key". Steps that were only for trying something out are not procedures: starting it with a test key, wiping data to start again, killing a process left over, a one-off check. Leave such steps out of a procedure too, even when they came before the real routine.
+Procedures: if COMMANDS THAT WERE RUN show a multi-step routine that worked and that the project is really run by (a deploy, release, restart, backup, restore, migration, the test suite), save it as ONE fact in category "setup" that begins "Procedure - <name>:" and gives the commands in order exactly as run, plus what showed it succeeded (for example the check that came back fine). Use only commands that appear in that list, never invent steps, and refer to keys or passwords by their environment variable name, never their value. If a procedure with that name is already known, update it only when the working steps differ. A procedure fact can be up to 800 characters and is never "key". Steps that were only for trying something out are not procedures: starting it with a test key, wiping data to start again, killing a process left over, a one-off check. Leave such steps out of a procedure too, even when they came before the real routine. A procedure is what the user would run themselves (an npm script, a deploy), not the assistant's own check with a temporary server or temporary data.
 Be conservative: most exchanges produce nothing, so return empty lists. One standalone sentence per fact (a procedure is the exception).
 Record only what the exchange actually says or clearly shows. Never add details that weren't stated (ports, versions, file names, commands), even if they would be typical. When correcting a known fact, state only what is now known to be true: drop details that belonged to the old version (an old port, path or option) unless the exchange confirms they still hold.
 A preference or rule counts only if the USER said it and it plainly applies beyond this one task. What the assistant chose to do is not a preference of the user's. Instructions for this task alone ("keep it tiny", "just acknowledge", "no code changes") are not preferences. Don't save the same idea twice in different words, and save at most ${limit} facts.
@@ -218,7 +236,7 @@ USER: ${clip(turn.request, 3000)}
 WHAT WAS DONE:
 ${actions}${files ? `\nFILES CHANGED:\n${files}` : ''}${commands ? `\nCOMMANDS THAT WERE RUN:\n${commands}` : ''}${
     turn.learned?.length
-      ? `\nWHAT THE HELPERS FOUND OUT while doing hand-offs (Codex, Cline or the local model; worth saving when it is a lasting, non-obvious fact about the project):\n${turn.learned.map((l) => `- ${l}`).join('\n')}`
+      ? `\nWHAT THE HELPERS FOUND OUT while doing hand-offs (Codex, Cline or the local model). Decide on each point: save it (usually as a gotcha) when it is a lasting, non-obvious fact about the project, or leave it when it is temporary or trivial (a port used for one check, a file that didn't exist yet, what was done):\n${turn.learned.map((l) => `- ${l}`).join('\n')}`
       : ''
   }
 ASSISTANT'S REPLY:
@@ -232,6 +250,13 @@ ${replies}${turn.thorough ? '\n\nThis is the last look before the conversation m
  */
 export function runSavePass(projectId: string): Promise<ScribeResult> {
   const messages = recentMessages(memoryDb(), projectId, 24)
+  // What the recent hand-offs said was worth knowing: the conversation alone doesn't show it.
+  let learned: string[] = []
+  try {
+    learned = [...new Set(recentHandoffs(memoryDb(), projectId, 8).flatMap((h) => learnedFrom(h.report)))].slice(0, 12)
+  } catch {
+    learned = []
+  }
   const users = messages.filter((m) => m.role === 'user').map((m) => clip(m.text, 600))
   const replies = messages.filter((m) => m.role !== 'user').map((m) => clip(m.text, 1200))
   return runScribe(projectId, {
@@ -241,7 +266,8 @@ export function runSavePass(projectId: string): Promise<ScribeResult> {
     stopped: false,
     hadError: false,
     commands: recentNotableCommands(projectId, 25),
-    thorough: true
+    thorough: true,
+    learned
   })
 }
 
@@ -332,6 +358,10 @@ async function scribe(projectId: string, turn: TurnRecord, earlier: Window[] = [
 
   const answer = await runHelperJob({
     kind: 'scribe',
+    // Something went wrong, or the helpers found things out: the lessons matter most here, so a
+    // stronger model than the local one takes it when one is set up (on a real install the local
+    // one let the biggest lesson of a build go, 2026-11-27).
+    strong: hasLessons(turn),
     projectId,
     prompt: buildPrompt(turn, known, givenFacts.map((f) => `- [${f.id}] ${clip(f.text, 220)}`)),
     schema: SCHEMA
@@ -376,7 +406,7 @@ async function scribe(projectId: string, turn: TurnRecord, earlier: Window[] = [
   // What this run has written so far, so it doesn't write the same thing twice.
   const written: string[] = []
   const evidence = [turn.request, ...turn.replies, ...turn.actions, ...(turn.commands ?? []), ...(turn.learned ?? [])].join('\n')
-  const maxChanges = turn.thorough ? MAX_CHANGES_THOROUGH : MAX_CHANGES
+  const maxChanges = changeLimit(turn)
   const changed = turn.files ?? []
   const link = (factId: string, text: string, chosen: string[] | undefined, scope: string): void => {
     // The user's preferences for every project aren't about this project's files.
@@ -411,6 +441,8 @@ async function scribe(projectId: string, turn: TurnRecord, earlier: Window[] = [
     if (!safe(item.text)) continue
     // A "preference" the user only gave for this one task isn't one.
     if (item.category === 'preference' && !item.standing) continue
+    // A feature the user asked for is a decision, not a standing rule, unless they said it as one.
+    if (item.category === 'preference' && !item.global && !STANDING.test(turn.request)) item.category = 'decision'
     // A step for trying something out (a test key, wiping data to start again) isn't how the project is run.
     const procedure = procedureName(item.text) !== null
     if (procedure && (isThrowawayProcedure(item.text) || usesTestKey(item.text))) continue

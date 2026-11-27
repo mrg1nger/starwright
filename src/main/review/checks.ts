@@ -3,6 +3,7 @@ import { existsSync, readFileSync, statSync } from 'fs'
 import { extname, join } from 'path'
 import { promisify } from 'util'
 import { trackChild } from '../cli/codexExec'
+import { helperTempEnv } from '../delegation/helperTemp'
 
 const execFileAsync = promisify(execFile)
 
@@ -95,7 +96,8 @@ function runProjectTests(projectPath: string): Promise<{ passed: boolean; tail: 
         windowsHide: true,
         // NODE_TEST_CONTEXT (set when VibeApp itself runs under a test runner) makes a
         // project's `node --test` report to that runner and exit 0 even when tests fail.
-        env: { ...process.env, CI: '1', FORCE_COLOR: '0', NO_COLOR: '1', NODE_TEST_CONTEXT: undefined }
+        // A private temp folder: a test's clean-up can't empty the real one (see helperTemp).
+        env: { ...process.env, CI: '1', FORCE_COLOR: '0', NO_COLOR: '1', NODE_TEST_CONTEXT: undefined, ...helperTempEnv(projectPath) }
       })
     )
     let output = ''

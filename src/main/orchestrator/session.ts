@@ -481,7 +481,9 @@ export class ClaudeSession extends EventEmitter {
         toolInput.tool_input,
         `Claude wants to run a potentially destructive command via ${toolInput.tool_name}.`
       )
-      if (approved) return { continue: true }
+      // Approved: this exact command may run. Only "continue" left Claude Code's own permission
+      // check (canUseTool) to ask about the same command a second time.
+      if (approved) return { continue: true, hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow' } }
       return {
         continue: true,
         hookSpecificOutput: {
@@ -986,19 +988,21 @@ ${extensionInstructions(extensions)}` : ''}`
 const HELPER_ASK_MS = 5 * 60_000
 
 const DESTRUCTIVE_PATTERNS = [
-  /\brm\s+-[a-z]*r[a-z]*f|\brm\s+-[a-z]*f[a-z]*r/i,
+  // rm -r on its own deletes a folder too (PowerShell's rm -r as well); -f only skips the questions.
+  /\brm\s+(-[a-z]*r[a-z]*|--recursive)\b/i,
   /\bgit\s+push\s+.*(--force|-f\b)/i,
   /\bgit\s+reset\s+--hard\b/i,
   /\bgit\s+clean\s+-[a-z]*f/i,
   /\bdrop\s+(table|database)\b/i,
   /\bformat(-volume)?\b.*[a-z]:/i,
   // PowerShell / cmd equivalents -- Claude uses a PowerShell tool on Windows.
-  /\b(remove-item|rm|ri|del|erase|rd|rmdir)\b.*(-recurse|\/s\b)/i
+  // PowerShell takes any start of a parameter's name: -r, -rec and -Recurse are the same.
+  /\b(remove-item|rm|ri|del|erase|rd|rmdir)\b.*\s(-r(e(c(u(r(se?)?)?)?)?)?\b|\/s\b)/i
 ]
 
 const SHELL_TOOLS = new Set(['Bash', 'PowerShell'])
 
-function isLikelyDestructive(toolName: string, input: unknown): boolean {
+export function isLikelyDestructive(toolName: string, input: unknown): boolean {
   if (!SHELL_TOOLS.has(toolName)) return false
   const command = (input as { command?: string })?.command ?? ''
   return DESTRUCTIVE_PATTERNS.some((pattern) => pattern.test(command))

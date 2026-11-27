@@ -2,6 +2,31 @@
 
 The version goes up with each improvement that ships: the middle number for new features, the last for fixes only. Settings shows the version a computer is running. (Starwright was called VibeApp up to 0.10.0.)
 
+## 0.29.1 (2026-11-27)
+
+Fixes from building a small app through Starwright on a real install to test memory.
+
+- **A private temp folder for the work Starwright runs.**
+  - A test the local model wrote "cleaned up" by emptying the computer's whole temp folder.
+  - Code that deletes files can't be seen by the command check, and the local model has no sandbox.
+  - Hand-offs to the local model and Cline, Codex when it runs without its sandbox, and the project's tests after a change now get their own folder inside the temp folder (`starwright-helpers\<project>`) as TEMP, TMP and TMPDIR. A clean-up like that can only empty that folder.
+  - What's left in it for a day is cleared.
+  - Every hand-off is also told that tests may only delete what they created themselves.
+- **One question per risky command.** After you allowed a command in Starwright's prompt, Claude Code's own check asked about the same command again. Allowing it once is enough now.
+- **Every way of deleting a folder asks first.** PowerShell's `rm -r folder` ran without a question: the check knew `-Recurse` and `rm -rf`, but not `rm -r` alone or PowerShell's shortened `-r` and `-rec`.
+- **The note-taker keeps the lessons:**
+  - **Stronger model when it matters:** a request where something went wrong or nearly did (a mistake Claude caught, something deleted by accident, a security risk found in review), or where a hand-off reported "Worth knowing next time", is noted by Cline or Haiku when one is set up, not the local model. On the real install, the local one let the biggest lesson of the build go.
+  - **Room for it:** such a request may save up to 5 facts, not 3.
+  - **Told so:** a problem the assistant reports is always worth a pitfall about how to avoid it.
+  - **The helpers' points** are each to be saved, or left when temporary or trivial (a port used for one check).
+  - **The last look before a fresh session** now reads the recent hand-offs' points too.
+- **A feature you asked for is a decision, not a house rule.**
+  - It's only saved as a preference when you said it as one: "always", "never", "from now on", "by default"…
+  - On the real install, an API-key feature had ended up in the brief's rules.
+- **Claude's own check isn't a procedure.** A temporary server started and stopped with data in the temp folder isn't saved as one.
+- **The brief follows a corrected key fact within minutes,** not up to three hours later. It had said the old port for an hour.
+- Unit tests for each.
+
 ## 0.29.0 (2026-11-27)
 
 Memory checks its own health, and what goes wrong in it is stopped where it starts. Both come from reading what a real install had saved:

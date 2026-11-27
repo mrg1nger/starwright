@@ -1334,11 +1334,15 @@ try {
     mkdirSync(join(project, 'b_tmp'))
     await send('Run these two shell commands now, both at once as two separate tool calls in the same message: rm -rf a_tmp  and  rm -rf b_tmp . Do not ask me in chat first; just run them.')
     await waitFor(`/Allow it\\?/.test(document.body.innerText)`, 'the first Allow/Deny prompt', 120_000)
+    const asked = (await evaluate(`document.querySelector('.confirmation-banner')?.innerText ?? ''`)).match(/[ab]_tmp/)?.[0]
     await click('Allow', '.confirmation-banner button')
     let prompts = 1
     for (let i = 0; i < 60; i++) {
       if (await evaluate(`/Allow it\\?/.test(document.body.innerText)`)) {
         prompts++
+        // Allowed once is enough: a second prompt is for the other command, never the same one again.
+        const next = (await evaluate(`document.querySelector('.confirmation-banner')?.innerText ?? ''`)).match(/[ab]_tmp/)?.[0]
+        if (asked && next === asked) throw new Error(`asked about ${asked} a second time after it was allowed`)
         await click('Deny', '.confirmation-banner button')
         break
       }
@@ -1347,8 +1351,11 @@ try {
     }
     await idle(120_000)
     console.log(`  (${prompts} prompt${prompts === 1 ? '' : 's'} shown)`)
-    if (existsSync(join(project, 'a_tmp'))) throw new Error('the allowed command did not run')
-    if (prompts === 2 && !existsSync(join(project, 'b_tmp'))) throw new Error('the denied command ran anyway')
+    const allowed = asked ?? 'a_tmp'
+    const denied = allowed === 'a_tmp' ? 'b_tmp' : 'a_tmp'
+    if (existsSync(join(project, allowed))) throw new Error('the allowed command did not run')
+    if (prompts === 2 && !existsSync(join(project, denied))) throw new Error('the denied command ran anyway')
+    rmSync(join(project, denied), { recursive: true, force: true })
   })
 
   await step('Go Nutz mode turns on (after confirming) and off', async () => {

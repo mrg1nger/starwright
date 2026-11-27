@@ -57,8 +57,17 @@ export function procedureRisk(text: string): ProcedureRisk | null {
   }
 }
 
-/** A procedure that was only a step for trying something out (a test key, wiping data to start again): not worth saving. */
+/** The assistant's own check: a server started and stopped on this computer with data in the temp folder. */
+const AD_HOC_CHECK = /(\$env:TEMP|%TEMP%)/i
+const STARTS_AND_STOPS = /\bStart-Process\b[\s\S]*\bStop-Process\b|\bStop-Process\b[\s\S]*\bStart-Process\b/i
+
+/**
+ * A procedure that was only a step for trying something out (a test key, wiping data to start
+ * again), or the assistant's own check with a temporary server and temp data: not worth saving.
+ */
 export function isThrowawayProcedure(text: string): boolean {
   const risk = procedureRisk(text)
-  return !!risk && !risk.routine && (risk.deletes || risk.testOnly || TRYING.test(procedureName(text) ?? ''))
+  if (!risk) return false
+  if (AD_HOC_CHECK.test(text) && STARTS_AND_STOPS.test(text)) return true
+  return !risk.routine && (risk.deletes || risk.testOnly || TRYING.test(procedureName(text) ?? ''))
 }

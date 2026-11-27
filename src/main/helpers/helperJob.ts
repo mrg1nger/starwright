@@ -28,6 +28,8 @@ export interface HelperJob {
   maxTurns?: number
   /** Let Haiku think first (the tidy-up does). */
   thinking?: boolean
+  /** Needs judgement the local model is weakest at: Cline or Haiku takes it when one can, LM Studio otherwise. */
+  strong?: boolean
 }
 
 export interface HelperResult {
@@ -70,7 +72,8 @@ export function setHelperJobForTests(answer: ((job: HelperJob) => Promise<Helper
 /** Runs one background job: on LM Studio, then Cline, then Haiku, moving on when one isn't set up or fails. */
 export async function runHelperJob(job: HelperJob): Promise<HelperResult> {
   if (answerForTests) return answerForTests(job)
-  if (await lmStudioReady()) {
+  const skipLocal = !!job.strong && ((await clineReady()) || claudeHelpersAllowed())
+  if (!skipLocal && (await lmStudioReady())) {
     try {
       return await onLmStudio(job)
     } catch (err) {

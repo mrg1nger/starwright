@@ -25,6 +25,13 @@ import { factsForRequest, filesForRequest, type AttachedFact } from './meaning'
 export const LEARNED_HEADING = 'Worth knowing next time:'
 export const LEARNED_ASK = `When you are done, end your final message with a line "${LEARNED_HEADING}" followed by at most 3 short bullet points: things about this project you found out while working that are not obvious from the code and that the next agent would need (a pitfall you hit, a command that has to be run a certain way, where something is set up). Not what you did, and never a secret's value. If there is nothing, write "${LEARNED_HEADING} nothing".`
 
+/** Said in every hand-off: a test's clean-up once emptied the whole temp folder (2026-11-27). */
+export const CLEANUP_RULE =
+  'Tests and scripts you write must only ever delete what they created themselves (for example a folder made with fs.mkdtemp, removed afterwards), never the temp folder itself, anything else in it, or anything outside the project.'
+
+/** The end of every hand-off's instructions. */
+export const HANDOFF_ENDING = `${CLEANUP_RULE}\n\n${LEARNED_ASK}`
+
 /** What a hand-off's report says under "Worth knowing next time:" (at most 3 points), or [] for nothing. */
 export function learnedFrom(report: string | null | undefined): string[] {
   if (!report) return []

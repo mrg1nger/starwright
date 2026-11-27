@@ -39,6 +39,8 @@ export interface LocalAgentRun {
   onTokens?: (tokens: LiveTokens) => void
   /** Extra environment variables for its commands: the project's secrets, as Claude has them. */
   env?: Record<string, string>
+  /** TEMP, TMP and TMPDIR for its commands: a private folder (see helperTemp). Not secrets: never masked. */
+  temp?: Record<string, string>
   /** Asks the user about a command that only failed the folder check (Allow/Deny), as for Claude. None: refused. */
   ask?: (command: string) => Promise<boolean>
   /** Set by runLocalAgent: when the run must end, and what its commands left running in the background. */
@@ -417,7 +419,7 @@ async function runTool(name: string, args: Record<string, unknown>, run: LocalAg
       // Never past the end of the whole run.
       const left = Math.floor(((run.deadline ?? Infinity) - Date.now()) / 1000)
       const timeout = Math.max(5, Math.min(600, left, Math.floor(Number(args.timeout_seconds) || 120)))
-      const result = await runShell(command, cwd, timeout, run.signal, run.env, run.leftBehind)
+      const result = await runShell(command, cwd, timeout, run.signal, { ...(run.env ?? {}), ...(run.temp ?? {}) }, run.leftBehind)
       // The command has the project's secrets; what it printed doesn't show them (`env`, a config dump).
       // Only here: a file's contents stay as they are, or an edit could write the label into the file.
       result.output = maskText(result.output, Object.entries(run.env ?? {}).map(([name, value]) => ({ name, value })))

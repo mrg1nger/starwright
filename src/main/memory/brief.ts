@@ -317,17 +317,27 @@ export async function refreshBrief(
 }
 
 const lastTry = new Map<string, number>()
+const KEY_CHANGE_GAP_MS = 5 * 60_000
+
+/** Whether a key fact is new or changed since the brief was written from these facts (id → last change). */
+export function keyFactsChanged(projectId: string, writtenFrom: Record<string, string>): boolean {
+  return listFacts(memoryDb(), projectId).some((f) => f.key && writtenFrom[f.id] !== f.updatedAt)
+}
 
 /** Refreshes in the background when it's worth it and Claude has room. Never throws. */
 export function maybeRefreshBrief(projectId: string, projectPath: string): void {
   try {
     if (running.has(projectId)) return
-    if (Date.now() - (lastTry.get(projectId) ?? 0) < MIN_GAP_MS) return
     const existing = read(projectId)
+    // A key fact changed since it was written (a correction, like a new port): every request is
+    // given the brief, so it shouldn't say the old thing for hours. Still at most every few minutes.
+    const keyChanged = !!existing?.facts && keyFactsChanged(projectId, existing.facts)
+    const since = Date.now() - (lastTry.get(projectId) ?? 0)
+    if (since < (keyChanged ? KEY_CHANGE_GAP_MS : MIN_GAP_MS)) return
     if (!existing && listFacts(memoryDb(), projectId).length < MIN_FACTS) return
     lastTry.set(projectId, Date.now())
     helpersAllowed()
-      .then((allowed) => (allowed ? refreshBrief(projectId, projectPath, { minChanges: MIN_CHANGES }) : undefined))
+      .then((allowed) => (allowed ? refreshBrief(projectId, projectPath, { minChanges: keyChanged ? 1 : MIN_CHANGES }) : undefined))
       .catch((err) => console.warn('Project brief refresh failed:', (err as Error).message))
   } catch (err) {
     console.warn('Project brief check failed:', (err as Error).message)

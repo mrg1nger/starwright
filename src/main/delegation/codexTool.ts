@@ -17,7 +17,8 @@ import { TRACK_DAYS, applyTrackRecord, assess, moveTag, orderNote, recordText, w
 import { conventionsFor } from '../memory/meaning'
 import { digestDiff } from './diffDigest'
 import { briefBlock } from '../memory/brief'
-import { handoffContext, LEARNED_ASK } from '../memory/context'
+import { HANDOFF_ENDING, handoffContext } from '../memory/context'
+import { helperTempEnv } from './helperTemp'
 import { changeStats, diffSnapshots, restoreSnapshot, takeSnapshot, type FileChange } from '../git/snapshots'
 import { estimateReadTokens, fitsLocalContext } from './taskSize'
 import { DEFAULT_LOAD_CONTEXT } from '../cli/lmStudio'
@@ -251,8 +252,9 @@ export function createCodexDelegationServer(
       runCodexExec(
         {
           onThread: watchTokens,
-          prompt: [prompt, secretsNote(), memory ? LEARNED_ASK : undefined].filter(Boolean).join('\n\n'),
-          env: secrets(),
+          prompt: [prompt, secretsNote(), memory ? HANDOFF_ENDING : undefined].filter(Boolean).join('\n\n'),
+          // Without its sandbox, Codex's temp folder is a private one too (see helperTemp).
+          env: { ...secrets(), ...(unsandboxed ? helperTempEnv(memory?.projectId ?? projectPath) : {}) },
           cwd: projectPath,
           timeoutMs: timeoutMs ?? HANDOFF_TIMEOUT_MS,
           unsandboxed,
@@ -322,14 +324,14 @@ export function createCodexDelegationServer(
       context,
       secretsNote(),
       `Task from Claude:\n${prompt}`,
-      memory ? LEARNED_ASK : undefined
+      memory ? HANDOFF_ENDING : undefined
     ]
       .filter(Boolean)
       .join('\n\n')
     const result = await runCline(
       {
         prompt: fullPrompt,
-        env: secrets(),
+        env: { ...secrets(), ...helperTempEnv(memory?.projectId ?? projectPath) },
         mode: 'build',
         cwd: projectPath,
         model: await clineModelFor('handoff'),
@@ -382,13 +384,14 @@ export function createCodexDelegationServer(
       background ? `Background on the project (from Starwright's memory):\n${background}` : undefined,
       secretsNote(),
       `Task from Claude:\n${prompt}`,
-      memory ? LEARNED_ASK : undefined
+      memory ? HANDOFF_ENDING : undefined
     ]
       .filter(Boolean)
       .join('\n\n')
     const result = await runLocalAgent({
       task,
       env: secrets(),
+      temp: helperTempEnv(memory?.projectId ?? projectPath),
       cwd: projectPath,
       goNutz: isGoNutzMode(),
       signal,
