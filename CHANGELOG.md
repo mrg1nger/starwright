@@ -2,6 +2,13 @@
 
 The version goes up with each improvement that ships: the middle number for new features, the last for fixes only. Settings shows the version a computer is running. (Starwright was called VibeApp up to 0.10.0.)
 
+## 0.29.2 (2026-11-27)
+
+- **Cline's "Submission recorded (verified):" note no longer starts its answers.**
+  - When a brief, summary or hand-off report was written by Cline, the note it adds on handing the answer in was kept at the front. It turned up at the top of a project brief, which every agent is given with every request.
+  - It's left out now.
+  - A brief that already has it is cleaned by the health check's **Rewrite the brief**.
+
 ## 0.29.1 (2026-11-27)
 
 Fixes from building a small app through Starwright on a real install to test memory.

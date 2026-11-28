@@ -82,7 +82,8 @@ test('Cline 3.0.75 ends a run with submit_and_exit: allowed in every kind of run
   assert.equal(finalAnswer('All done.', 'Changed src/a.js: the off-by-one is fixed.'), 'All done.\n\nChanged src/a.js: the off-by-one is fixed.')
   // As Cline 3.0.75 does it: the answer said first, then a summary handed in, echoed as the final message.
   const summary = 'Extracted two durable facts from the exchange.'
-  assert.equal(finalAnswer(`Submission recorded (verified): ${summary}`, summary, '{"add": ["npm run dev"]}'), `{"add": ["npm run dev"]}\n\nSubmission recorded (verified): ${summary}`)
+  // Cline's own "Submission recorded" note is left out (0.29.2: it had ended up at the top of project briefs).
+  assert.equal(finalAnswer(`Submission recorded (verified): ${summary}`, summary, '{"add": ["npm run dev"]}'), `{"add": ["npm run dev"]}\n\n${summary}`)
   assert.equal(finalAnswer('Fixed it.', undefined, 'ignored without a hand-in'), 'Fixed it.')
   assert.equal(finalAnswer('same', 'same', 'same'), 'same')
 })

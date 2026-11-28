@@ -7,6 +7,7 @@ import { recentNotableCommands } from './commands'
 import { memoryDb } from './paths'
 import { getMeta, GLOBAL_SCOPE, listCodeFiles, listFacts, recentMessages, setMeta } from './store'
 import { coverage, procedureName } from './wording'
+import { HAND_IN_NOTE } from '../cli/clineExec'
 
 // A short, structured "what a newcomer needs to know" document for each
 // project, kept in the database and shown at the start of every new session.
@@ -93,6 +94,12 @@ export function cleanBrief(text: string, support: BriefSupport): { text: string;
   const dropped: { line: string; why: string }[] = []
   const out: string[] = []
   let section = ''
+  // Cline's note that it handed the answer in, written in front of briefs before 0.29.2.
+  const note = HAND_IN_NOTE.exec(text)?.[0]
+  if (note?.trim()) {
+    dropped.push({ line: note.trim(), why: "is Cline's note that it handed the answer in" })
+    text = text.slice(note.length)
+  }
   for (const line of text.split('\n')) {
     const t = line.trim()
     if (isHeading(t)) {

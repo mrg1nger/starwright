@@ -126,3 +126,15 @@ test('a changed key fact makes the brief due for rewriting', () => {
   updateFact(memoryDb(), rules.id, { text: 'The server listens on PORT, or 5050.' })
   assert.equal(keyFactsChanged(p, writtenFrom), true)
 })
+
+test("Cline's hand-in note never starts an answer, and a brief that has it is cleaned", async () => {
+  const { finalAnswer, withoutHandInNote } = await import('../../src/main/cli/clineExec')
+  const { cleanBrief } = await import('../../src/main/memory/brief')
+  assert.equal(withoutHandInNote('Submission recorded (verified): WHAT IT IS\ntally'), 'WHAT IT IS\ntally')
+  assert.equal(withoutHandInNote('Submission recorded. Done.'), 'Done.')
+  assert.equal(withoutHandInNote('WHAT IT IS\nNo note here.'), 'WHAT IT IS\nNo note here.')
+  assert.equal(finalAnswer('Submission recorded (verified): WHAT IT IS\ntally', undefined), 'WHAT IT IS\ntally')
+  const { text, dropped } = cleanBrief('Submission recorded (verified): WHAT IT IS\ntally counts words.', { userSaid: [], procedures: [] })
+  assert.equal(text, 'WHAT IT IS\ntally counts words.')
+  assert.equal(dropped[0].why, "is Cline's note that it handed the answer in")
+})

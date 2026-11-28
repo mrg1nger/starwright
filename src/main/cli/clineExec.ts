@@ -372,13 +372,21 @@ export function submittedAnswer(toolName: string | undefined, input: unknown): s
   return typeof summary === 'string' && summary.trim() ? summary.trim() : undefined
 }
 
+/** Cline's own note that an answer was handed in ("Submission recorded (verified): "), at the start of a text. */
+export const HAND_IN_NOTE = /^\s*Submission recorded(?:\s*\([^)\n]*\))?\s*[:.]?\s*/i
+
+/** A part of a run's answer without Cline's hand-in note in front of it (it ended up in project briefs). */
+export function withoutHandInNote(text: string): string {
+  return text.replace(HAND_IN_NOTE, '').trim()
+}
+
 /**
  * A run's final text: its final message, plus, when it ended with submit_and_exit, what it said
  * just before handing in (models often write the answer there and hand in a summary of it) and the
  * summary it handed in. A part already inside another is left out.
  */
 export function finalAnswer(said: string | undefined, submitted: string | undefined, before?: string): string {
-  const parts = (submitted ? [before, said, submitted] : [said]).map((p) => (p ?? '').trim()).filter(Boolean)
+  const parts = (submitted ? [before, said, submitted] : [said]).map((p) => withoutHandInNote(p ?? '')).filter(Boolean)
   const kept = parts.filter((p, i) => !parts.some((q, j) => j !== i && q.includes(p) && (q !== p || j < i)))
   return kept.join('\n\n')
 }
