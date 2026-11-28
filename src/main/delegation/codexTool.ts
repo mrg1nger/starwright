@@ -17,7 +17,7 @@ import { TRACK_DAYS, applyTrackRecord, assess, moveTag, orderNote, recordText, w
 import { conventionsFor } from '../memory/meaning'
 import { digestDiff } from './diffDigest'
 import { briefBlock } from '../memory/brief'
-import { HANDOFF_ENDING, handoffContext } from '../memory/context'
+import { HANDOFF_ENDING, NO_BROWSER_RULE, handoffContext } from '../memory/context'
 import { helperTempEnv } from './helperTemp'
 import { changeStats, diffSnapshots, restoreSnapshot, takeSnapshot, type FileChange } from '../git/snapshots'
 import { estimateReadTokens, fitsLocalContext } from './taskSize'
@@ -324,6 +324,7 @@ export function createCodexDelegationServer(
       context,
       secretsNote(),
       `Task from Claude:\n${prompt}`,
+      NO_BROWSER_RULE,
       memory ? HANDOFF_ENDING : undefined
     ]
       .filter(Boolean)
@@ -384,6 +385,7 @@ export function createCodexDelegationServer(
       background ? `Background on the project (from Starwright's memory):\n${background}` : undefined,
       secretsNote(),
       `Task from Claude:\n${prompt}`,
+      NO_BROWSER_RULE,
       memory ? HANDOFF_ENDING : undefined
     ]
       .filter(Boolean)
@@ -693,7 +695,7 @@ export function createCodexDelegationServer(
       ),
       tool(
         'run_subtask',
-        "Hand a scoped coding subtask to another agent and get its result. Starwright picks the agent from the user's settings, what each plan has left and how hard you say the task is: the local model (free, on this computer) or Cline (on its own plan) for simple, well-specified work, Codex for harder work; if one fails, its changes are undone and the next one gets it, with what the failed one reported. Name the files it must read (files), so a task too big for the local model goes elsewhere. Each is given the user's request, the key facts and relevant memories, and several Codex hand-offs in one request continue the same Codex session, so say what to do, which files are involved, what \"done\" looks like and how to check it (tests to run; for visible changes, what to try in the browser, where the agents have the same Playwright tools). Split bigger jobs and hand the simple parts off separately. The result says who did it, with its report, the files changed (with a small diff) and the automatic checks (script syntax, JSON, the project's npm test); the full report is available from the handoffs tool. Hand-offs run one at a time (they share the project folder), so asking for several at once doesn't make them faster.",
+        "Hand a scoped coding subtask to another agent and get its result. Starwright picks the agent from the user's settings, what each plan has left and how hard you say the task is: the local model (free, on this computer) or Cline (on its own plan) for simple, well-specified work, Codex for harder work; if one fails, its changes are undone and the next one gets it, with what the failed one reported. Name the files it must read (files), so a task too big for the local model goes elsewhere. Each is given the user's request, the key facts and relevant memories, and several Codex hand-offs in one request continue the same Codex session, so say what to do, which files are involved, what \"done\" looks like and how to check it (tests to run; for visible changes, what to try in the browser). Only Codex has the browser (the user's Playwright and other extensions); the local model and Cline don't, and are told to leave browser checks to you, so when the result says one of them did the task, do the browser check yourself. Split bigger jobs and hand the simple parts off separately. The result says who did it, with its report, the files changed (with a small diff) and the automatic checks (script syntax, JSON, the project's npm test); the full report is available from the handoffs tool. Hand-offs run one at a time (they share the project folder), so asking for several at once doesn't make them faster.",
         {
           prompt: z.string().describe('The subtask: what to do, which files, what "done" looks like, and how to check it.'),
           kind: z.enum(['feature', 'bugfix', 'tests', 'refactor', 'boilerplate', 'docs', 'other']).describe('What kind of task it is.'),

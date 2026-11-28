@@ -393,6 +393,14 @@ async function runTool(name: string, args: Record<string, unknown>, run: LocalAg
       const existed = existsSync(file)
       if (name === 'write_file') {
         if (typeof args.content !== 'string') return { text: 'Missing content.', activity: { step: 'edit', text: `Write of ${label} (nothing given)`, ok: false } }
+        // Writing a file again with what it already holds (on Lazarus the local model rewrote the
+        // same failing script five times running) changes nothing: say so, so it tries something else.
+        if (existed && readFileSync(file, 'utf8') === args.content) {
+          return {
+            text: `${label} already has exactly this content: writing it again changes nothing. If it isn't working, the problem is elsewhere; if you can't get past it, stop and say in your report what's left.`,
+            activity: { step: 'edit', text: `Rewrote ${label} (no change)`, ok: true }
+          }
+        }
         mkdirSync(dirname(file), { recursive: true })
         writeFileSync(file, args.content, 'utf8')
         return { text: `${existed ? 'Replaced' : 'Created'} ${label}.`, activity: { step: 'edit', text: `${existed ? 'Rewrote' : 'Created'} ${label}`, ok: true } }
@@ -604,6 +612,8 @@ async function runModel(run: LocalAgentRun): Promise<LocalAgentResult> {
   ]
   let lastCall = ''
   let repeats = 0
+  /** The tool it got stuck calling over and over, once it has been asked to stop and report. */
+  let stuckOn: string | undefined
   let nudged = false
   const reads = new ReadTracker()
   /** What each tool result was, for the note that replaces it when it's trimmed. */
@@ -706,7 +716,8 @@ async function runModel(run: LocalAgentRun): Promise<LocalAgentResult> {
     if (!calls.length) {
       if (said) {
         emit({ step: 'say', text: said.split('\n')[0].slice(0, 160) })
-        return { ok: true, text: said, model, steps: step, usage: { ...usage, model }, blocked }
+        const text = stuckOn ? `${said}\n[Starwright stopped the local model repeating ${stuckOn} and asked for this report: check what it says is left.]` : said
+        return { ok: true, text, model, steps: step, usage: { ...usage, model }, blocked }
       }
       if (nudged) return fail('The local model stopped without a report.', step, model)
       nudged = true
@@ -714,8 +725,16 @@ async function runModel(run: LocalAgentRun): Promise<LocalAgentResult> {
       continue
     }
 
+    // Asked to wrap up after getting stuck, and still calling tools: it really is stuck.
+    if (stuckOn) return fail(`The local model got stuck repeating ${stuckOn}.`, step, model)
+
     messages.push({ role: 'assistant', content: said, tool_calls: calls })
     for (const call of calls) {
+      // Stuck earlier in this reply: its remaining calls aren't run (each still needs an answer).
+      if (stuckOn) {
+        messages.push({ role: 'tool', tool_call_id: call.id, content: 'Not run: you were asked to stop and report.' })
+        continue
+      }
       let args: Record<string, unknown> = {}
       try {
         args = JSON.parse(call.function.arguments || '{}') as Record<string, unknown>
@@ -727,7 +746,19 @@ async function runModel(run: LocalAgentRun): Promise<LocalAgentResult> {
       const key = `${call.function.name}:${call.function.arguments}`
       repeats = key === lastCall ? repeats + 1 : 0
       lastCall = key
-      if (repeats >= 3) return fail(`The local model got stuck repeating ${call.function.name}.`, step, model)
+      // Stuck on one call (on Lazarus, a browser check it had no tools for, after the change itself was
+      // done): it isn't run again, and the model is asked for its report rather than failed, so work
+      // that's done isn't undone with it.
+      if (repeats >= 3) {
+        stuckOn = call.function.name
+        emit({ step: 'tool', text: `The local model was repeating ${stuckOn}: asked for its report`, ok: false })
+        messages.push({
+          role: 'tool',
+          tool_call_id: call.id,
+          content: `Not run: you have made this exact call four times and it won't get you further.`
+        })
+        continue
+      }
       emit({ step: call.function.name === 'run_command' ? 'run' : call.function.name.endsWith('_file') && call.function.name !== 'read_file' ? 'edit' : 'tool', text: `${call.function.name}…` }, false)
       const outcome = await runTool(call.function.name, args, run)
       if (outcome.blocked) blocked.push(outcome.blocked)
@@ -754,6 +785,12 @@ async function runModel(run: LocalAgentRun): Promise<LocalAgentResult> {
         labels.set(call.id, `${name} ${String(args.query ?? args.path ?? '.').slice(0, 80)}`)
       }
       messages.push({ role: 'tool', tool_call_id: call.id, content: `${outcome.text}${note}` })
+    }
+    if (stuckOn) {
+      messages.push({
+        role: 'user',
+        content: `Stop here, without calling any more tools. Reply with your final report: what you changed, file by file, which checks passed, and what you couldn't do or check (the step you were repeating ${stuckOn} on), so Claude can finish it.`
+      })
     }
 
     // Keep the conversation inside the model's context.

@@ -29,6 +29,14 @@ export const LEARNED_ASK = `When you are done, end your final message with a lin
 export const CLEANUP_RULE =
   'Tests and scripts you write must only ever delete what they created themselves (for example a folder made with fs.mkdtemp, removed afterwards), never the temp folder itself, anything else in it, or anything outside the project.'
 
+/**
+ * Said to the local model and Cline, which have no browser tools: on Lazarus (2026-11-27) both spent
+ * a hand-off trying to install and script Playwright for a check Claude had asked for, and the local
+ * model's correct edit was undone when it got stuck at it.
+ */
+export const NO_BROWSER_RULE =
+  "You have no browser tools. If the task asks for a check in the browser (Playwright, screenshots, page widths, console errors, clicking through), don't install, download or script a browser for it: do the rest of the task and its other checks, then say in your report which browser checks are left for Claude, who will do them."
+
 /** The end of every hand-off's instructions. */
 export const HANDOFF_ENDING = `${CLEANUP_RULE}\n\n${LEARNED_ASK}`
 

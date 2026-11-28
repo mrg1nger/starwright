@@ -2,6 +2,17 @@
 
 The version goes up with each improvement that ships: the middle number for new features, the last for fixes only. Settings shows the version a computer is running. (Starwright was called VibeApp up to 0.10.0.)
 
+## 0.29.3 (2026-11-28)
+
+- **Browser checks stay with Claude and Codex.**
+  - Claude was told every helper has the Playwright tools. Only Codex does: the local model and Cline don't, so asking them for a browser check had both trying to install and script a browser.
+  - Claude is now told only Codex has the browser, and to do the browser check itself when the local model or Cline took the task.
+  - The local model and Cline are told they have no browser: do the rest of the task, and say which browser checks are left for Claude.
+- **The local model's finished work isn't undone when it gets stuck afterwards.**
+  - When it makes the same call four times, it's now asked for its report instead of being failed. It used to be failed, and its changes were undone before the next agent started. On a real install that undid a correct edit, because the model only got stuck on the browser check after it.
+  - If it still keeps calling tools, it's stopped as before.
+  - Writing a file with exactly what it already holds now says so, so the model tries something else sooner.
+
 ## 0.29.2 (2026-11-27)
 
 - **Cline's "Submission recorded (verified):" note no longer starts its answers.**

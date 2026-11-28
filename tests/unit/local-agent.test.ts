@@ -192,6 +192,24 @@ test('stops: a model repeating itself, running out of steps; thinking when asked
   assert.equal(result.ok, false)
   assert.match(result.error ?? '', /stuck repeating read_file/)
 
+  // Stuck after the change was made (on Lazarus, scripting a browser it didn't have): asked for its
+  // report rather than failed, so the change isn't undone; rewriting a file unchanged is called out.
+  const check = 'require("playwright")\n'
+  script = [
+    { calls: [['edit_file', { path: 'a.txt', old_text: 'x', new_text: 'y' }]] },
+    { calls: [['write_file', { path: 'check.js', content: check }]] },
+    ...Array.from({ length: 3 }, () => ({ calls: [['write_file', { path: 'check.js', content: check }]] as [string, Record<string, unknown>][] })),
+    { say: 'Changed a.txt to y. Could not run the browser check.' }
+  ]
+  requests.length = 0
+  result = await runLocalAgent({ task: 'Change it and check in the browser.', cwd })
+  assert.equal(result.ok, true, result.error)
+  assert.match(result.text, /^Changed a\.txt to y\. Could not run the browser check\.\n\[Starwright stopped the local model repeating write_file/)
+  assert.equal(readFileSync(join(cwd, 'a.txt'), 'utf8'), 'y\n')
+  const seen = requests.at(-1)!.messages
+  assert.match(seen.filter((m) => m.role === 'tool')[2].content, /already has exactly this content/)
+  assert.match(seen.at(-1)!.content, /^Stop here, without calling any more tools/)
+
   script = Array.from({ length: 5 }, (_, i) => ({ calls: [['search', { query: `q${i}` }]] as [string, Record<string, unknown>][] }))
   requests.length = 0
   result = await runLocalAgent({ task: 'Search forever.', cwd, maxSteps: 3, thinking: true })

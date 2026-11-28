@@ -7,7 +7,7 @@ import { setHelperJobForTests, type HelperJob } from '../../src/main/helpers/hel
 import { helperTempDir, helperTempEnv } from '../../src/main/delegation/helperTemp'
 import { verifyChanges } from '../../src/main/review/checks'
 import { keyFactsChanged } from '../../src/main/memory/brief'
-import { CLEANUP_RULE, HANDOFF_ENDING } from '../../src/main/memory/context'
+import { CLEANUP_RULE, HANDOFF_ENDING, NO_BROWSER_RULE } from '../../src/main/memory/context'
 import { memoryDb } from '../../src/main/memory/paths'
 import { hasLessons, runSavePass, runScribe, type TurnRecord } from '../../src/main/memory/scribe'
 import { addMessage, finishHandoff, listFacts, rememberFact, startHandoff, updateFact } from '../../src/main/memory/store'
@@ -34,6 +34,7 @@ test("work run for a project gets a private temp folder, and what's left there f
   assert.equal(existsSync(fresh), true)
   assert.match(helperTempDir('C:\\Projects\\My App'), /starwright-helpers[\\/][0-9a-f]{16}$/, 'a path becomes a safe name')
   assert.ok(HANDOFF_ENDING.startsWith(CLEANUP_RULE) && /only ever delete what they created themselves/.test(CLEANUP_RULE))
+  assert.match(NO_BROWSER_RULE, /no browser tools.*don't install, download or script a browser.*left for Claude/s, 'the local model and Cline leave browser checks to Claude')
 })
 
 test("the project's tests run with that temp folder, so a clean-up that empties os.tmpdir() can't reach the real one", async () => {
